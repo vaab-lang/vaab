@@ -19,6 +19,7 @@ use crate::value::{Key, Value};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Builtin {
     Print,
+    ToJson,
 
     Upper,
     Lower,
@@ -42,6 +43,7 @@ impl Builtin {
     pub fn name(self) -> &'static str {
         match self {
             Builtin::Print => "print",
+            Builtin::ToJson => "to_json",
             Builtin::Upper => "upper",
             Builtin::Lower => "lower",
             Builtin::Contains => "contains",
@@ -61,6 +63,7 @@ impl Builtin {
     pub fn arity(self) -> usize {
         match self {
             Builtin::Print
+            | Builtin::ToJson
             | Builtin::Upper
             | Builtin::Lower
             | Builtin::First
@@ -76,6 +79,7 @@ impl Builtin {
     /// write to, so the machine handles it.
     pub fn apply(self, arguments: &[Value]) -> Result<Value, Fault> {
         match (self, arguments) {
+            (Builtin::ToJson, [value]) => crate::json::encode(value).map(Value::text),
             (Builtin::Upper, [Value::Text(text)]) => Ok(Value::text(text.to_uppercase())),
             (Builtin::Lower, [Value::Text(text)]) => Ok(Value::text(text.to_lowercase())),
             (Builtin::Contains, [Value::Text(text), Value::Text(part)]) => {

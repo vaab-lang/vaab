@@ -777,7 +777,7 @@ fn an_abilitys_functions_are_numbered_for_a_dispatch_table() {
          \x20   to name() returns Text = \"square\"\n\
          }\n",
     );
-    let ability = checked.abilities.first().expect("one ability");
+    let ability = checked.abilities.iter().find(|a| a.name == "Shape").expect("Shape ability");
     let names: Vec<&str> =
         ability.functions.iter().map(|function| function.name.as_str()).collect();
     assert_eq!(names, ["area", "name"]);

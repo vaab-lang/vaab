@@ -156,3 +156,33 @@ fn rounding_goes_to_the_nearest_whole_number() {
 fn a_half_rounds_away_from_zero_the_way_it_is_taught_at_school() {
     assert_eq!(output("print(2.5.round())\nprint((-2.5).round())\n"), ["3", "-3"]);
 }
+
+// ---------------------------------------------------------------------------
+// File I/O, time and JSON
+// ---------------------------------------------------------------------------
+
+#[test]
+fn now_returns_seconds_since_1970() {
+    let seconds = printed("print(now())\n").parse::<i64>().expect("a whole number");
+    assert!(seconds > 1_600_000_000);
+}
+
+#[test]
+fn to_json_turns_a_map_into_text() {
+    assert_eq!(printed("print(to_json({\"a\": 1}))\n"), "{\"a\":1}");
+}
+
+#[test]
+fn read_file_returns_the_contents_of_a_file() {
+    let path = std::env::temp_dir().join("vaab-read-file-test.txt");
+    std::fs::write(&path, "hello from disk").expect("write temp file");
+    let path = path.display();
+    let source = format!(
+        "choice FileError {{ NotFound(path: Text) }}\n\
+         match read_file(\"{path}\") {{\n\
+         when success text then print(text)\n\
+         when failure _ then print(\"missing\")\n\
+         }}\n"
+    );
+    assert_eq!(printed(&source), "hello from disk");
+}

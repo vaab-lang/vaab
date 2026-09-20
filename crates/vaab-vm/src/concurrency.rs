@@ -1,7 +1,4 @@
-//! The single-threaded scheduler tasks and channels run on.
-//!
-//! Phase 7 swaps [`value::Ref`] for `Arc` and the cells here for locks; the shape
-//! of this module stays the same.
+//! The work-stealing scheduler tasks and channels run on.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -13,33 +10,42 @@ use crate::error::{Fault, RuntimeError};
 use crate::machine::{Budget, Machine, Step};
 use crate::value::{Ref, Value};
 
+#[path = "parallel.rs"]
+mod parallel;
+
 pub const PREEMPT_AFTER: u64 = 10_000;
 
 pub fn run(world: &mut crate::machine::World) -> Result<Value, RuntimeError> {
-    let mut scheduler = Scheduler::new(Ref::clone(&world.program));
-    match scheduler.run(world) {
-        Run::Finished(value) => Ok(value),
-        Run::Failed(error) => Err(error),
+    let workers = parallel::worker_count();
+    let scheduler = Scheduler::new(Ref::clone(&world.program));
+    if workers <= 1 {
+        let mut scheduler = scheduler;
+        match scheduler.run(world) {
+            Run::Finished(value) => Ok(value),
+            Run::Failed(error) => Err(error),
+        }
+    } else {
+        parallel::run_pool(world, workers, scheduler.host, scheduler.machines)
     }
 }
 
 /// Channel, task and `together` state the machine reaches into while it runs.
 pub struct Host {
-    program: Ref<Program>,
+    pub(crate) program: Ref<Program>,
     channels: HashMap<u32, ChannelState>,
     next_channel: u32,
-    tasks: Vec<TaskMeta>,
-    together_groups: Vec<TogetherGroup>,
+    pub(crate) tasks: Vec<TaskMeta>,
+    pub(crate) together_groups: Vec<TogetherGroup>,
     active_together: Vec<usize>,
-    timeouts: Vec<PendingTimeout>,
-    current: usize,
-    pending_spawns: VecDeque<(Machine, usize)>,
-    pending_wakeups: VecDeque<usize>,
+    pub(crate) timeouts: Vec<PendingTimeout>,
+    pub(crate) current: usize,
+    pub(crate) pending_spawns: VecDeque<(Machine, usize)>,
+    pub(crate) pending_wakeups: VecDeque<usize>,
     completed_sends: HashSet<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum TaskLife {
+pub(crate) enum TaskLife {
     Running,
     Runnable,
     Parked,
@@ -55,12 +61,12 @@ pub enum WaitSite {
     Select { descriptor: usize, resume_pc: usize },
 }
 
-struct TaskMeta {
-    state: TaskLife,
-    waiting: Option<WaitSite>,
-    outcome: Option<Result<Value, RuntimeError>>,
-    together: Option<usize>,
-    cancelled: bool,
+pub(crate) struct TaskMeta {
+    pub(crate) state: TaskLife,
+    pub(crate) waiting: Option<WaitSite>,
+    pub(crate) outcome: Option<Result<Value, RuntimeError>>,
+    pub(crate) together: Option<usize>,
+    pub(crate) cancelled: bool,
     select_fire: Option<usize>,
 }
 
@@ -76,14 +82,14 @@ struct ChannelState {
     rendezvous_to: HashMap<usize, Value>,
 }
 
-struct TogetherGroup {
-    tasks: Vec<usize>,
+pub(crate) struct TogetherGroup {
+    pub(crate) tasks: Vec<usize>,
     waiter: Option<usize>,
-    failed: Option<RuntimeError>,
+    pub(crate) failed: Option<RuntimeError>,
 }
 
 #[derive(Clone)]
-struct PendingTimeout {
+pub(crate) struct PendingTimeout {
     at: Instant,
     task: usize,
     select_arm: usize,
@@ -109,8 +115,8 @@ pub enum SelectStep {
 }
 
 pub struct Scheduler {
-    host: Host,
-    machines: Vec<Machine>,
+    pub(crate) host: Host,
+    pub(crate) machines: Vec<Machine>,
     runnable: VecDeque<usize>,
 }
 

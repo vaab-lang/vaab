@@ -750,6 +750,20 @@ fn an_ability_offers_only_what_it_requires() {
     ));
 }
 
+
+#[test]
+fn a_type_that_cannot_json_is_rejected() {
+    let rendered = errors("type Box can Json { inbox: channel of Int }\n");
+    assert!(rendered.contains("cannot be turned into JSON"), "{rendered}");
+    assert_snapshot!(rendered);
+}
+
+#[test]
+fn to_json_requires_a_json_type() {
+    let rendered = errors("to echo(n: Int) returns Int = n\nprint(to_json(echo))\n");
+    assert!(rendered.contains("cannot be turned into JSON"), "{rendered}");
+    assert_snapshot!(rendered);
+}
 // ---------------------------------------------------------------------------
 // One mistake makes one message
 // ---------------------------------------------------------------------------

@@ -20,7 +20,6 @@ use vaab_types::{ArgumentSource, Checked, Resolution, Type, TypeId};
 use super::{Builder, Compiler};
 use crate::builtin::Builtin;
 use crate::bytecode::{Op, SelectArm as CompiledSelectArm, SelectDescriptor};
-use crate::error::Feature;
 use crate::value::{Ref, Value};
 
 /// Where the value of a parameter a call did not mention comes from.
@@ -159,10 +158,14 @@ impl<'a> Compiler<'a> {
                 }
             }
             Some(Resolution::Builtin("read_file")) => {
-                self.emit(Op::NotYet(Feature::ReadFile), span)
+                self.emit(Op::ReadFile(self.file_error_not_found()), span)
             }
+            Some(Resolution::Builtin("now")) => self.emit(Op::Now, span),
             Some(Resolution::Builtin("print")) => {
                 self.push_constant(Value::Builtin(Builtin::Print), span)
+            }
+            Some(Resolution::Builtin("to_json")) => {
+                self.push_constant(Value::Builtin(Builtin::ToJson), span)
             }
             // Every other resolution is something a name cannot be on its own, and
             // the checker has already said so.
@@ -266,7 +269,17 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::Builtin(Builtin::Print), span);
             }
             Some(Resolution::Builtin("read_file")) => {
-                self.emit(Op::NotYet(Feature::ReadFile), span)
+                let count = self.push_arguments(call, arguments, Defaults::None);
+                let _ = count;
+                self.emit(Op::ReadFile(self.file_error_not_found()), span);
+            }
+            Some(Resolution::Builtin("now")) => {
+                self.emit(Op::Now, span);
+            }
+            Some(Resolution::Builtin("to_json")) => {
+                let count = self.push_arguments(call, arguments, Defaults::None);
+                let _ = count;
+                self.emit(Op::Builtin(Builtin::ToJson), span);
             }
 
             Some(Resolution::Function(id)) | Some(Resolution::UserNew { function: id, .. }) => {

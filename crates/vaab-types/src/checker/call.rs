@@ -11,6 +11,7 @@ use vaab_syntax::span::Span;
 use super::member::{CallShape, Handle, Member, WhenMissing};
 use super::{Checker, Global, Wanted};
 use crate::checked::{ArgumentSource, Call, Resolution};
+use crate::json::can_json;
 use crate::messages;
 use crate::types::{FunctionType, Parameter, Signature, Type};
 
@@ -284,7 +285,8 @@ impl Checker {
                         sources[next] = Some(ArgumentSource::Given(position));
                         already[next] = Some(argument.span);
                         next += 1;
-                        self.expression(&argument.value, Wanted::Exactly(declared));
+                        let found = self.expression(&argument.value, Wanted::Exactly(declared));
+                        self.check_to_json_argument(shape, argument, &found);
                     }
                     None => {
                         if !said_too_many {
@@ -348,7 +350,8 @@ impl Checker {
             let declared = parameters
                 .get(slot)
                 .map_or(Type::Unknown, |parameter| parameter.declared.clone());
-            self.expression(&argument.value, Wanted::Exactly(declared));
+            let found = self.expression(&argument.value, Wanted::Exactly(declared));
+            self.check_to_json_argument(shape, argument, &found);
         }
 
         self.fill_the_rest(
@@ -437,6 +440,15 @@ impl Checker {
             }
         }
     }
+    fn check_to_json_argument(&mut self, shape: &CallShape, argument: &Argument, found: &Type) {
+        if shape.name != "to_json" { return; }
+        let resolved = self.variables.resolve(found);
+        if matches!(resolved, Type::Unknown | Type::Variable(_)) { return; }
+        if !can_json(&resolved, &self.checked) {
+            self.report(messages::not_json(&resolved, argument.value.span));
+        }
+    }
+
 }
 
 /// Turns a function's type into a signature with placeholder names, so that a

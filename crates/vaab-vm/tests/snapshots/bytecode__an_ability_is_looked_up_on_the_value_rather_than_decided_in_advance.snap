@@ -15,6 +15,6 @@ body 1: `Dog.greet` — 0 slots, 0 parameters
 
 body 2: `say` — 1 slot, 1 parameter
     0  LoadLocal(0)
-    1  CallAbility { ability: 0, slot: 0, arity: 0 }
+    1  CallAbility { ability: 1, slot: 0, arity: 0 }
     2  Builtin print
     3  Return

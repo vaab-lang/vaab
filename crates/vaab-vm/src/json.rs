@@ -1,64 +1,51 @@
-//! JSON encoding for Vaab values.
+//! Turning runtime values into JSON text.
+
+use serde_json::{Map, Number, Value as Json};
 
 use crate::error::Fault;
 use crate::value::Value;
 
 pub fn encode(value: &Value) -> Result<String, Fault> {
-    serde_json::to_string(&to_json(value))
-        .map_err(|_| Fault::Confused("could not turn this value into json"))
+    let json = value_to_json(value)?;
+    serde_json::to_string(&json).map_err(|_| Fault::Confused("could not turn the value into JSON text"))
 }
 
-fn to_json(value: &Value) -> serde_json::Value {
+fn value_to_json(value: &Value) -> Result<Json, Fault> {
     match value {
-        Value::Nothing => serde_json::Value::Null,
-        Value::Int(number) => serde_json::Value::from(*number),
-        Value::Float(number) => match serde_json::Number::from_f64(*number) {
-            Some(number) => serde_json::Value::Number(number),
-            None => serde_json::Value::Null,
-        },
-        Value::Bool(flag) => serde_json::Value::Bool(*flag),
-        Value::Text(text) => serde_json::Value::String(text.to_string()),
-        Value::List(items) => serde_json::Value::Array(items.iter().map(to_json).collect()),
+        Value::Nothing => Ok(Json::Null),
+        Value::Int(number) => Ok(Json::Number(Number::from(*number))),
+        Value::Float(number) => Number::from_f64(*number).map(Json::Number).ok_or(Fault::Confused("a decimal that cannot be written as JSON")),
+        Value::Bool(yes) => Ok(Json::Bool(*yes)),
+        Value::Text(text) => Ok(Json::String(text.to_string())),
+        Value::List(items) => Ok(Json::Array(items.iter().map(value_to_json).collect::<Result<Vec<_>, _>>()?)),
         Value::Map(entries) => {
-            let mut object = serde_json::Map::new();
-            for (key, item) in entries.iter() {
-                if let Value::Text(name) = &key.0 {
-                    object.insert(name.to_string(), to_json(item));
-                }
+            let mut object = Map::new();
+            for (key, value) in entries.iter() {
+                let Value::Text(text) = &key.0 else { return Err(Fault::Confused("a map key was not text")); };
+                object.insert(text.to_string(), value_to_json(value)?);
             }
-            serde_json::Value::Object(object)
+            Ok(Json::Object(object))
         }
-        Value::Tuple(items) => serde_json::Value::Array(items.iter().map(to_json).collect()),
+        Value::Tuple(parts) => Ok(Json::Array(parts.iter().map(value_to_json).collect::<Result<Vec<_>, _>>()?)),
+        Value::Maybe(None) => Ok(Json::Null),
+        Value::Maybe(Some(held)) => value_to_json(held),
         Value::Record(record) => {
-            let mut object = serde_json::Map::new();
-            for (name, item) in record.layout.fields.iter().zip(record.fields.iter()) {
-                object.insert(name.clone(), to_json(item));
+            let mut object = Map::new();
+            for (name, value) in record.layout.fields.iter().zip(&record.fields) {
+                object.insert(name.clone(), value_to_json(value)?);
             }
-            serde_json::Value::Object(object)
+            Ok(Json::Object(object))
         }
         Value::Variant(variant) => {
-            if variant.fields.is_empty() {
-                return serde_json::Value::String(format!("{}.{}", variant.layout.choice, variant.layout.name));
+            let mut fields = Map::new();
+            for (name, value) in variant.layout.fields.iter().zip(&variant.fields) {
+                fields.insert(name.clone(), value_to_json(value)?);
             }
-            let mut object = serde_json::Map::new();
-            for (name, item) in variant.layout.fields.iter().zip(variant.fields.iter()) {
-                object.insert(name.clone(), to_json(item));
-            }
-            let mut tagged = serde_json::Map::new();
-            tagged.insert(variant.layout.name.to_string(), serde_json::Value::Object(object));
-            serde_json::Value::Object(tagged)
+            let mut object = Map::new();
+            object.insert(variant.layout.name.clone(), Json::Object(fields));
+            Ok(Json::Object(object))
         }
-        Value::Maybe(maybe) => match maybe {
-            Some(held) => to_json(held),
-            None => serde_json::Value::Null,
-        },
-        Value::Success(held) => to_json(held),
-        Value::Failure(held) => to_json(held),
-        Value::Function(_)
-        | Value::Builtin(_)
-        | Value::Captured(_)
-        | Value::Channel(_)
-        | Value::Shared(_)
-        | Value::Task(_) => serde_json::Value::Null,
+        Value::Success(held) => value_to_json(held),
+        _ => Err(Fault::Confused("this value cannot be turned into JSON")),
     }
 }

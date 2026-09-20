@@ -756,6 +756,13 @@ pub fn wrong_variant_parts(
 // Abilities
 // ---------------------------------------------------------------------------
 
+pub fn not_json(found: &Type, span: Span) -> Diagnostic {
+    Diagnostic::error("not-json", format!("{} cannot be turned into JSON", a(found)))
+        .at(span, format!("this is {found}"))
+        .with_help("only types that `can Json` may be passed to `to_json`")
+        .with_note("a type `can Json` when every field, variant and item it holds can Json too")
+}
+
 pub fn undefined_ability(name: &str, span: Span, known: &[String]) -> Diagnostic {
     Diagnostic::error("undefined-ability", format!("`{name}` is not an ability"))
         .at(span, "Vaab expected the name of an ability here")

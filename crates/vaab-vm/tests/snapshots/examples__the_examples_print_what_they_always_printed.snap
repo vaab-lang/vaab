@@ -94,4 +94,9 @@ $ vaab run examples/13_worker_pool.vaab
 49
 49
 
+$ vaab run examples/14_json.vaab
+{"name":"Ada","score":36}
+yes
+missing file is expected
+
 $ vaab run examples/14_web_server.vaab

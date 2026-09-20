@@ -147,6 +147,9 @@ pub enum Op {
     EndTogether,
     Select(u32),
 
+    ReadFile(u32),
+    Now,
+
     ReplyWith(bool),
     ReplyExplain,
 
@@ -324,6 +327,8 @@ fn write(op: &Op, program: &Program) -> String {
             format!("MakeFunction {name}")
         }
         Op::Builtin(builtin) => format!("Builtin {}", builtin.name()),
+        Op::ReadFile(layout) => format!("ReadFile {layout}"),
+        Op::Now => "Now".to_string(),
         Op::NotYet(feature) => format!("NotYet ({feature})"),
         other => format!("{other:?}"),
     }

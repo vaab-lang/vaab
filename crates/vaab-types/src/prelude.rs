@@ -39,13 +39,21 @@ pub fn functions() -> Vec<Function> {
             ),
         },
         Function {
-            // The error is left as a type parameter so that `try read_file(path)`
-            // fits whatever error the surrounding function declares. Phase 5 gives
-            // the standard library a real `FileError` and this becomes concrete.
             name: "read_file",
             signature: Signature::new(
                 vec![Parameter::new("path", Type::Text)],
-                Type::fallible(Type::Text, Type::parameter("E")),
+                Type::fallible(Type::Text, Type::named("FileError")),
+            ),
+        },
+        Function {
+            name: "now",
+            signature: Signature::new(Vec::new(), Type::Int),
+        },
+        Function {
+            name: "to_json",
+            signature: Signature::new(
+                vec![Parameter::new("value", Type::parameter("T"))],
+                Type::Text,
             ),
         },
     ]
@@ -267,7 +275,7 @@ mod tests {
     #[test]
     fn the_prelude_holds_exactly_what_the_examples_need() {
         let names: Vec<&str> = functions().iter().map(|function| function.name).collect();
-        assert_eq!(names, ["print", "read_file"]);
+        assert_eq!(names, ["print", "read_file", "now", "to_json"]);
     }
 
     #[test]

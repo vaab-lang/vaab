@@ -540,6 +540,20 @@ impl<'a> Compiler<'a> {
             _ => None,
         }
     }
+
+    pub(crate) fn file_error_not_found(&self) -> u32 {
+        for (choice, declared) in self.checked.choices.iter().enumerate() {
+            if declared.name != "FileError" {
+                continue;
+            }
+            for (variant, shape) in declared.variants.iter().enumerate() {
+                if shape.name == "NotFound" {
+                    return self.variant_of.get(&(choice, variant)).copied().unwrap_or(0);
+                }
+            }
+        }
+        0
+    }
 }
 
 impl Builder {

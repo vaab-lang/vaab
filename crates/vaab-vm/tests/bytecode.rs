@@ -101,6 +101,8 @@ fn an_ability_is_looked_up_on_the_value_rather_than_decided_in_advance() {
 }
 
 #[test]
-fn a_feature_a_later_phase_brings_compiles_to_one_instruction() {
-    assert_snapshot!(listing("print(read_file(\"notes.txt\"))\n"));
+fn read_file_compiles_to_a_read_instruction() {
+    assert_snapshot!(listing(
+        "choice FileError { NotFound(path: Text) }\nprint(read_file(\"notes.txt\"))\n"
+    ));
 }

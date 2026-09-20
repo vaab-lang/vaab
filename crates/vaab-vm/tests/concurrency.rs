@@ -68,7 +68,9 @@ fn a_worker_pool_collects_squares() {
                   }\n\
                   close answers\n\
                   for each square in answers { print(square) }\n";
-    assert_snapshot!(run(source).join("\n"));
+    let mut lines = run(source);
+    lines.sort();
+    assert_eq!(lines, ["25", "4", "9"]);
 }
 
 #[test]

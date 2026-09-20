@@ -841,6 +841,32 @@ impl Machine {
                 let channels = if receive_count > 0 { self.take(receive_count)? } else { Vec::new() };
                 return self.run_select(meta, descriptor, channels, pc, span, host);
             }
+            Op::ReadFile(layout) => {
+                let path = self.pop()?;
+                let text = match &path {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("read_file expected a path")),
+                };
+                match std::fs::read_to_string(&text) {
+                    Ok(contents) => self.stack.push(Value::success(Value::text(contents))),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("read_file named a variant that is not there"),
+                        )?;
+                        let variant =
+                            Value::Variant(Ref::new(Variant { layout, fields: vec![path] }));
+                        self.stack.push(Value::failure(variant));
+                    }
+                    Err(_) => return Err(Fault::Confused("could not read the file")),
+                }
+            }
+            Op::Now => {
+                let seconds = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_secs() as i64)
+                    .map_err(|_| Fault::Confused("the clock could not be read"))?;
+                self.stack.push(Value::Int(seconds));
+            }
 
             Op::ReplyWith(has_status) => {
                 let status = if has_status {

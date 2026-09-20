@@ -89,4 +89,17 @@ PY
 git show HEAD:crates/vaab-vm/src/compile/stmt.rs > crates/vaab-vm/src/compile/stmt.rs
 
 cp scripts/parallel.rs crates/vaab-vm/src/parallel.rs
+
+python3 << 'PY'
+from pathlib import Path
+cargo = Path('Cargo.toml')
+text = cargo.read_text()
+if 'crossbeam-deque' not in text:
+    cargo.write_text(text.replace('serde_json = "1"\n', 'serde_json = "1"\ncrossbeam-deque = "0.8"\n'))
+vm = Path('crates/vaab-vm/Cargo.toml')
+text = vm.read_text()
+if 'crossbeam-deque' not in text:
+    vm.write_text(text.replace('[dependencies]\n', '[dependencies]\ncrossbeam-deque.workspace = true\n'))
+PY
+
 echo "Phase 7 patches applied."

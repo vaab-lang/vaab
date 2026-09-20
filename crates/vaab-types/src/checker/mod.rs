@@ -50,6 +50,7 @@ use crate::checked::{
     FrameId, FrameKind, Function, FunctionId, Local, LocalId, LocalRef, Required, Resolution,
     TypeId, Variant,
 };
+use crate::json::can_json;
 use crate::messages;
 use crate::prelude;
 use crate::types::{Parameter, Signature, Type};
@@ -202,6 +203,7 @@ impl Checker {
     }
 
     fn check_module(&mut self, module: &Module) {
+        self.register_builtin_abilities();
         self.collect_declarations(&module.statements);
         self.check_ability_promises(&module.statements);
 
@@ -259,6 +261,25 @@ impl Checker {
                 }
             });
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Built-in abilities
+    // -----------------------------------------------------------------------
+
+    fn register_builtin_abilities(&mut self) {
+        self.register_builtin_ability("Json");
+    }
+
+    fn register_builtin_ability(&mut self, name: &str) {
+        let id = AbilityId(self.checked.abilities.len() as u32);
+        self.checked.abilities.push(Ability {
+            name: name.to_string(),
+            functions: Vec::new(),
+            declaration: NodeId(0),
+            span: Span::default(),
+        });
+        self.globals.insert(name.to_string(), Global::Ability(id));
     }
 
     // -----------------------------------------------------------------------
@@ -532,15 +553,21 @@ impl Checker {
             for (position, ability) in abilities.iter().enumerate() {
                 let Some(ability) = self.checked.ability(*ability) else { continue };
                 let wanted = ability.name.clone();
-                let required = ability.functions.clone();
-                // The `can A, B` list and the abilities that resolved are in step,
-                // so the name written is the one at the same position.
                 let claim = declaration
                     .abilities
                     .get(position)
                     .map(|name| name.span)
                     .unwrap_or(declaration.name.span);
 
+                if wanted == "Json" {
+                    let provider_type = Type::named(&provider);
+                    if !can_json(&provider_type, &self.checked) {
+                        self.report(messages::not_json(&provider_type, claim));
+                    }
+                    continue;
+                }
+
+                let required = ability.functions.clone();
                 for required in &required {
                     self.check_one_promise(&provider, id, &wanted, required, claim);
                 }

@@ -13,16 +13,16 @@
 //! here — `Rc` becomes `Arc`, and [`Captured`]'s cell becomes a lock — rather than
 //! a rewrite of the value representation and everything that touches it.
 
-use std::cell::Cell;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::sync::Mutex;
 
 use indexmap::IndexMap;
 
 use crate::builtin::Builtin;
 
 /// The reference-counted pointer behind every heap value. See the module note.
-pub type Ref<T> = std::rc::Rc<T>;
+pub type Ref<T> = std::sync::Arc<T>;
 
 /// A map, which keeps the order its keys were first put in.
 pub type Table = IndexMap<Key, Value>;
@@ -71,23 +71,25 @@ pub enum Value {
 /// slot the declaring frame reads, so such a local is boxed here when it is
 /// declared. The compiler decides which locals need this; see `compile`.
 #[derive(Default)]
-pub struct Captured(Cell<Value>);
+pub struct Captured(Mutex<Value>);
 
 impl Captured {
     pub fn new(value: Value) -> Captured {
-        Captured(Cell::new(value))
+        Captured(Mutex::new(value))
     }
 
     pub fn get(&self) -> Value {
-        // `Cell` gives nothing out by reference, so the value is taken, copied and
-        // put straight back. Every alternative in the standard library can panic.
-        let held = self.0.take();
-        self.0.set(held.clone());
-        held
+        match self.0.lock() {
+            Ok(held) => held.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
     }
 
     pub fn set(&self, value: Value) {
-        self.0.set(value);
+        match self.0.lock() {
+            Ok(mut held) => *held = value,
+            Err(poisoned) => *poisoned.into_inner() = value,
+        }
     }
 }
 

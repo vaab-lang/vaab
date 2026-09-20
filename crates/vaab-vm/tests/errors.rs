@@ -177,10 +177,13 @@ fn a_machine_that_cannot_explain_itself() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn reading_a_file_says_which_phase_brings_it() {
-    let rendered = stops("print(read_file(\"notes.txt\"))\n");
-    assert!(rendered.contains("phase 5"), "{rendered}");
-    assert_snapshot!(rendered);
+fn reading_a_missing_file_fails_with_file_error() {
+    let source = "choice FileError { NotFound(path: Text) }\n\
+        match read_file(\"missing.vaab\") {\n\
+        when success _ then print(\"found\")\n\
+        when failure _ then print(\"missing\")\n\
+        }\n";
+    assert_snapshot!(support::printed(source));
 }
 
 #[test]
