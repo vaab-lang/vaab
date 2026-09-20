@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 175
+expression: "errors(\"let changing numbers = [1, 2]\\nnumbers[0] = 3\\n\")"
+---
+[cannot-assign-part] Error: an item of a list cannot be assigned
+   ╭─[ example.vaab:2:1 ]
+   │
+ 2 │ numbers[0] = 3
+   │ ─────┬────  
+   │      ╰────── this is an item inside a list
+   │ 
+   │ Help: build the list you want instead, with `.map(...)`
+   │ 
+   │ Note: a list in Vaab is a value, not a box to be changed
+───╯

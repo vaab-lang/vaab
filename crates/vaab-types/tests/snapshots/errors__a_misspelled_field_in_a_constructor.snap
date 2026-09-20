@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 195
+expression: "errors(\"type Account {\\n\\\n         \\x20   owner: Text\\n\\\n         }\\n\\\n         let account = Account.new(ownr: \\\"Ada\\\")\\n\")"
+---
+[unknown-field] Error: `Account` has no field `ownr`
+   ╭─[ example.vaab:4:27 ]
+   │
+ 4 │ let account = Account.new(ownr: "Ada")
+   │                           ──┬─  
+   │                             ╰─── this name is not one of its fields
+   │ 
+   │ Help: did you mean `owner`?
+───╯

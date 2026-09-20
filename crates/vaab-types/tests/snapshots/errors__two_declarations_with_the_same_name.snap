@@ -1,0 +1,18 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 127
+expression: "errors(\"type Account {\\n\\\n         \\x20   owner: Text\\n\\\n         }\\n\\\n         choice Account {\\n\\\n         \\x20   Frozen\\n\\\n         }\\n\")"
+---
+[duplicate-declaration] Error: `Account` is declared twice
+   ╭─[ example.vaab:4:8 ]
+   │
+ 1 │ type Account {
+   │      ───┬───  
+   │         ╰───── first declared here
+   │ 
+ 4 │ choice Account {
+   │        ───┬───  
+   │           ╰───── this declaration repeats an earlier one
+   │ 
+   │ Help: give one of them a different name, or remove it
+───╯

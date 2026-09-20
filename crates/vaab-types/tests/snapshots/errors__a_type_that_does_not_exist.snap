@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 102
+expression: "errors(\"to weigh(thing: Widget) returns Int = 1\\n\")"
+---
+[undefined-type] Error: `Widget` is not a type
+   ╭─[ example.vaab:1:17 ]
+   │
+ 1 │ to weigh(thing: Widget) returns Int = 1
+   │                 ───┬──  
+   │                    ╰──── Vaab has not seen this type before
+   │ 
+   │ Help: declare it with `type Widget { ... }`, or check the spelling
+───╯

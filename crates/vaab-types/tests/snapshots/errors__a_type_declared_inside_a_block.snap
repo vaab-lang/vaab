@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 139
+expression: "errors(\"to make() {\\n\\\n         \\x20   type Account {\\n\\\n         \\x20       owner: Text\\n\\\n         \\x20   }\\n\\\n         }\\n\")"
+---
+[nested-declaration] Error: a type has to be declared at the top level of a file
+   ╭─[ example.vaab:2:10 ]
+   │
+ 2 │     type Account {
+   │          ───┬───  
+   │             ╰───── `Account` is declared inside a block
+   │ 
+   │ Help: move `type Account { ... }` out to the top level
+   │ 
+   │ Note: a type's name can be used anywhere in the file, so it cannot belong to one block
+───╯

@@ -1,0 +1,20 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 676
+expression: "errors(\"ability Describable {\\n\\\n         \\x20   to describe() returns Text\\n\\\n         }\\n\\\n         type Person can Describable {\\n\\\n         \\x20   name: Text\\n\\\n         \\n\\\n         \\x20   to describe() returns Int = 1\\n\\\n         }\\n\")"
+---
+[ability-signature-mismatch] Error: `Person`'s `describe` does not match `Describable`
+   ╭─[ example.vaab:7:8 ]
+   │
+ 2 │     to describe() returns Text
+   │        ────┬───  
+   │            ╰───── `Describable` asks for `to describe() returns Text`
+   │ 
+ 7 │     to describe() returns Int = 1
+   │        ────┬───  
+   │            ╰───── this is `to describe() returns Int`
+   │ 
+   │ Help: change the signature so the two match exactly
+   │ 
+   │ Note: anything holding a `Describable` calls through the signature `Describable` promised, so the two cannot differ
+───╯

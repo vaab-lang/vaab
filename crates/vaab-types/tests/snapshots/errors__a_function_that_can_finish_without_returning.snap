@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 366
+expression: "errors(\"to describe(n: Int) returns Text {\\n\\\n         \\x20   if n > 0 { return \\\"positive\\\" }\\n\\\n         }\\n\")"
+---
+[missing-return] Error: `describe` does not always return Text
+   ╭─[ example.vaab:1:34 ]
+   │
+ 1 │ ╭─▶ to describe(n: Int) returns Text {
+   ┆ ┆   
+ 3 │ ├─▶ }
+   │ │       
+   │ ╰─────── this body can reach its end without returning
+   │     
+   │     Help: finish it with `return ...`, or with Text as its last expression
+───╯

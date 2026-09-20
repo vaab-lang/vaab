@@ -104,13 +104,13 @@ impl<'src> Parser<'src> {
                     self.advance();
                     let fallback = self.expression_from(POWER_OTHERWISE + 1)?;
                     let span = left.span.to(fallback.span);
-                    left = Expr {
-                        kind: ExprKind::Otherwise {
+                    left = self.expression_node(
+                        ExprKind::Otherwise {
                             value: Box::new(left),
                             fallback: Box::new(fallback),
                         },
                         span,
-                    };
+                    );
                     previous_operator = None;
                 }
                 TokenKind::DotDot if POWER_RANGE >= minimum_power => {
@@ -121,10 +121,10 @@ impl<'src> Parser<'src> {
                     }
                     let end = self.expression_from(POWER_RANGE + 1)?;
                     let span = left.span.to(end.span);
-                    left = Expr {
-                        kind: ExprKind::Range { start: Box::new(left), end: Box::new(end) },
+                    left = self.expression_node(
+                        ExprKind::Range { start: Box::new(left), end: Box::new(end) },
                         span,
-                    };
+                    );
                     previous_operator = None;
                 }
                 kind => {
@@ -143,14 +143,14 @@ impl<'src> Parser<'src> {
 
                     let right = self.expression_from(right_power)?;
                     let span = left.span.to(right.span);
-                    left = Expr {
-                        kind: ExprKind::Binary {
+                    left = self.expression_node(
+                        ExprKind::Binary {
                             operator,
                             left: Box::new(left),
                             right: Box::new(right),
                         },
                         span,
-                    };
+                    );
                     previous_operator = Some(operator);
                 }
             }
@@ -172,61 +172,65 @@ impl<'src> Parser<'src> {
         use TokenKind::*;
         let start = self.current().span;
 
-        let wrap = |operand: Expr, build: fn(Box<Expr>) -> ExprKind| Expr {
-            span: start.to(operand.span),
-            kind: build(Box::new(operand)),
-        };
-
         Ok(match self.peek() {
             Not => {
                 self.advance();
                 let operand = self.expression_from(POWER_COMPARISON)?;
-                Expr {
-                    span: start.to(operand.span),
-                    kind: ExprKind::Unary {
-                        operator: UnaryOp::Not,
-                        operand: Box::new(operand),
-                    },
-                }
+                let span = start.to(operand.span);
+                self.expression_node(
+                    ExprKind::Unary { operator: UnaryOp::Not, operand: Box::new(operand) },
+                    span,
+                )
             }
             Minus => {
                 self.advance();
                 let operand = self.prefix_expression()?;
-                Expr {
-                    span: start.to(operand.span),
-                    kind: ExprKind::Unary {
-                        operator: UnaryOp::Negate,
-                        operand: Box::new(operand),
-                    },
-                }
+                let span = start.to(operand.span);
+                self.expression_node(
+                    ExprKind::Unary { operator: UnaryOp::Negate, operand: Box::new(operand) },
+                    span,
+                )
             }
             Found => {
                 self.advance();
-                wrap(self.expression_from(POWER_COMPARISON)?, ExprKind::Found)
+                let operand = self.expression_from(POWER_COMPARISON)?;
+                self.wrapping(start, operand, ExprKind::Found)
             }
             Success => {
                 self.advance();
-                wrap(self.expression_from(POWER_COMPARISON)?, ExprKind::Success)
+                let operand = self.expression_from(POWER_COMPARISON)?;
+                self.wrapping(start, operand, ExprKind::Success)
             }
             Failure => {
                 self.advance();
-                wrap(self.expression_from(POWER_COMPARISON)?, ExprKind::Failure)
+                let operand = self.expression_from(POWER_COMPARISON)?;
+                self.wrapping(start, operand, ExprKind::Failure)
             }
             Try => {
                 self.advance();
-                wrap(self.prefix_expression()?, ExprKind::Try)
+                let operand = self.prefix_expression()?;
+                self.wrapping(start, operand, ExprKind::Try)
             }
             Receive => {
                 self.advance();
                 self.expect_word(From, "the word `from`, as in `receive from inbox`")?;
                 let channel = self.prefix_expression()?;
-                Expr {
-                    span: start.to(channel.span),
-                    kind: ExprKind::Receive { channel: Box::new(channel) },
-                }
+                let span = start.to(channel.span);
+                self.expression_node(ExprKind::Receive { channel: Box::new(channel) }, span)
             }
             _ => self.postfix_expression()?,
         })
+    }
+
+    /// Builds one of the prefix forms that simply wraps the expression after it.
+    fn wrapping(
+        &mut self,
+        start: Span,
+        operand: Expr,
+        build: fn(Box<Expr>) -> ExprKind,
+    ) -> Expr {
+        let span = start.to(operand.span);
+        self.expression_node(build(Box::new(operand)), span)
     }
 
     /// Calls, field access and indexing, which all bind tighter than any operator.
@@ -240,22 +244,26 @@ impl<'src> Parser<'src> {
                     // though `with` would be a poor variable name.
                     let name = self.any_word_as_name("a field or function name after `.`")?;
                     let span = expr.span.to(name.span);
-                    expr = Expr { kind: ExprKind::Member { target: Box::new(expr), name }, span };
+                    expr = self
+                        .expression_node(ExprKind::Member { target: Box::new(expr), name }, span);
                 }
                 TokenKind::OpenParen => {
                     let (arguments, span) = self.call_arguments()?;
                     let span = expr.span.to(span);
-                    expr = Expr { kind: ExprKind::Call { callee: Box::new(expr), arguments }, span };
+                    expr = self.expression_node(
+                        ExprKind::Call { callee: Box::new(expr), arguments },
+                        span,
+                    );
                 }
                 TokenKind::OpenBracket => {
                     self.advance();
                     let index = self.with_braces_as_literals(|parser| parser.expression())?;
                     let close = self.expect(TokenKind::CloseBracket, "a `]` to close the index")?;
                     let span = expr.span.to(close.span);
-                    expr = Expr {
-                        kind: ExprKind::Index { target: Box::new(expr), index: Box::new(index) },
+                    expr = self.expression_node(
+                        ExprKind::Index { target: Box::new(expr), index: Box::new(index) },
                         span,
-                    };
+                    );
                 }
                 _ => break,
             }
@@ -313,22 +321,22 @@ impl<'src> Parser<'src> {
                 let start = self.advance().span;
                 let body = self.block()?;
                 let span = start.to(body.span);
-                return Ok(Expr { kind: ExprKind::Start(Box::new(body)), span });
+                return Ok(self.expression_node(ExprKind::Start(Box::new(body)), span));
             }
             _ => {
                 let name = self.name("a value")?;
                 let span = name.span;
-                return Ok(Expr { kind: ExprKind::Name(name), span });
+                return Ok(self.expression_node(ExprKind::Name(name), span));
             }
         };
 
-        Ok(Expr { kind, span: token.span })
+        Ok(self.expression_node(kind, token.span))
     }
 
     fn integer_literal(&mut self, span: Span) -> Parse<Expr> {
         let text = strip_digit_separators(span.slice(self.source()));
         match text.parse::<i64>() {
-            Ok(value) => Ok(Expr { kind: ExprKind::Int(value), span }),
+            Ok(value) => Ok(self.expression_node(ExprKind::Int(value), span)),
             Err(_) => {
                 self.report(
                     Diagnostic::error("number-too-large", "this number is too large for an Int")
@@ -343,7 +351,9 @@ impl<'src> Parser<'src> {
     fn float_literal(&mut self, span: Span) -> Parse<Expr> {
         let text = strip_digit_separators(span.slice(self.source()));
         match text.parse::<f64>() {
-            Ok(value) if value.is_finite() => Ok(Expr { kind: ExprKind::Float(value), span }),
+            Ok(value) if value.is_finite() => {
+                Ok(self.expression_node(ExprKind::Float(value), span))
+            }
             _ => {
                 self.report(
                     Diagnostic::error("number-too-large", "this number is too large for a Float")
@@ -362,10 +372,8 @@ impl<'src> Parser<'src> {
             parser.skip_newlines();
             if parser.check(TokenKind::CloseParen) {
                 let close = parser.advance();
-                return Ok(Expr {
-                    kind: ExprKind::Tuple(Vec::new()),
-                    span: open.span.to(close.span),
-                });
+                let span = open.span.to(close.span);
+                return Ok(parser.expression_node(ExprKind::Tuple(Vec::new()), span));
             }
 
             let first = parser.expression()?;
@@ -375,8 +383,9 @@ impl<'src> Parser<'src> {
                 let close =
                     parser.expect(TokenKind::CloseParen, "a `)` to close this group")?;
                 // Grouping parentheses do not survive into the tree, but the span
-                // covers them so error messages underline what was written.
-                return Ok(Expr { kind: first.kind, span: open.span.to(close.span) });
+                // covers them so error messages underline what was written. The
+                // inner node's id comes along, because there is only one node here.
+                return Ok(Expr { span: open.span.to(close.span), ..first });
             }
 
             let mut items = vec![first];
@@ -389,7 +398,8 @@ impl<'src> Parser<'src> {
                 parser.skip_newlines();
             }
             let close = parser.expect(TokenKind::CloseParen, "a `)` to close this tuple")?;
-            Ok(Expr { kind: ExprKind::Tuple(items), span: open.span.to(close.span) })
+            let span = open.span.to(close.span);
+            Ok(parser.expression_node(ExprKind::Tuple(items), span))
         })
     }
 
@@ -410,7 +420,8 @@ impl<'src> Parser<'src> {
                 TokenKind::CloseBracket,
                 "a `,` before the next item, or a `]` to close this list",
             )?;
-            Ok(Expr { kind: ExprKind::List(items), span: open.span.to(close.span) })
+            let span = open.span.to(close.span);
+            Ok(parser.expression_node(ExprKind::List(items), span))
         })
     }
 
@@ -435,7 +446,8 @@ impl<'src> Parser<'src> {
                 TokenKind::CloseBrace,
                 "a `,` before the next entry, or a `}` to close this map",
             )?;
-            Ok(Expr { kind: ExprKind::Map(entries), span: open.span.to(close.span) })
+            let span = open.span.to(close.span);
+            Ok(parser.expression_node(ExprKind::Map(entries), span))
         })
     }
 
@@ -496,10 +508,8 @@ impl<'src> Parser<'src> {
             FunctionBody::Block(block) => block.span,
             FunctionBody::Expr(expr) => expr.span,
         };
-        Ok(Expr {
-            kind: ExprKind::Closure { parameters, body: Box::new(body) },
-            span: start.to(end),
-        })
+        let span = start.to(end);
+        Ok(self.expression_node(ExprKind::Closure { parameters, body: Box::new(body) }, span))
     }
 
     /// Reinterprets the expression on the left of `->` as parameter names.
@@ -535,7 +545,8 @@ impl<'src> Parser<'src> {
             Some(ElseBranch::If(nested)) => nested.then_block.span,
             None => parts.then_block.span,
         };
-        Ok(Expr { kind: ExprKind::If(Box::new(parts)), span: start.to(end) })
+        let span = start.to(end);
+        Ok(self.expression_node(ExprKind::If(Box::new(parts)), span))
     }
 
     fn if_parts(&mut self) -> Parse<IfExpr> {
@@ -596,10 +607,8 @@ impl<'src> Parser<'src> {
             return Err(Failed);
         }
 
-        Ok(Expr {
-            kind: ExprKind::Match(Box::new(MatchExpr { subject, arms })),
-            span: start.to(end),
-        })
+        let span = start.to(end);
+        Ok(self.expression_node(ExprKind::Match(Box::new(MatchExpr { subject, arms })), span))
     }
 
     fn match_arm(&mut self) -> Parse<MatchArm> {
@@ -674,10 +683,8 @@ impl<'src> Parser<'src> {
             Ok((arms, otherwise, close.span))
         })?;
 
-        Ok(Expr {
-            kind: ExprKind::Select(Box::new(SelectExpr { arms, otherwise })),
-            span: start.to(end),
-        })
+        let span = start.to(end);
+        Ok(self.expression_node(ExprKind::Select(Box::new(SelectExpr { arms, otherwise })), span))
     }
 
     fn select_arm(&mut self) -> Parse<SelectArm> {

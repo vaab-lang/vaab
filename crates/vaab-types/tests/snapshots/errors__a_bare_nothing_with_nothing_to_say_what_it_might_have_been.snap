@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 489
+expression: "errors(\"let missing = nothing\\n\")"
+---
+[cannot-infer-empty] Error: Vaab cannot tell what this `nothing` stands for
+   ╭─[ example.vaab:1:15 ]
+   │
+ 1 │ let missing = nothing
+   │               ───┬───  
+   │                  ╰───── this says a value is absent, but not what sort of value
+   │ 
+   │ Help: say so with an annotation: `let age: maybe Int = nothing`
+   │ 
+   │ Note: `nothing` is the empty half of a `maybe T`, so Vaab needs to know the `T`
+───╯

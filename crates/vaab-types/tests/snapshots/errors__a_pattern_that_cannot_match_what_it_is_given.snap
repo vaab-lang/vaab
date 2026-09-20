@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 580
+expression: "errors(\"let message = match 1 {\\n\\\n         \\x20   when found n then \\\"{n}\\\"\\n\\\n         \\x20   otherwise then \\\"something else\\\"\\n\\\n         }\\n\")"
+---
+[pattern-mismatch] Error: this pattern cannot match Int
+   ╭─[ example.vaab:2:10 ]
+   │
+ 2 │     when found n then "{n}"
+   │          ───┬───  
+   │             ╰───── this pattern is for a `maybe` value
+   │ 
+   │ Help: match on the Int itself
+───╯

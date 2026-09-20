@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 23
+expression: rendered
+---
+[type-mismatch] Error: expected Int, found maybe Int
+   ╭─[ example.vaab:2:14 ]
+   │
+ 2 │ let x: Int = ages.get("Ada")
+   │              ───────┬───────  
+   │                     ╰───────── this is maybe Int
+   │ 
+   │ Help: a `maybe Int` might hold nothing, so say what to do then: add `otherwise <fallback>`, or take it apart with `match`
+   │ 
+   │ Note: Vaab has no null, so a value that might be absent has a different type from one that is there
+───╯

@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 434
+expression: "errors(\"let both = yes + no\\n\")"
+---
+[bad-operand] Error: `+` needs two numbers of the same type
+   ╭─[ example.vaab:1:12 ]
+   │
+ 1 │ let both = yes + no
+   │            ─┬─   ─┬  
+   │             ╰──────── this is Bool
+   │                   │  
+   │                   ╰── this is Bool
+───╯

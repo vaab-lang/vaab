@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 164
+expression: "errors(\"type Account {\\n\\\n         \\x20   balance: Int = 0\\n\\\n         }\\n\\\n         let changing account = Account.new()\\n\\\n         account.balance = 5\\n\")"
+---
+[cannot-assign-part] Error: an `Account` cannot be changed in place
+   ╭─[ example.vaab:5:9 ]
+   │
+ 5 │ account.balance = 5
+   │         ───┬───  
+   │            ╰───── this is one of its fields
+   │ 
+   │ Help: make a changed copy instead, with `.with(field: value)`
+   │ 
+   │ Note: every `type` in Vaab is immutable, which is what makes it safe to share
+───╯

@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 223
+expression: "errors(\"let n = 1\\nprint(n.size)\\n\")"
+---
+[unknown-member] Error: an Int has nothing called `size`
+   ╭─[ example.vaab:2:9 ]
+   │
+ 2 │ print(n.size)
+   │         ──┬─  
+   │           ╰─── this asks an Int for `size`
+───╯

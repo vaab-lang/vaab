@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 314
+expression: "errors(\"to add(a: Int, b: Int) returns Int = a + b\\n\\\n         let sum = add\\n\\\n         let answer = sum(1)\\n\")"
+---
+[wrong-argument-count] Error: `sum` takes 2 arguments, but this call gives 1
+   ╭─[ example.vaab:3:14 ]
+   │
+ 3 │ let answer = sum(1)
+   │              ───┬──  
+   │                 ╰──── this call gives 1 argument
+   │ 
+   │ Help: pass the rest, in order
+───╯

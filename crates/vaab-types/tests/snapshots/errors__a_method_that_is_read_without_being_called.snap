@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 205
+expression: "errors(\"type Account {\\n\\\n         \\x20   owner: Text\\n\\\n         \\n\\\n         \\x20   to describe() returns Text = self.owner\\n\\\n         }\\n\\\n         let account = Account.new(owner: \\\"Ada\\\")\\n\\\n         print(account.describe)\\n\")"
+---
+[needs-call] Error: `describe` is a function, so it has to be called
+   ╭─[ example.vaab:7:15 ]
+   │
+ 7 │ print(account.describe)
+   │               ────┬───  
+   │                   ╰───── this reads it without calling it
+   │ 
+   │ Help: add the brackets: `describe()`
+───╯

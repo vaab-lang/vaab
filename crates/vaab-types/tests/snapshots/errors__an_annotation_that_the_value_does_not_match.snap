@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 45
+expression: "errors(\"let count: Int = \\\"three\\\"\\n\")"
+---
+[type-mismatch] Error: expected Int, found Text
+   ╭─[ example.vaab:1:18 ]
+   │
+ 1 │ let count: Int = "three"
+   │                  ───┬───  
+   │                     ╰───── this is Text
+───╯

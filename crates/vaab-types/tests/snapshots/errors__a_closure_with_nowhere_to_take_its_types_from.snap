@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 337
+expression: "errors(\"let double = n -> n * 2\\n\")"
+---
+[closure-needs-context] Error: Vaab cannot tell what this closure's parameters are
+   ╭─[ example.vaab:1:14 ]
+   │
+ 1 │ let double = n -> n * 2
+   │              ─────┬────  
+   │                   ╰────── nothing here says what `n` is
+   │ 
+   │ Help: pass it to a function that says, or annotate the value: `let f: to(Int) returns Int = n -> ...`
+   │ 
+   │ Note: Vaab infers local values but never a signature, and a closure's parameters are a signature
+───╯

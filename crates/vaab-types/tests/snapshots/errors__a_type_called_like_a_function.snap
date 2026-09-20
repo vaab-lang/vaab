@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 117
+expression: "errors(\"type Account {\\n\\\n         \\x20   owner: Text\\n\\\n         }\\n\\\n         let account = Account(\\\"Ada\\\")\\n\")"
+---
+[type-used-as-value] Error: `Account` is a type, not a value
+   ╭─[ example.vaab:4:15 ]
+   │
+ 4 │ let account = Account("Ada")
+   │               ───┬───  
+   │                  ╰───── this names a type
+   │ 
+   │ Help: build one with `Account.new(...)`
+───╯

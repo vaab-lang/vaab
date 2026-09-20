@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 449
+expression: "errors(\"let same = 1 == \\\"one\\\"\\n\")"
+---
+[type-mismatch] Error: expected Int, found Text
+   ╭─[ example.vaab:1:17 ]
+   │
+ 1 │ let same = 1 == "one"
+   │                 ──┬──  
+   │                   ╰──── this is Text
+───╯

@@ -1,0 +1,17 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 301
+expression: "errors(\"to double(n: Int) returns Int = n * 2\\n\\\n         let twice = double(2, 3)\\n\")"
+---
+[wrong-argument-count] Error: `double` takes 1 argument, but this call gives 2
+   ╭─[ example.vaab:2:23 ]
+   │
+ 1 │ to double(n: Int) returns Int = n * 2
+   │    ───┬──  
+   │       ╰──── `double` is declared here
+ 2 │ let twice = double(2, 3)
+   │                       ┬  
+   │                       ╰── this argument has nowhere to go
+   │ 
+   │ Help: remove it, or give `double` another parameter
+───╯

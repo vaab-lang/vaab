@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 529
+expression: "errors(\"let ages = {\\\"Ada\\\": 36}\\n\\\n         let message = match ages.get(\\\"Ada\\\") {\\n\\\n         \\x20   when found age then \\\"{age}\\\"\\n\\\n         }\\n\")"
+---
+[not-exhaustive] Error: this `match` does not cover `nothing`
+   ╭─[ example.vaab:2:21 ]
+   │
+ 2 │ let message = match ages.get("Ada") {
+   │                     ───────┬───────  
+   │                            ╰───────── this is maybe Int, which can also be `nothing`
+   │ 
+   │ Help: add `when nothing then ...`, or finish with `otherwise then ...`
+   │ 
+   │ Note: a `match` has to cover every case, so that adding a variant later cannot slip past
+───╯

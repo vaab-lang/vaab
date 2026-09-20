@@ -29,7 +29,7 @@ pub mod print;
 pub mod span;
 pub mod token;
 
-pub use ast::Module;
+pub use ast::{Module, NodeId};
 pub use diagnostic::{ColorChoice, Diagnostic, Label, Severity};
 pub use parser::{parse, Parsed};
 pub use print::print_module;

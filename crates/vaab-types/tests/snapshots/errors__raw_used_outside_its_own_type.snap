@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 238
+expression: "errors(\"type Email {\\n\\\n         \\x20   text: Text\\n\\\n         \\n\\\n         \\x20   to new(text: Text) returns Email or fails Text = success Email.raw(text: text)\\n\\\n         }\\n\\\n         let mail = Email.raw(text: \\\"not checked\\\")\\n\")"
+---
+[raw-outside-type] Error: `Email.raw` can only be used inside `Email`
+   ╭─[ example.vaab:6:18 ]
+   │
+ 6 │ let mail = Email.raw(text: "not checked")
+   │                  ─┬─  
+   │                   ╰─── this is outside `Email`'s body
+   │ 
+   │ Help: build one with `Email.new(...)`, which checks it first
+   │ 
+   │ Note: `raw` skips the checks in `Email`'s own `to new`, so only `Email` may use it
+───╯

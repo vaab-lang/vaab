@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 439
+expression: "errors(\"let greeting = \\\"hello\\\" + \\\"world\\\"\\n\")"
+---
+[bad-operand] Error: `+` needs two numbers of the same type
+   ╭─[ example.vaab:1:16 ]
+   │
+ 1 │ let greeting = "hello" + "world"
+   │                ───┬───   ───┬───  
+   │                   ╰─────────────── this is Text
+   │                             │     
+   │                             ╰───── this is Text
+   │ 
+   │ Help: to join text, put both pieces in one piece of text: `"{first}{second}"`
+───╯

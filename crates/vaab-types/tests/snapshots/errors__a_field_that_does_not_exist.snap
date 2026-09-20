@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 184
+expression: "errors(\"type Account {\\n\\\n         \\x20   owner: Text\\n\\\n         }\\n\\\n         let account = Account.new(owner: \\\"Ada\\\")\\n\\\n         print(account.holder)\\n\")"
+---
+[unknown-member] Error: an `Account` has nothing called `holder`
+   ╭─[ example.vaab:5:15 ]
+   │
+ 5 │ print(account.holder)
+   │               ───┬──  
+   │                  ╰──── this asks an `Account` for `holder`
+   │ 
+   │ Help: did you mean `owner`?
+───╯

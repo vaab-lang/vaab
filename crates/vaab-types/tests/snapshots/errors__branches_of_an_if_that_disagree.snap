@@ -1,0 +1,18 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 63
+expression: "errors(\"let size = if 1 < 2 { \\\"big\\\" } else { 0 }\\n\")"
+---
+[branches-differ] Error: these branches give different types
+   ╭─[ example.vaab:1:38 ]
+   │
+ 1 │ let size = if 1 < 2 { "big" } else { 0 }
+   │                       ──┬──          ┬  
+   │                         │            ╰── this one gives Int
+   │                         │               
+   │                         ╰─────────────── the first gives Text
+   │ 
+   │ Help: make every one of the branches give the same type
+   │ 
+   │ Note: `if` is an expression in Vaab, so whichever way it goes the answer has one type
+───╯

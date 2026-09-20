@@ -1,0 +1,19 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 401
+expression: "errors(\"to parse(text: Text) returns Int or fails Text = success 1\\n\\\n         to twice(text: Text) returns Int or fails Int {\\n\\\n         \\x20   return success try parse(text) * 2\\n\\\n         }\\n\")"
+---
+[try-error-mismatch] Error: `try` needs the two failures to be the same type
+   ╭─[ example.vaab:3:24 ]
+   │
+ 2 │ to twice(text: Text) returns Int or fails Int {
+   │                              ────────┬───────  
+   │                                      ╰───────── but this function fails with Int
+ 3 │     return success try parse(text) * 2
+   │                        ─────┬─────  
+   │                             ╰─────── this fails with Text
+   │ 
+   │ Help: take it apart with `match` and fail with a Int, or declare `or fails Text`
+   │ 
+   │ Note: Vaab does not convert one error type into another on its own
+───╯

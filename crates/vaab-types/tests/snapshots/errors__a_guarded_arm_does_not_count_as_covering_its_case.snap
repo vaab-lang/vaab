@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 569
+expression: "errors(\"let ready = yes\\n\\\n         let message = match ready {\\n\\\n         \\x20   when yes then \\\"ready\\\"\\n\\\n         \\x20   when no if 1 < 2 then \\\"not yet\\\"\\n\\\n         }\\n\")"
+---
+[not-exhaustive] Error: this `match` does not cover `no`
+   ╭─[ example.vaab:2:21 ]
+   │
+ 2 │ let message = match ready {
+   │                     ──┬──  
+   │                       ╰──── this is Bool, which can also be `no`
+   │ 
+   │ Help: add `when no then ...`, or finish with `otherwise then ...`
+   │ 
+   │ Note: a `match` has to cover every case, so that adding a variant later cannot slip past
+───╯

@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 58
+expression: "errors(\"to name() returns Text = 1\\n\")"
+---
+[type-mismatch] Error: expected Text, found Int
+   ╭─[ example.vaab:1:26 ]
+   │
+ 1 │ to name() returns Text = 1
+   │                          ┬  
+   │                          ╰── this is Int
+───╯

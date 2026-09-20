@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let inbox = 1\\n\\\n         select {\\n\\\n         \\x20   when receive from inbox as message { print(message) }\\n\\\n         }\\n\")"
+---
+[not-a-channel] Error: `receive` needs a channel
+   ╭─[ example.vaab:3:23 ]
+   │
+ 3 │     when receive from inbox as message { print(message) }
+   │                       ──┬──  
+   │                         ╰──── this is Int
+   │ 
+   │ Help: make one with `Channel.new(of: Text, size: 4)`
+───╯

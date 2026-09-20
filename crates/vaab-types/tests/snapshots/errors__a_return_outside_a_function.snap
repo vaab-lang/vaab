@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 361
+expression: "errors(\"return 1\\n\")"
+---
+[return-outside-function] Error: `return` is only allowed inside a function
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ return 1
+   │ ────┬───  
+   │     ╰───── there is nothing here to return from
+   │ 
+   │ Help: put this in a function, with `to something() { ... }`
+───╯

@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 425
+expression: "errors(\"let ages = {\\\"Ada\\\": 36}\\nlet age = ages.get(\\\"Ada\\\") otherwise \\\"unknown\\\"\\n\")"
+---
+[type-mismatch] Error: expected Int, found Text
+   ╭─[ example.vaab:2:37 ]
+   │
+ 2 │ let age = ages.get("Ada") otherwise "unknown"
+   │                                     ────┬────  
+   │                                         ╰────── this is Text
+───╯

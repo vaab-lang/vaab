@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 474
+expression: "errors(\"let mixed = {\\\"a\\\": 1, \\\"b\\\": \\\"two\\\"}\\n\")"
+---
+[mixed-map] Error: this map's values are not all the same type
+   ╭─[ example.vaab:1:27 ]
+   │
+ 1 │ let mixed = {"a": 1, "b": "two"}
+   │                   ┬       ──┬──  
+   │                   │         ╰──── this value is Text
+   │                   │              
+   │                   ╰────────────── the first value is Int
+   │ 
+   │ Help: make every value the same type
+───╯

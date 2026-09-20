@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 50
+expression: "errors(\"to double(n: Int) returns Int = n * 2\\n\\\n         let twice = double(\\\"two\\\")\\n\")"
+---
+[type-mismatch] Error: expected Int, found Text
+   ╭─[ example.vaab:2:20 ]
+   │
+ 2 │ let twice = double("two")
+   │                    ──┬──  
+   │                      ╰──── this is Text
+───╯

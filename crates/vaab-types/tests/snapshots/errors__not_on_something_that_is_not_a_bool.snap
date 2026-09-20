@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 459
+expression: "errors(\"let opposite = not 1\\n\")"
+---
+[bad-operand] Error: `not` needs a Bool
+   ╭─[ example.vaab:1:20 ]
+   │
+ 1 │ let opposite = not 1
+   │                    ┬  
+   │                    ╰── this is Int
+───╯

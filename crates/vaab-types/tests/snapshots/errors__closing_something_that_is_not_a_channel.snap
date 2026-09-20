@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let inbox = 1\\nclose inbox\\n\")"
+---
+[not-a-channel] Error: `close` needs a channel
+   ╭─[ example.vaab:2:7 ]
+   │
+ 2 │ close inbox
+   │       ──┬──  
+   │         ╰──── this is Int
+   │ 
+   │ Help: make one with `Channel.new(of: Text, size: 4)`
+───╯

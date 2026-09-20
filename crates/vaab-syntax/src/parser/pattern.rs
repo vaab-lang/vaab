@@ -34,10 +34,10 @@ impl<'src> Parser<'src> {
                 let span = start.to(inner.span);
                 match inner.kind {
                     PatternKind::Int(value) => {
-                        Ok(Pattern { kind: PatternKind::Int(-value), span })
+                        Ok(self.pattern_node(PatternKind::Int(-value), span))
                     }
                     PatternKind::Float(value) => {
-                        Ok(Pattern { kind: PatternKind::Float(-value), span })
+                        Ok(self.pattern_node(PatternKind::Float(-value), span))
                     }
                     _ => {
                         self.report(
@@ -53,7 +53,7 @@ impl<'src> Parser<'src> {
                 let span = self.advance().span;
                 let text = strip_digit_separators(span.slice(self.source()));
                 match text.parse::<i64>() {
-                    Ok(value) => Ok(Pattern { kind: PatternKind::Int(value), span }),
+                    Ok(value) => Ok(self.pattern_node(PatternKind::Int(value), span)),
                     Err(_) => {
                         self.report(
                             Diagnostic::error(
@@ -71,7 +71,7 @@ impl<'src> Parser<'src> {
                 let span = self.advance().span;
                 let text = strip_digit_separators(span.slice(self.source()));
                 match text.parse::<f64>() {
-                    Ok(value) => Ok(Pattern { kind: PatternKind::Float(value), span }),
+                    Ok(value) => Ok(self.pattern_node(PatternKind::Float(value), span)),
                     Err(_) => Err(self.unexpected("a number Vaab can hold")),
                 }
             }
@@ -89,19 +89,19 @@ impl<'src> Parser<'src> {
                     );
                     Failed
                 })?;
-                Ok(Pattern { kind: PatternKind::Text(text), span })
+                Ok(self.pattern_node(PatternKind::Text(text), span))
             }
             Yes => {
                 let span = self.advance().span;
-                Ok(Pattern { kind: PatternKind::Bool(true), span })
+                Ok(self.pattern_node(PatternKind::Bool(true), span))
             }
             No => {
                 let span = self.advance().span;
-                Ok(Pattern { kind: PatternKind::Bool(false), span })
+                Ok(self.pattern_node(PatternKind::Bool(false), span))
             }
             Nothing => {
                 let span = self.advance().span;
-                Ok(Pattern { kind: PatternKind::Nothing, span })
+                Ok(self.pattern_node(PatternKind::Nothing, span))
             }
             Found => self.wrapping_pattern(PatternKind::Found, "found"),
             Success => self.wrapping_pattern(PatternKind::Success, "success"),
@@ -129,7 +129,7 @@ impl<'src> Parser<'src> {
         }
         let inner = self.pattern_body()?;
         let span = start.to(inner.span);
-        Ok(Pattern { kind: build(Box::new(inner)), span })
+        Ok(self.pattern_node(build(Box::new(inner)), span))
     }
 
     /// Whether the pattern is finished, so that `found` with nothing after it can
@@ -174,10 +174,8 @@ impl<'src> Parser<'src> {
         }
 
         let close = self.expect(TokenKind::CloseBracket, "a `]` to close this pattern")?;
-        Ok(Pattern {
-            kind: PatternKind::List { elements, rest },
-            span: open.span.to(close.span),
-        })
+        let span = open.span.to(close.span);
+        Ok(self.pattern_node(PatternKind::List { elements, rest }, span))
     }
 
     /// `(a, b)`
@@ -196,7 +194,8 @@ impl<'src> Parser<'src> {
         }
 
         let close = self.expect(TokenKind::CloseParen, "a `)` to close this pattern")?;
-        Ok(Pattern { kind: PatternKind::Tuple(items), span: open.span.to(close.span) })
+        let span = open.span.to(close.span);
+        Ok(self.pattern_node(PatternKind::Tuple(items), span))
     }
 
     /// A bare word: a new binding, or a choice variant, possibly with a payload.
@@ -206,7 +205,7 @@ impl<'src> Parser<'src> {
         let is_variant = first.looks_like_a_type() || self.check(TokenKind::Dot);
         if !is_variant {
             let span = first.span;
-            return Ok(Pattern { kind: PatternKind::Binding(first), span });
+            return Ok(self.pattern_node(PatternKind::Binding(first), span));
         }
 
         let mut path = vec![first];
@@ -234,7 +233,7 @@ impl<'src> Parser<'src> {
         }
 
         let span = path.first().map(|name| name.span).unwrap_or(end).to(end);
-        Ok(Pattern { kind: PatternKind::Variant { path, fields }, span })
+        Ok(self.pattern_node(PatternKind::Variant { path, fields }, span))
     }
 }
 

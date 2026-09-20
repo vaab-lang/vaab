@@ -120,8 +120,13 @@ impl<'src> Parser<'src> {
         // Carry the nesting budget across, so `"{"{"{...}"}"}"` cannot recurse for
         // ever through the string parser.
         inner_parser.depth = self.depth;
+        // Node ids must stay unique across the whole file, and a hole's expressions
+        // belong to the same file as everything else, so the counter is lent out
+        // and taken back rather than restarted.
+        inner_parser.next_node = self.next_node;
 
         let result = inner_parser.expression();
+        self.next_node = inner_parser.next_node;
 
         if result.is_ok() {
             inner_parser.skip_newlines();

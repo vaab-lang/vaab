@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 83
+expression: "errors(\"let ratio: Float = 1\\n\")"
+---
+[type-mismatch] Error: expected Float, found Int
+   ╭─[ example.vaab:1:20 ]
+   │
+ 1 │ let ratio: Float = 1
+   │                    ┬  
+   │                    ╰── this is Int
+   │ 
+   │ Help: write the number with a decimal point, as in `1.0`
+   │ 
+   │ Note: Vaab never converts between Int and Float on its own
+───╯

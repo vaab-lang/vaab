@@ -1,8 +1,8 @@
 //! The `vaab` command-line tool.
 //!
-//! Phase 1 ships `vaab parse`. The other commands are listed in the help text with
-//! the phase that brings them, so the tool never silently pretends to do less than
-//! the language can.
+//! Phase 1 shipped `vaab parse` and phase 2 adds `vaab check`. The other commands
+//! are listed in the help text with the phase that brings them, so the tool never
+//! silently pretends to do less than the language can.
 
 mod args;
 
@@ -49,6 +49,7 @@ fn run(args: Args) -> ExitCode {
             exit::OK
         }
         Command::Parse { path } => parse_file(&path, args.color),
+        Command::Check { path } => check_file(&path, args.color),
         Command::NotYet { name, phase, summary } => {
             eprintln!("vaab: `{name}` is not built yet.");
             eprintln!("      {summary}");
@@ -60,26 +61,62 @@ fn run(args: Args) -> ExitCode {
 
 /// `vaab parse file.vaab`: read a file, parse it, and print the tree.
 fn parse_file(path: &Path, color: ColorChoice) -> ExitCode {
-    let source = match std::fs::read_to_string(path) {
-        Ok(source) => source,
-        Err(error) => {
-            eprintln!("vaab: could not read `{}`: {error}", path.display());
-            return exit::misuse();
-        }
-    };
+    let Some(source) = read(path) else { return exit::misuse() };
 
     // Diagnostics quote the file by name, so use the path exactly as it was typed.
     let name = path.display().to_string();
     let parsed = vaab_syntax::parse(&source);
 
     if parsed.has_errors() {
-        eprint!("{}", diagnostic::render(&parsed.diagnostics, &name, &source, color));
-        eprintln!("{}", summarise(parsed.diagnostics.len()));
-        return exit::PROBLEMS;
+        return report(&parsed.diagnostics, &name, &source, color);
     }
 
     print!("{}", vaab_syntax::print_module(&parsed.module));
     exit::OK
+}
+
+/// `vaab check file.vaab`: read a file, parse it, and check its types.
+///
+/// A file that will not parse is not type-checked: every type error after a syntax
+/// error would be guesswork about a program nobody has written yet.
+fn check_file(path: &Path, color: ColorChoice) -> ExitCode {
+    let Some(source) = read(path) else { return exit::misuse() };
+
+    let name = path.display().to_string();
+    let parsed = vaab_syntax::parse(&source);
+
+    if parsed.has_errors() {
+        return report(&parsed.diagnostics, &name, &source, color);
+    }
+
+    match vaab_types::check(&parsed.module) {
+        Ok(_) => {
+            println!("{name} checks out.");
+            exit::OK
+        }
+        Err(problems) => report(&problems, &name, &source, color),
+    }
+}
+
+fn read(path: &Path) -> Option<String> {
+    match std::fs::read_to_string(path) {
+        Ok(source) => Some(source),
+        Err(error) => {
+            eprintln!("vaab: could not read `{}`: {error}", path.display());
+            None
+        }
+    }
+}
+
+fn report(
+    problems: &[diagnostic::Diagnostic],
+    name: &str,
+    source: &str,
+    color: ColorChoice,
+) -> ExitCode {
+    eprint!("{}", diagnostic::render(problems, name, source, color));
+    eprintln!("{}", summarise(problems.len()));
+    exit::PROBLEMS
 }
 
 fn summarise(count: usize) -> String {
@@ -98,11 +135,11 @@ Usage:
 
 Commands:
   parse <file>   Read a file and print the syntax tree
+  check <file>   Read a file and check its types
   help           Show this message
   version        Show the version
 
 Coming later:
-  check <file>   Type-check a file                     (phase 2)
   run <file>     Run a file                            (phase 3)
   repl           Start an interactive session          (phase 3)
   new <name>     Start a new project                   (phase 5)

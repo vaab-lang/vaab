@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 420
+expression: "errors(\"let count = 1 otherwise 0\\n\")"
+---
+[otherwise-on-plain] Error: `otherwise` needs something that might not be there
+   ╭─[ example.vaab:1:13 ]
+   │
+ 1 │ let count = 1 otherwise 0
+   │             ┬  
+   │             ╰── this is Int, which is always there
+   │ 
+   │ Help: remove the `otherwise`
+   │ 
+   │ Note: `otherwise` supplies the fallback for a `maybe` or for something that can fail
+───╯

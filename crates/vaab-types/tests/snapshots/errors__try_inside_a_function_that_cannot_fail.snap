@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 393
+expression: "errors(\"to parse(text: Text) returns Int or fails Text = success 1\\n\\\n         to twice(text: Text) returns Int = try parse(text) * 2\\n\")"
+---
+[try-outside-fallible] Error: `try` needs a function that can fail
+   ╭─[ example.vaab:2:40 ]
+   │
+ 2 │ to twice(text: Text) returns Int = try parse(text) * 2
+   │                                        ─────┬─────  
+   │                                             ╰─────── there is nowhere for this failure to go
+   │ 
+   │ Help: declare the failure: `returns Int or fails SomeError`
+   │ 
+   │ Note: `twice` returns Int, which cannot fail
+───╯

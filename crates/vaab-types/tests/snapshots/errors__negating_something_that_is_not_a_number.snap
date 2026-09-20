@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 464
+expression: "errors(\"let backwards = -\\\"one\\\"\\n\")"
+---
+[bad-operand] Error: `-` needs a number
+   ╭─[ example.vaab:1:18 ]
+   │
+ 1 │ let backwards = -"one"
+   │                  ──┬──  
+   │                    ╰──── this is Text
+───╯

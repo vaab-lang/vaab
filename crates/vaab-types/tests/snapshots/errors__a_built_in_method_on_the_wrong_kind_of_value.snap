@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 218
+expression: "errors(\"print([1, 2].join(\\\", \\\"))\\n\")"
+---
+[bad-receiver] Error: `join` needs list of Text
+   ╭─[ example.vaab:1:7 ]
+   │
+ 1 │ print([1, 2].join(", "))
+   │       ───┬──  
+   │          ╰──── this is list of Int
+   │ 
+   │ Help: turn each item into text first, with `.map(item -> "{item}")`
+───╯

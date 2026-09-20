@@ -23,7 +23,7 @@ mod types;
 
 use std::collections::BTreeSet;
 
-use crate::ast::{Module, Name};
+use crate::ast::{Expr, ExprKind, Module, Name, NodeId, Pattern, PatternKind, Stmt, StmtKind};
 use crate::diagnostic::Diagnostic;
 use crate::lexer;
 use crate::span::{LineColumn, Span};
@@ -82,6 +82,8 @@ pub(crate) struct Parser<'src> {
     position: usize,
     diagnostics: Vec<Diagnostic>,
     depth: usize,
+    /// The next [`NodeId`] to hand out. See [`Parser::node_id`].
+    next_node: u32,
     /// While set, a `{` closes the current expression instead of opening a map
     /// literal. See [`Parser::expression_before_block`].
     brace_starts_block: bool,
@@ -106,9 +108,36 @@ impl<'src> Parser<'src> {
             position: 0,
             diagnostics,
             depth: 0,
+            next_node: 0,
             brace_starts_block: false,
             reported_lines,
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Building nodes
+    // -----------------------------------------------------------------------
+
+    /// Hands out the next [`NodeId`].
+    ///
+    /// Wrapping would break the uniqueness later phases rely on, so the counter
+    /// saturates instead. A file with four billion nodes in it has other problems.
+    pub(crate) fn node_id(&mut self) -> NodeId {
+        let id = NodeId(self.next_node);
+        self.next_node = self.next_node.saturating_add(1);
+        id
+    }
+
+    pub(crate) fn expression_node(&mut self, kind: ExprKind, span: Span) -> Expr {
+        Expr { id: self.node_id(), kind, span }
+    }
+
+    pub(crate) fn statement_node(&mut self, kind: StmtKind, span: Span) -> Stmt {
+        Stmt { id: self.node_id(), kind, span }
+    }
+
+    pub(crate) fn pattern_node(&mut self, kind: PatternKind, span: Span) -> Pattern {
+        Pattern { id: self.node_id(), kind, span }
     }
 
     // -----------------------------------------------------------------------
@@ -464,6 +493,55 @@ mod tests {
         let parsed = parse("let both = a && b\n");
         assert_eq!(parsed.diagnostics.len(), 1);
         assert_eq!(parsed.diagnostics[0].code, "unknown-character");
+    }
+
+    #[test]
+    fn every_node_gets_its_own_id() {
+        // The type checker keys the type of each expression by its id, so a
+        // repeated id would silently give two expressions one type.
+        let source = "\
+let total = (1 + 2) * 3
+to double(n: Int) returns Int = n * 2
+match total {
+    when 0 then print(\"zero\")
+    otherwise then print(\"{total} and {double(total)}\")
+}
+";
+        let parsed = parse(source);
+        assert!(!parsed.has_errors());
+
+        let mut seen = BTreeSet::new();
+        for id in collect_ids(&parsed.module) {
+            assert!(seen.insert(id), "{id:?} was handed out twice");
+        }
+        assert!(seen.len() > 20, "only found {} nodes", seen.len());
+    }
+
+    #[test]
+    fn a_group_keeps_the_id_of_what_it_surrounds() {
+        // `(1)` is one node, not two: the brackets widen its span and vanish.
+        let bare = parse("let a = 1\n");
+        let grouped = parse("let a = (1)\n");
+        assert_eq!(collect_ids(&bare.module).len(), collect_ids(&grouped.module).len());
+    }
+
+    /// Every statement, expression and pattern id in a module, in no order.
+    #[cfg(test)]
+    fn collect_ids(module: &Module) -> Vec<NodeId> {
+        // Walking the tree properly would mean a visitor; the printed shape is not
+        // enough, so this leans on `Debug` instead. It is only a test.
+        let text = format!("{module:?}");
+        let mut ids = Vec::new();
+        let mut rest = text.as_str();
+        while let Some(at) = rest.find("NodeId(") {
+            rest = &rest[at + "NodeId(".len()..];
+            let end = rest.find(')').unwrap_or(0);
+            if let Ok(value) = rest[..end].parse::<u32>() {
+                ids.push(NodeId(value));
+            }
+            rest = &rest[end..];
+        }
+        ids
     }
 
     #[test]

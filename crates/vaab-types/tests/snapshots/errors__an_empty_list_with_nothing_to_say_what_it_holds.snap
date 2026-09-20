@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 479
+expression: "errors(\"let nothing_yet = []\\n\")"
+---
+[cannot-infer-empty] Error: Vaab cannot tell what this empty list holds
+   ╭─[ example.vaab:1:19 ]
+   │
+ 1 │ let nothing_yet = []
+   │                   ─┬  
+   │                    ╰── there is nothing in this list to look at
+   │ 
+   │ Help: say so with an annotation: `let items: list of Int = []`
+───╯

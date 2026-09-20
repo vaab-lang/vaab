@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 624
+expression: "errors(\"choice AccountError {\\n\\\n         \\x20   InvalidAmount(amount: Int)\\n\\\n         }\\n\\\n         let error = AccountError.InvalidAmount(amount: 5)\\n\\\n         let message = match error {\\n\\\n         \\x20   when AccountError.InvalidAmount(amount, limit) then \\\"{amount}\\\"\\n\\\n         }\\n\")"
+---
+[wrong-variant-parts] Error: `AccountError.InvalidAmount` carries 1 value, but this gives 2
+   ╭─[ example.vaab:6:10 ]
+   │
+ 6 │     when AccountError.InvalidAmount(amount, limit) then "{amount}"
+   │          ────────────────────┬────────────────────  
+   │                              ╰────────────────────── this names 2 values
+   │ 
+   │ Help: give it 1 value
+───╯

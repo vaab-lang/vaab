@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let message = match found 1 {\\n\\\n         \\x20   when found 0 then \\\"zero\\\"\\n\\\n         \\x20   when nothing then \\\"none\\\"\\n\\\n         }\\n\")"
+---
+[not-exhaustive] Error: this `match` does not cover `found value`
+   ╭─[ example.vaab:1:21 ]
+   │
+ 1 │ let message = match found 1 {
+   │                     ───┬───  
+   │                        ╰───── this is maybe Int, which can also be `found value`
+   │ 
+   │ Help: add `when found value then ...`, or finish with `otherwise then ...`
+   │ 
+   │ Note: a `match` has to cover every case, so that adding a variant later cannot slip past
+───╯

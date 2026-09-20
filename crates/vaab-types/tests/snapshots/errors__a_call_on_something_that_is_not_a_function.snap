@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 309
+expression: "errors(\"let total = 1\\nlet twice = total(2)\\n\")"
+---
+[not-callable] Error: this is not something that can be called
+   ╭─[ example.vaab:2:13 ]
+   │
+ 2 │ let twice = total(2)
+   │             ──┬──  
+   │               ╰──── this is Int
+   │ 
+   │ Help: only a function can be called with `(...)`
+───╯

@@ -198,6 +198,134 @@ parse yet. Revisit in phase 4.
 
 ---
 
+## Phase 2: the type checker
+
+### D21. Every node carries a `NodeId`, and it is not printed
+
+The compiler in phase 3 needs the type of an arbitrary expression. A `Span` cannot
+be the key: `(a)` is the same node as `a` with a span covering the brackets (D16),
+so several nodes can share one. So `Expr`, `Stmt` and `Pattern` each carry a
+`NodeId`, handed out by a counter on the parser in the order nodes are built.
+
+`print.rs` does not print them, because the printed tree is a test fixture and an
+id would make every snapshot churn whenever the parser's order of construction
+changed. `NodeId::PLACEHOLDER` exists for a node built by hand in a test.
+
+### D22. `Checked` is written for the compiler, not for a person
+
+Everything the checker worked out is handed on: the type of every expression, what
+every name refers to, which local slot in which frame, how many frames out a
+captured value lives, where each argument of a call comes from once names and
+defaults are sorted out, which `.new` is automatic and which is a validated `to
+new`, and the number of each choice variant.
+
+The cost is that `Checked` is wide and will grow. The alternative — a compiler that
+re-derives name resolution — is two implementations of one rule, which is how the
+two drift apart.
+
+### D23. Generics are erased, and a call site is the only place they are solved
+
+A signature mentioning `T` holds a type *parameter*. A call swaps every parameter
+for a fresh *variable* and pins those down by matching the arguments. There is no
+generalisation, no constraint set, no occurs check beyond a variable declining to
+be bound to itself.
+
+This is much less than Hindley-Milner, and it is enough, because Vaab never infers
+a signature. It costs the checker's ability to infer a generic function *from* a
+body — which Vaab does not allow anyway.
+
+### D24. Inference is local, and what cannot be inferred is reported at the end
+
+`[]`, `{}` and a bare `nothing` have no type of their own. Each leaves a hole that
+something later may fill — the other branch of an `if`, the annotation on the `let`
+it lands in — and whatever is still open when the file has been walked is reported
+then. Reporting on the spot would reject `if ready { [] } else { [1] }`, which is
+sound and readable.
+
+### D25. `+` is arithmetic only; text is joined by interpolating it
+
+The specification gives text one way to be built: `"{greeting}, {name}"`. Making
+`+` also mean concatenation would give it two, and the second one reads worse in
+every case. So `"a" + "b"` is an error whose help is the interpolation to write
+instead.
+
+### D26. A closure with several parameters takes one value apart
+
+`pairs.map((a, b) -> a + b)` is in the specification, and `.map` hands its closure
+one value. So a closure whose parameter count does not match, but does match the
+arity of a single tuple parameter, names the parts of that tuple instead.
+`Closure::unpacks` records this, so the compiler knows to take the value apart.
+
+### D27. A `match` covers a case only if it covers all of it
+
+`when found x` covers the `found` half of a `maybe`; `when found 0` does not,
+because it matches one value out of many. The same goes for a variant whose parts
+are matched against literals, and for a guarded arm, which may not run at all.
+Anything open-ended — `Int`, `Text`, a list of a particular length — has to finish
+with `otherwise`.
+
+This is deliberately simpler than a decision-tree exhaustiveness checker: it never
+claims a set of literal arms is complete. The cost is an `otherwise` that a cleverer
+checker could have proved unnecessary; the gain is that the rule fits in a sentence.
+
+### D28. A built-in prelude of signatures, not a standard library
+
+`print`, `read_file`, `.map`, `.each`, `.is_empty`, `.join`, `.get`, `.upper`,
+`.contains`, `.wait`, `.update` and `.value` are a table of signatures in
+`prelude.rs` with no implementations behind them. This is the smallest thing that
+lets `examples/` type-check for real, and it is the same shape the standard library
+will have when phase 5 puts a runtime behind it.
+
+`read_file`'s failure is left as a type parameter, so `try read_file(path)` fits
+whatever error the surrounding function declares. Phase 5 pins it to a real
+`FileError` once there is a runtime behind it.
+
+### D29. Concurrency is typed, not yet checked
+
+`Channel.new(of: T)`, `Shared.new(v)`, `start`, `send`, `receive`, `select` and
+`together` are given their types — `channel of T`, `shared T`, `task of T`, and
+`maybe T` for a `receive` — and nothing more. Sendability, whether a `select` arm's
+channel is still open, and what a failing task does are phase 4. This keeps
+`11_concurrency.vaab` honestly checked as far as phase 2 reaches.
+
+### D30. A type cannot be changed in place, and neither can a list
+
+Assignment is legal only for a `let changing` *name*. `account.balance = 5` and
+`numbers[0] = 3` are errors pointing at `.with(field: value)` and `.map(...)`. The
+specification makes every `type` immutable; a field assignment would be the one
+hole in that, and an indexed assignment would make a list a box rather than a
+value.
+
+### D31. `raw` is checked by where it is written, not by who wrote it
+
+`Email.raw(...)` is legal only inside `Email`'s own body — a method, or its `to
+new`. The checker tracks which type's body it is in and compares. A stricter rule
+(only inside `to new`) was rejected: a method rebuilding a value from its own
+fields has the same right to skip the checks.
+
+### D32. `.new` and `.raw` take their fields by name; a method does not
+
+Two fields of the same type could otherwise be swapped silently. Named arguments
+are optional everywhere else, because a function's parameters are in an order the
+programmer chose and can see. `.with` names fields too, and keeps whatever it does
+not mention.
+
+### D33. Declarations are collected before any body is checked
+
+Names first, contents second, so two types may mention each other whichever is
+written first, and a function may be called above its declaration. `type`, `choice`
+and `ability` must be at the top level: their names are visible everywhere, so
+belonging to one block would be a lie. A nested one is its own error.
+
+### D34. `Nothing` is a type, and an `if` without an `else` has it
+
+A branch that sometimes produces no value cannot be a value, so an `if` with no
+`else` is `Nothing` and may only be used for its effect. Asked for a real type, it
+reports the missing `else` and then carries on *as if* it had the type asked for,
+so one missing `else` is one message rather than two.
+
+---
+
 ## Still open
 
 Recorded here so they are not forgotten, to be settled in the phase that needs
@@ -215,3 +343,12 @@ them.
 * **Error conversion for `try`** — `try` currently requires the error types to
   match exactly, as the specification says. A conversion mechanism is a later
   feature.
+* **Diagnostics that span two files** — every message today quotes one source. The
+  moment the standard library is loaded alongside a program (phase 5), a message
+  will want to point at a declaration in one file and a use in another.
+* **Where a generic function's `T` may not go** — a signature may mention `T`
+  anywhere, including as the type of a field or in a nested function type. Nothing
+  bounds it, so `T + T` inside the body is rejected with "needs two numbers" rather
+  than with something about `T` not being a number. Abilities are the obvious way
+  to bound a parameter; nothing in the specification asks for it yet.
+

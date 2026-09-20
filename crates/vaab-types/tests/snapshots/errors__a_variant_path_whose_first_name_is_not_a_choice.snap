@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 637
+expression: "errors(\"choice AccountError {\\n\\\n         \\x20   Frozen\\n\\\n         }\\n\\\n         let error = AccountError.Frozen\\n\\\n         let message = match error {\\n\\\n         \\x20   when AccountErrors.Frozen then \\\"frozen\\\"\\n\\\n         \\x20   otherwise then \\\"something else\\\"\\n\\\n         }\\n\")"
+---
+[not-a-choice] Error: `AccountErrors` is not a choice
+   ╭─[ example.vaab:6:10 ]
+   │
+ 6 │     when AccountErrors.Frozen then "frozen"
+   │          ──────┬──────  
+   │                ╰──────── Vaab expected the name of a choice here
+   │ 
+   │ Help: did you mean `AccountError`?
+───╯

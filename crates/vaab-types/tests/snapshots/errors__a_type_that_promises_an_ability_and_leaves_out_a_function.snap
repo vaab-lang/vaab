@@ -1,0 +1,18 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 664
+expression: "errors(\"ability Describable {\\n\\\n         \\x20   to describe() returns Text\\n\\\n         }\\n\\\n         type Person can Describable {\\n\\\n         \\x20   name: Text\\n\\\n         }\\n\")"
+---
+[missing-ability-function] Error: `Person` does not provide `describe`
+   ╭─[ example.vaab:4:17 ]
+   │
+ 2 │     to describe() returns Text
+   │        ────┬───  
+   │            ╰───── `Describable` requires `describe` here
+   │ 
+ 4 │ type Person can Describable {
+   │                 ─────┬─────  
+   │                      ╰─────── this says `Person` can `Describable`
+   │ 
+   │ Help: add `to describe() returns Text` to `Person`
+───╯

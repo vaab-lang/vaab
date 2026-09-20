@@ -1,0 +1,19 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 68
+expression: "errors(\"let answer = match 1 {\\n\\\n         \\x20   when 0 then \\\"zero\\\"\\n\\\n         \\x20   otherwise then 1\\n\\\n         }\\n\")"
+---
+[branches-differ] Error: these arms give different types
+   ╭─[ example.vaab:3:20 ]
+   │
+ 2 │     when 0 then "zero"
+   │                 ───┬──  
+   │                    ╰──── the first gives Text
+ 3 │     otherwise then 1
+   │                    ┬  
+   │                    ╰── this one gives Int
+   │ 
+   │ Help: make every one of the arms give the same type
+   │ 
+   │ Note: `match` is an expression in Vaab, so whichever way it goes the answer has one type
+───╯

@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 614
+expression: "errors(\"choice AccountError {\\n\\\n         \\x20   Frozen\\n\\\n         }\\n\\\n         let error = AccountError.Melted\\n\")"
+---
+[unknown-variant] Error: `AccountError` has no variant `Melted`
+   ╭─[ example.vaab:4:26 ]
+   │
+ 4 │ let error = AccountError.Melted
+   │                          ───┬──  
+   │                             ╰──── this is not one of its variants
+   │ 
+   │ Help: the variants of `AccountError` are `Frozen`
+───╯

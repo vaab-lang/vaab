@@ -1,0 +1,17 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 269
+expression: "errors(\"to greet(name: Text, greeting: Text) returns Text = \\\"{greeting}, {name}\\\"\\n\\\n         let hello = greet(\\\"Ada\\\")\\n\")"
+---
+[missing-argument] Error: this call to `greet` is missing `greeting`
+   ╭─[ example.vaab:2:13 ]
+   │
+ 1 │ to greet(name: Text, greeting: Text) returns Text = "{greeting}, {name}"
+   │    ──┬──  
+   │      ╰──── `greet` is declared here
+ 2 │ let hello = greet("Ada")
+   │             ──────┬─────  
+   │                   ╰─────── `greeting` is never given a value
+   │ 
+   │ Help: pass it, as in `greet(greeting: ...)`
+───╯

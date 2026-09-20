@@ -5,9 +5,30 @@
 //! what gives these nodes meaning.
 //!
 //! Every node carries a [`Span`] so that later phases can point at the exact
-//! source text that caused a problem.
+//! source text that caused a problem, and expressions, statements and patterns
+//! additionally carry a [`NodeId`] so those phases can hang information off them.
 
 use crate::span::Span;
+
+/// A stable, unique handle on one expression, statement or pattern.
+///
+/// Spans cannot serve this purpose: grouping parentheses are dropped from the
+/// tree, so `(a)` and `a` are one node with a span covering the brackets, and
+/// several nodes can therefore share a span. The type checker keys the type of
+/// every expression by its `NodeId`, and the compiler after it reads that map.
+///
+/// Ids are handed out by the parser in the order nodes are built. They are unique
+/// within one parse, and nothing depends on them being contiguous.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NodeId(pub u32);
+
+impl NodeId {
+    /// For nodes built by hand in a test, where no parser was involved.
+    ///
+    /// Every placeholder is the same id, so a tree containing more than one of
+    /// them cannot be type-checked.
+    pub const PLACEHOLDER: NodeId = NodeId(u32::MAX);
+}
 
 /// A whole source file.
 #[derive(Clone, Debug, PartialEq)]
@@ -42,6 +63,7 @@ impl Name {
 /// One step in a block, or one declaration at the top level of a file.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Stmt {
+    pub id: NodeId,
     pub kind: StmtKind,
     pub span: Span,
 }
@@ -230,6 +252,7 @@ pub struct AbilityDecl {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Expr {
+    pub id: NodeId,
     pub kind: ExprKind,
     pub span: Span,
 }
@@ -439,6 +462,7 @@ pub enum SelectArm {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pattern {
+    pub id: NodeId,
     pub kind: PatternKind,
     pub span: Span,
 }

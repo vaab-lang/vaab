@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 539
+expression: "errors(\"to parse(text: Text) returns Int or fails Text = success 1\\n\\\n         let message = match parse(\\\"1\\\") {\\n\\\n         \\x20   when success n then \\\"{n}\\\"\\n\\\n         }\\n\")"
+---
+[not-exhaustive] Error: this `match` does not cover `failure error`
+   ╭─[ example.vaab:2:21 ]
+   │
+ 2 │ let message = match parse("1") {
+   │                     ─────┬────  
+   │                          ╰────── this is Int or fails Text, which can also be `failure error`
+   │ 
+   │ Help: add `when failure error then ...`, or finish with `otherwise then ...`
+   │ 
+   │ Note: a `match` has to cover every case, so that adding a variant later cannot slip past
+───╯

@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 293
+expression: "errors(\"to greet(name: Text, greeting: Text) returns Text = \\\"{greeting}, {name}\\\"\\n\\\n         let hello = greet(greeting: \\\"hi\\\", \\\"Ada\\\")\\n\")"
+---
+[positional-after-named] Error: this argument comes after a named one
+   ╭─[ example.vaab:2:35 ]
+   │
+ 2 │ let hello = greet(greeting: "hi", "Ada")
+   │                                   ──┬──  
+   │                                     ╰──── Vaab expected a name here
+   │ 
+   │ Help: name this one too, or move it in front of the named arguments
+   │ 
+   │ Note: once the order stops mattering it has to stop mattering for every argument, or a reader cannot tell which is which
+───╯

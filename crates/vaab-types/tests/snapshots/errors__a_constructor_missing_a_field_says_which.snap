@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 36
+expression: rendered
+---
+[missing-field] Error: Account.new is missing `owner`.
+   ╭─[ example.vaab:5:15 ]
+   │
+ 5 │ let account = Account.new()
+   │               ──────┬──────  
+   │                     ╰──────── this leaves out `owner`
+   │ 
+   │ Help: add `owner: ...`
+   │ 
+   │ Note: `owner` has no default, so every `Account` has to be given one
+───╯

@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 277
+expression: "errors(\"to greet(name: Text) returns Text = \\\"hello, {name}\\\"\\n\\\n         let hello = greet(nme: \\\"Ada\\\")\\n\")"
+---
+[unknown-argument] Error: `greet` has no parameter called `nme`
+   ╭─[ example.vaab:2:19 ]
+   │
+ 2 │ let hello = greet(nme: "Ada")
+   │                   ─┬─  
+   │                    ╰─── this name is not one of its parameters
+   │ 
+   │ Help: did you mean `name`?
+───╯

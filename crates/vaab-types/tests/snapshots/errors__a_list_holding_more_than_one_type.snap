@@ -1,0 +1,18 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 469
+expression: "errors(\"let mixed = [1, \\\"two\\\"]\\n\")"
+---
+[mixed-list] Error: this list holds more than one type
+   ╭─[ example.vaab:1:17 ]
+   │
+ 1 │ let mixed = [1, "two"]
+   │              ┬  ──┬──  
+   │              │    ╰──── this item is Text
+   │              │         
+   │              ╰───────── the first item is Int
+   │ 
+   │ Help: make every item the same type
+   │ 
+   │ Note: a `list of Int` is a different type from a `list of Text`, so a list cannot be both
+───╯

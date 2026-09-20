@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 250
+expression: "errors(\"type Account {\\n\\\n         \\x20   owner: Text\\n\\\n         }\\n\\\n         let account = Account.new(\\\"Ada\\\")\\n\")"
+---
+[new-needs-names] Error: `Account.new` takes its fields by name
+   ╭─[ example.vaab:4:27 ]
+   │
+ 4 │ let account = Account.new("Ada")
+   │                           ──┬──  
+   │                             ╰──── this argument has no name
+   │ 
+   │ Help: write `Account.new(owner: ...)`
+   │ 
+   │ Note: naming each field means the order never matters, so two fields of the same type cannot be swapped by mistake
+───╯

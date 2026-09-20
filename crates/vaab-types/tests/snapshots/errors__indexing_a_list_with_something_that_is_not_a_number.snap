@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 499
+expression: "errors(\"let numbers = [1, 2]\\nprint(numbers[\\\"first\\\"])\\n\")"
+---
+[bad-index] Error: a list is indexed by an Int
+   ╭─[ example.vaab:2:15 ]
+   │
+ 2 │ print(numbers["first"])
+   │               ───┬───  
+   │                  ╰───── this is Text
+   │ 
+   │ Help: use a whole number, counting from 0
+───╯

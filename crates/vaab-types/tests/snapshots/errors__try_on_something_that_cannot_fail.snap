@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 411
+expression: "errors(\"to twice(n: Int) returns Int or fails Text {\\n\\\n         \\x20   return success try n\\n\\\n         }\\n\")"
+---
+[try-needs-fallible] Error: `try` needs something that can fail
+   ╭─[ example.vaab:2:24 ]
+   │
+ 2 │     return success try n
+   │                        ┬  
+   │                        ╰── this is Int
+   │ 
+   │ Help: remove the `try`
+───╯

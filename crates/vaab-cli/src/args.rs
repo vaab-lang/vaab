@@ -16,6 +16,7 @@ pub struct Args {
 
 pub enum Command {
     Parse { path: PathBuf },
+    Check { path: PathBuf },
     Help,
     Version,
     /// A command the language will have, but does not have yet.
@@ -55,10 +56,10 @@ impl Args {
 
         let command = match command.to_str() {
             Some("parse") => Command::Parse { path: expect_file(&mut words, "parse")? },
+            Some("check") => Command::Check { path: expect_file(&mut words, "check")? },
             Some("help") => Command::Help,
             Some("version") => Command::Version,
 
-            Some(name @ "check") => not_yet(name, 2, "checks the types in a file"),
             Some(name @ "run") => not_yet(name, 3, "runs a file"),
             Some(name @ "repl") => not_yet(name, 3, "starts an interactive session"),
             Some(name @ "new") => not_yet(name, 5, "starts a new project"),
@@ -137,6 +138,28 @@ mod tests {
     fn unknown_commands_and_options_are_rejected() {
         assert!(parse(&["fly"]).is_err());
         assert!(parse(&["parse", "--loudly", "a.vaab"]).is_err());
+    }
+
+    #[test]
+    fn check_takes_a_file_like_parse_does() {
+        let args = parse(&["check", "main.vaab"]).expect("should parse");
+        match args.command {
+            Command::Check { path } => assert_eq!(path, PathBuf::from("main.vaab")),
+            _ => panic!("expected a check command"),
+        }
+    }
+
+    #[test]
+    fn check_without_a_file_is_explained() {
+        match parse(&["check"]) {
+            Err(error) => assert!(error.contains("vaab check main.vaab"), "{error}"),
+            Ok(_) => panic!("`vaab check` with no file should be rejected"),
+        }
+    }
+
+    #[test]
+    fn check_rejects_a_second_file() {
+        assert!(parse(&["check", "a.vaab", "b.vaab"]).is_err());
     }
 
     #[test]

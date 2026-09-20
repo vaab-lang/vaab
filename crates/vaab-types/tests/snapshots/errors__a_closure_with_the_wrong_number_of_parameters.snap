@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 332
+expression: "errors(\"let squares = [1, 2].map((a, b, c) -> a)\\n\")"
+---
+[closure-parameter-count] Error: this closure takes 3 parameters, but it is given 1 value
+   ╭─[ example.vaab:1:27 ]
+   │
+ 1 │ let squares = [1, 2].map((a, b, c) -> a)
+   │                           ──────┬──────  
+   │                                 ╰──────── this closure names 3 parameters
+   │ 
+   │ Help: write 1 name before the `->`
+───╯

@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let inbox = [1, 2]\\nsend 3 to inbox\\n\")"
+---
+[not-a-channel] Error: `send` needs a channel
+   ╭─[ example.vaab:2:11 ]
+   │
+ 2 │ send 3 to inbox
+   │           ──┬──  
+   │             ╰──── this is list of Int
+   │ 
+   │ Help: make one with `Channel.new(of: Text, size: 4)`
+───╯

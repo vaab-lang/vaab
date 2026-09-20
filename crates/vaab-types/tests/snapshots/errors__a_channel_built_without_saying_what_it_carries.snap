@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 260
+expression: "errors(\"let inbox = Channel.new()\\n\")"
+---
+[needs-a-type-name] Error: `Channel.new` needs the type of what it carries
+   ╭─[ example.vaab:1:13 ]
+   │
+ 1 │ let inbox = Channel.new()
+   │             ──────┬──────  
+   │                   ╰──────── Vaab expected a type here
+   │ 
+   │ Help: write `Channel.new(of: Text, size: 4)`
+───╯

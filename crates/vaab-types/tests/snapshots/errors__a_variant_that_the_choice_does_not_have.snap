@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 600
+expression: "errors(\"choice AccountError {\\n\\\n         \\x20   Frozen\\n\\\n         }\\n\\\n         let error = AccountError.Frozen\\n\\\n         let message = match error {\\n\\\n         \\x20   when AccountError.Melted then \\\"melted\\\"\\n\\\n         \\x20   otherwise then \\\"something else\\\"\\n\\\n         }\\n\")"
+---
+[unknown-variant] Error: `AccountError` has no variant `Melted`
+   ╭─[ example.vaab:6:23 ]
+   │
+ 6 │     when AccountError.Melted then "melted"
+   │                       ───┬──  
+   │                          ╰──── this is not one of its variants
+   │ 
+   │ Help: the variants of `AccountError` are `Frozen`
+───╯

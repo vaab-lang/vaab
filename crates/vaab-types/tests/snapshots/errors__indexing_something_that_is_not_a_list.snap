@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 494
+expression: "errors(\"let count = 1\\nprint(count[0])\\n\")"
+---
+[not-indexable] Error: an Int is not read with `[...]`
+   ╭─[ example.vaab:2:7 ]
+   │
+ 2 │ print(count[0])
+   │       ──┬──  
+   │         ╰──── this is Int
+   │ 
+   │ Help: only a list can be read with `[...]`
+───╯

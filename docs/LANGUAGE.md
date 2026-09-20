@@ -7,8 +7,13 @@ concurrency is safe by construction.
 This document is the living specification. Where it says **(phase N)**, the
 feature is designed but not yet built; everything else works today.
 
-**Status:** phase 1 is complete. Everything below parses, and `vaab parse`
-will show you the tree. Nothing is type-checked or run yet.
+**Status:** phases 1 and 2 are complete. Everything below parses, and `vaab check`
+will type-check it: signatures, generics, `maybe`, failures, abilities, and a
+`match` that has to cover every case. Nothing runs yet.
+
+The type rules for concurrency are the exception. `channel of T`, `task of T` and
+`shared T` have their types today, but which values may cross a channel is checked
+in phase 4.
 
 Design choices this document does not explain — the ones the original
 specification left open — are recorded in [DECISIONS.md](DECISIONS.md).
@@ -25,9 +30,10 @@ specification left open — are recorded in [DECISIONS.md](DECISIONS.md).
 6. [Missing values and errors](#missing-values-and-errors)
 7. [Control flow](#control-flow)
 8. [Concurrency](#concurrency)
-9. [Web server](#web-server-phase-6)
-10. [Reserved words](#reserved-words)
-11. [Symbols](#symbols)
+9. [Standard library](#standard-library)
+10. [Web server](#web-server-phase-6)
+11. [Reserved words](#reserved-words)
+12. [Symbols](#symbols)
 
 ---
 
@@ -331,6 +337,9 @@ Comparisons do not chain: write `low < value and value < high`.
 
 ## Concurrency
 
+Everything here has its types today. The rules that make it *safe* — which values
+may cross a channel, what a failing task does to its siblings — are **(phase 4)**.
+
 ```vaab
 let inbox = Channel.new(of: Text, size: 10)   # bounded; size 0 is a rendezvous
 send "ping" to inbox                          # blocks if full; type-checked
@@ -382,6 +391,17 @@ others. If every task is blocked and none can be woken, the program exits with a
 deadlock report listing where each task is stuck.
 
 ---
+
+## Standard library
+
+The full standard library — text, list, map, math, time, file I/O and json —
+arrives in **phase 5**, and `pure` enforcement with it.
+
+What the type checker knows today is a small table of signatures with no
+implementations behind them: `print`, `read_file`, and the methods the examples
+use — `.map`, `.each`, `.is_empty`, `.join`, `.get`, `.upper`, `.contains`,
+`.wait`, `.update`, `.value`. That is enough for every example to type-check for
+real. See D28 in [DECISIONS.md](DECISIONS.md).
 
 ## Web server (phase 6)
 

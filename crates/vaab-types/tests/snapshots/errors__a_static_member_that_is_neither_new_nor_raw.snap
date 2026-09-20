@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 228
+expression: "errors(\"type Account {\\n\\\n         \\x20   owner: Text\\n\\\n         }\\n\\\n         let account = Account.build(owner: \\\"Ada\\\")\\n\")"
+---
+[unknown-member] Error: an `Account` has nothing called `build`
+   ╭─[ example.vaab:4:23 ]
+   │
+ 4 │ let account = Account.build(owner: "Ada")
+   │                       ──┬──  
+   │                         ╰──── this asks an `Account` for `build`
+   │ 
+   │ Help: an `Account` offers `new` and `raw`
+───╯

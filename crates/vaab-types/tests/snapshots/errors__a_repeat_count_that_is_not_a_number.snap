@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 384
+expression: "errors(\"repeat \\\"three\\\" times { print(\\\"again\\\") }\\n\")"
+---
+[type-mismatch] Error: expected Int, found Text
+   ╭─[ example.vaab:1:8 ]
+   │
+ 1 │ repeat "three" times { print("again") }
+   │        ───┬───  
+   │           ╰───── this is Text
+───╯

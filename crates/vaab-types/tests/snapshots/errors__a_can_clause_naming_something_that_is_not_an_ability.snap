@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 655
+expression: "errors(\"type Person can Describable {\\n\\\n         \\x20   name: Text\\n\\\n         }\\n\")"
+---
+[undefined-ability] Error: `Describable` is not an ability
+   ╭─[ example.vaab:1:17 ]
+   │
+ 1 │ type Person can Describable {
+   │                 ─────┬─────  
+   │                      ╰─────── Vaab expected the name of an ability here
+   │ 
+   │ Help: declare it with `ability Describable { ... }`, or check the spelling
+───╯

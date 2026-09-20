@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 690
+expression: "errors(\"ability Describable {\\n\\\n         \\x20   to describe() returns Text\\n\\\n         }\\n\\\n         to announce(thing: Describable) returns Text = thing.name\\n\")"
+---
+[unknown-member] Error: a `Describable` has nothing called `name`
+   ╭─[ example.vaab:4:54 ]
+   │
+ 4 │ to announce(thing: Describable) returns Text = thing.name
+   │                                                      ──┬─  
+   │                                                        ╰─── this asks a `Describable` for `name`
+   │ 
+   │ Help: a `Describable` offers `describe`
+───╯

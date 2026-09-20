@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 524
+expression: rendered
+---
+[not-exhaustive] Error: this `match` does not cover `AccountError.InvalidAmount`
+   ╭─[ example.vaab:6:21 ]
+   │
+ 6 │ let message = match error {
+   │                     ──┬──  
+   │                       ╰──── this is AccountError, which can also be `AccountError.InvalidAmount`
+   │ 
+   │ Help: add `when AccountError.InvalidAmount then ...`, or finish with `otherwise then ...`
+   │ 
+   │ Note: a `match` has to cover every case, so that adding a variant later cannot slip past
+───╯

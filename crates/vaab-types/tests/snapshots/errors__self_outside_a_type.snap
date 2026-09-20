@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 150
+expression: "errors(\"to describe() returns Text = self.name\\n\")"
+---
+[self-outside-type] Error: `self` only means something inside a type
+   ╭─[ example.vaab:1:30 ]
+   │
+ 1 │ to describe() returns Text = self.name
+   │                              ──┬─  
+   │                                ╰─── there is no value for `self` to be here
+   │ 
+   │ Help: move this into a `type`'s body, or take what it needs as a parameter
+───╯

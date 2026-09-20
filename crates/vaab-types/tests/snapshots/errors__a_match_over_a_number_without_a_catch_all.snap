@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 559
+expression: "errors(\"let message = match 1 {\\n\\\n         \\x20   when 0 then \\\"zero\\\"\\n\\\n         \\x20   when 1 then \\\"one\\\"\\n\\\n         }\\n\")"
+---
+[not-exhaustive] Error: this `match` does not cover every Int
+   ╭─[ example.vaab:1:21 ]
+   │
+ 1 │ let message = match 1 {
+   │                     ┬  
+   │                     ╰── this is Int, which has more values than there are arms
+   │ 
+   │ Help: finish with `otherwise then ...`
+───╯

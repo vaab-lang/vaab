@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 590
+expression: "errors(\"let message = match 1 {\\n\\\n         \\x20   when \\\"one\\\" then \\\"one\\\"\\n\\\n         \\x20   otherwise then \\\"something else\\\"\\n\\\n         }\\n\")"
+---
+[type-mismatch] Error: expected Int, found Text
+   ╭─[ example.vaab:2:10 ]
+   │
+ 2 │     when "one" then "one"
+   │          ──┬──  
+   │            ╰──── this is Text
+───╯

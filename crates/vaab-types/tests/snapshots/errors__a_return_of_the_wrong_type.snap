@@ -1,0 +1,12 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 375
+expression: "errors(\"to describe(n: Int) returns Text {\\n\\\n         \\x20   return n\\n\\\n         }\\n\")"
+---
+[type-mismatch] Error: expected Text, found Int
+   ╭─[ example.vaab:2:12 ]
+   │
+ 2 │     return n
+   │            ┬  
+   │            ╰── this is Int
+───╯

@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 97
+expression: "errors(\"let total = 1\\nprint(totl)\\n\")"
+---
+[undefined-name] Error: `totl` is not defined
+   ╭─[ example.vaab:2:7 ]
+   │
+ 2 │ print(totl)
+   │       ──┬─  
+   │         ╰─── Vaab has not seen this name before
+   │ 
+   │ Help: did you mean `total`?
+───╯

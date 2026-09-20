@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 444
+expression: "errors(\"let total = 1 + 1.5\\n\")"
+---
+[type-mismatch] Error: expected Int, found Float
+   ╭─[ example.vaab:1:17 ]
+   │
+ 1 │ let total = 1 + 1.5
+   │                 ─┬─  
+   │                  ╰─── this is Float
+   │ 
+   │ Help: use a whole number here
+   │ 
+   │ Note: Vaab never rounds on its own, because the rounding it chose would be wrong as often as it was right
+───╯

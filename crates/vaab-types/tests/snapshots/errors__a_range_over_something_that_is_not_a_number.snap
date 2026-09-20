@@ -1,0 +1,19 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 504
+expression: "errors(\"let span = \\\"a\\\"..\\\"z\\\"\\n\")"
+---
+[type-mismatch] Error: expected Int, found Text
+   ╭─[ example.vaab:1:12 ]
+   │
+ 1 │ let span = "a".."z"
+   │            ─┬─  
+   │             ╰─── this is Text
+───╯
+[type-mismatch] Error: expected Int, found Text
+   ╭─[ example.vaab:1:17 ]
+   │
+ 1 │ let span = "a".."z"
+   │                 ─┬─  
+   │                  ╰─── this is Text
+───╯

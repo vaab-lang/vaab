@@ -52,7 +52,7 @@ impl<'src> Parser<'src> {
         };
 
         let end = self.previous_span();
-        Ok(Stmt { kind, span: start.to(end) })
+        Ok(self.statement_node(kind, start.to(end)))
     }
 
     /// The span of the token just consumed, used to close off a statement's span.
@@ -131,8 +131,8 @@ impl<'src> Parser<'src> {
         let target = self.expression()?;
 
         if !self.check(TokenKind::Equals) {
-            let span = target.span;
-            return Ok(Stmt { kind: StmtKind::Expr(target), span: start.to(span) });
+            let span = start.to(target.span);
+            return Ok(self.statement_node(StmtKind::Expr(target), span));
         }
 
         let equals = self.advance().span;
@@ -148,7 +148,7 @@ impl<'src> Parser<'src> {
 
         let value = self.expression()?;
         let span = start.to(value.span);
-        Ok(Stmt { kind: StmtKind::Assign(AssignStmt { target, value }), span })
+        Ok(self.statement_node(StmtKind::Assign(AssignStmt { target, value }), span))
     }
 
     // -----------------------------------------------------------------------

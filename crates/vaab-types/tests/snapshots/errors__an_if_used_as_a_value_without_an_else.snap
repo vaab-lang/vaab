@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 78
+expression: "errors(\"let size: Text = if 1 < 2 { \\\"big\\\" }\\n\")"
+---
+[if-without-else] Error: this `if` has no `else`, so it sometimes has no value
+   ╭─[ example.vaab:1:27 ]
+   │
+ 1 │ let size: Text = if 1 < 2 { "big" }
+   │                           ────┬────  
+   │                               ╰────── a Text is expected here
+   │ 
+   │ Help: add `else { ... }` giving a value for the other case
+───╯

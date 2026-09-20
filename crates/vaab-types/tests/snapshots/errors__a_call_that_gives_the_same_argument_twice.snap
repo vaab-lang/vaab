@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 285
+expression: "errors(\"to greet(name: Text) returns Text = \\\"hello, {name}\\\"\\n\\\n         let hello = greet(name: \\\"Ada\\\", name: \\\"Grace\\\")\\n\")"
+---
+[duplicate-argument] Error: `name` is given twice
+   ╭─[ example.vaab:2:32 ]
+   │
+ 2 │ let hello = greet(name: "Ada", name: "Grace")
+   │                   ─────┬─────  ──┬─  
+   │                        │         ╰─── this repeats an earlier argument
+   │                        │             
+   │                        ╰───────────── first given here
+   │ 
+   │ Help: remove one of them
+───╯

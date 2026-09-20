@@ -1,0 +1,14 @@
+---
+source: crates/vaab-types/tests/errors.rs
+assertion_line: 356
+expression: "errors(\"for each n in 1 { print(\\\"{n}\\\") }\\n\")"
+---
+[not-iterable] Error: this cannot be looped over
+   ╭─[ example.vaab:1:15 ]
+   │
+ 1 │ for each n in 1 { print("{n}") }
+   │               ┬  
+   │               ╰── this is Int
+   │ 
+   │ Help: loop over a list, a range such as `1..10`, a map, or a channel
+───╯
