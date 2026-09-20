@@ -100,3 +100,5 @@ yes
 missing file is expected
 
 $ vaab run examples/14_web_server.vaab
+
+$ vaab run examples/15_first_class_app.vaab

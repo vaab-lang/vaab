@@ -160,6 +160,8 @@ pub(crate) struct Checker {
     /// another does not have the same value explained to it twice.
     reported_captures: HashSet<(LocalId, Span)>,
     route_depth: u32,
+    /// Error type for `try` inside a `serve` route, from `when anything fails with E`.
+    route_error: Option<Type>,
 }
 
 /// Checks a module.
@@ -199,6 +201,7 @@ impl Checker {
             closure_of_local: sendable::ClosuresOfLocals::default(),
             reported_captures: HashSet::new(),
             route_depth: 0,
+            route_error: None,
         }
     }
 
@@ -651,6 +654,7 @@ impl Checker {
             "Bool" => return Type::Bool,
             "Text" => return Type::Text,
             "Nothing" => return Type::Nothing,
+            "Db" => return Type::Db,
             _ => {}
         }
 

@@ -63,6 +63,8 @@ pub enum Value {
     Shared(Ref<Captured>),
     /// A handle to a task the scheduler is running.
     Task(usize),
+    /// An open SQLite connection living in [`crate::machine::World::databases`].
+    Db(u32),
 }
 
 /// A local that more than one frame can see.
@@ -254,6 +256,7 @@ impl Value {
             Value::Channel(_) => "channel".to_string(),
             Value::Shared(held) => format!("shared {}", held.get().quoted()),
             Value::Task(id) => format!("task {id}"),
+            Value::Db(handle) => format!("db {handle}"),
         }
     }
 }
@@ -343,6 +346,7 @@ fn compare(left: &Value, right: &Value, floats: Floats) -> bool {
         (Value::Channel(left), Value::Channel(right)) => left == right,
         (Value::Shared(left), Value::Shared(right)) => Ref::ptr_eq(left, right),
         (Value::Task(left), Value::Task(right)) => left == right,
+        (Value::Db(left), Value::Db(right)) => left == right,
         _ => false,
     }
 }
@@ -418,6 +422,7 @@ fn hash_value<H: Hasher>(value: &Value, state: &mut H) {
         Value::Channel(id) => id.hash(state),
         Value::Shared(held) => hash_value(&held.get(), state),
         Value::Task(id) => id.hash(state),
+        Value::Db(id) => id.hash(state),
     }
 }
 

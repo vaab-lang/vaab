@@ -124,7 +124,7 @@ impl Checker {
     ) -> Result<(), NotSendable> {
         match declared {
             // Nothing can change these, so two tasks holding one cannot disagree.
-            Type::Int | Type::Float | Type::Bool | Type::Text | Type::Nothing => Ok(()),
+            Type::Int | Type::Float | Type::Bool | Type::Text | Type::Nothing | Type::Db => Ok(()),
 
             // A hole, or a mistake already reported. Neither is worth a second
             // message, and nothing is known well enough to refuse it.

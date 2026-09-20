@@ -667,6 +667,22 @@ impl Checker {
         };
 
         match enclosing {
+            None if self.route_depth > 0 => {
+                if let Some(wanted) = self.route_error.clone() {
+                    if !self.variables.same(&error, &wanted) {
+                        let error = self.variables.resolve(&error);
+                        let wanted = self.variables.resolve(&wanted);
+                        self.report(messages::try_error_mismatch(
+                            &error,
+                            &wanted,
+                            inner.span,
+                            Span::default(),
+                        ));
+                    }
+                } else {
+                    self.report(messages::try_outside_fallible(inner.span, None));
+                }
+            }
             None => {
                 self.report(messages::try_outside_fallible(inner.span, None));
             }

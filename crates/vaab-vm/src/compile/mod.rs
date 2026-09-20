@@ -542,13 +542,46 @@ impl<'a> Compiler<'a> {
     }
 
     pub(crate) fn file_error_not_found(&self) -> u32 {
-        for (choice, declared) in self.checked.choices.iter().enumerate() {
-            if declared.name != "FileError" {
+        self.variant_layout("FileError", "NotFound")
+    }
+
+    pub(crate) fn env_error_missing(&self) -> u32 {
+        self.variant_layout("EnvError", "Missing")
+    }
+
+    pub(crate) fn db_error_failed(&self) -> u32 {
+        self.variant_layout("DbError", "Failed")
+    }
+
+    pub(crate) fn http_error_failed(&self) -> u32 {
+        self.variant_layout("HttpError", "Failed")
+    }
+
+    pub(crate) fn auth_error_unauthorized(&self) -> u32 {
+        self.variant_layout("AuthError", "Unauthorized")
+    }
+
+    pub(crate) fn user_layout(&self) -> u32 {
+        for (index, declared) in self.checked.declared_types.iter().enumerate() {
+            if declared.name == "User" {
+                return index as u32;
+            }
+        }
+        0
+    }
+
+    fn variant_layout(&self, choice: &str, variant: &str) -> u32 {
+        for (choice_index, declared) in self.checked.choices.iter().enumerate() {
+            if declared.name != choice {
                 continue;
             }
-            for (variant, shape) in declared.variants.iter().enumerate() {
-                if shape.name == "NotFound" {
-                    return self.variant_of.get(&(choice, variant)).copied().unwrap_or(0);
+            for (variant_index, shape) in declared.variants.iter().enumerate() {
+                if shape.name == variant {
+                    return self
+                        .variant_of
+                        .get(&(choice_index, variant_index))
+                        .copied()
+                        .unwrap_or(0);
                 }
             }
         }

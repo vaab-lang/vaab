@@ -18,8 +18,11 @@
 //! Those are the [`World`], shared by every machine, which is what lets phase 4's
 //! tasks see the same file.
 
+use std::sync::Arc;
+
 use vaab_syntax::span::Span;
 
+use crate::app_io::Databases;
 use crate::builtin::{self, Builtin};
 use crate::bytecode::{Capture, Op, Program, SelectArm};
 use crate::concurrency::{OpResult, SelectStep, WaitSite};
@@ -84,12 +87,24 @@ pub struct World {
     pub globals: Vec<Value>,
     pub output: Output,
     pub response: Option<HttpResponse>,
+    /// SQLite connections opened by `Db.connect`, shared across request machines.
+    pub databases: Arc<Databases>,
 }
 
 impl World {
     pub fn new(program: Ref<Program>, output: Output) -> World {
+        Self::with_databases(program, output, Databases::shared())
+    }
+
+    pub fn with_databases(program: Ref<Program>, output: Output, databases: Arc<Databases>) -> World {
         let globals = vec![Value::Nothing; program.globals];
-        World { program, globals, output, response: None }
+        World {
+            program,
+            globals,
+            output,
+            response: None,
+            databases,
+        }
     }
 
     /// Takes a freshly compiled program, keeping the values the session already
@@ -866,6 +881,140 @@ impl Machine {
                     .map(|duration| duration.as_secs() as i64)
                     .map_err(|_| Fault::Confused("the clock could not be read"))?;
                 self.stack.push(Value::Int(seconds));
+            }
+
+            Op::EnvGet => {
+                let name = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("env.get expected a name")),
+                };
+                self.stack.push(crate::app_io::env_get(&name));
+            }
+            Op::EnvRequired(layout) => {
+                let name = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("env.required expected a name")),
+                };
+                let layout = program.variants.get(layout as usize).cloned().ok_or(
+                    Fault::Confused("env.required named a variant that is not there"),
+                )?;
+                self.stack.push(crate::app_io::env_required(&name, layout));
+            }
+            Op::DbConnect(layout) => {
+                let url = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("Db.connect expected a url")),
+                };
+                match world.databases.connect(&url) {
+                    Ok(handle) => self.stack.push(Value::success(Value::Db(handle))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("Db.connect named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::DbExecute(layout) => {
+                let args = match self.pop()? {
+                    Value::List(items) => items.as_ref().clone(),
+                    _ => return Err(Fault::Confused("db.execute expected a list of arguments")),
+                };
+                let sql = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("db.execute expected sql text")),
+                };
+                let handle = match self.pop()? {
+                    Value::Db(handle) => handle,
+                    _ => return Err(Fault::Confused("db.execute expected a database")),
+                };
+                match world.databases.execute(handle, &sql, &args) {
+                    Ok(changed) => self.stack.push(Value::success(Value::Int(changed))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("db.execute named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::DbQuery(layout) => {
+                let args = match self.pop()? {
+                    Value::List(items) => items.as_ref().clone(),
+                    _ => return Err(Fault::Confused("db.query expected a list of arguments")),
+                };
+                let sql = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("db.query expected sql text")),
+                };
+                let handle = match self.pop()? {
+                    Value::Db(handle) => handle,
+                    _ => return Err(Fault::Confused("db.query expected a database")),
+                };
+                match world.databases.query(handle, &sql, &args) {
+                    Ok(rows) => self.stack.push(Value::success(rows)),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("db.query named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::HttpGet(layout) => {
+                let url = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("http.get expected a url")),
+                };
+                match crate::app_io::http_get(&url) {
+                    Ok(body) => self.stack.push(Value::success(Value::text(body))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("http.get named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::HttpPost(layout) => {
+                let body = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("http.post expected a body")),
+                };
+                let url = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("http.post expected a url")),
+                };
+                match crate::app_io::http_post(&url, &body) {
+                    Ok(response) => self.stack.push(Value::success(Value::text(response))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("http.post named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::RequestWho { user, unauthorized } => {
+                let request = self.slot(base, 0)?;
+                let headers = match &request {
+                    Value::Tuple(parts) if parts.len() >= 4 => {
+                        crate::app_io::headers_from_value(&parts[3])?
+                    }
+                    _ => return Err(Fault::Confused("request.who needs request headers")),
+                };
+                let layout = program.layouts.get(user as usize).cloned().ok_or(
+                    Fault::Confused("request.who needs a User type"),
+                )?;
+                match crate::app_io::verify_bearer(&headers, layout) {
+                    Ok(record) => self.stack.push(Value::success(record)),
+                    Err(()) => {
+                        let layout = program.variants.get(unauthorized as usize).cloned().ok_or(
+                            Fault::Confused("request.who named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_unit(layout));
+                    }
+                }
             }
 
             Op::ReplyWith(has_status) => {

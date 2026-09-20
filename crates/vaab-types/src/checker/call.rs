@@ -195,6 +195,18 @@ impl Checker {
                     None => Type::shared(Type::Unknown),
                 }
             }
+
+            Handle::Db => {
+                self.resolve_to(callee.id, Resolution::NewDb);
+                for (position, argument) in arguments.iter().enumerate() {
+                    self.expression(&argument.value, Wanted::Exactly(Type::Text));
+                    sources.push(ArgumentSource::Given(position));
+                }
+                if arguments.is_empty() {
+                    self.report(messages::missing_argument("Db.connect", "url", call.span, None));
+                }
+                Type::fallible(Type::Db, Type::named("DbError"))
+            }
         };
 
         self.checked.calls.insert(call.id, Call { arguments: sources });

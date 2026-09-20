@@ -31,10 +31,15 @@ impl Checker {
             }
         };
 
+        let previous_error = self.route_error.clone();
+        self.route_error = serve.error_handler.as_ref().map(|handler| self.resolve_type(&handler.error_type));
+
         let before = serve.before.as_ref().map(|body| self.before_hook(body, statement.id));
         let routes = serve.routes.iter().map(|route| self.check_route(route, statement.id)).collect();
         let error_handler =
             serve.error_handler.as_ref().map(|handler| self.check_error_handler(handler, statement.id));
+
+        self.route_error = previous_error;
 
         if let Some(port) = port {
             self.checked.serves.insert(
@@ -152,7 +157,12 @@ impl Checker {
     }
 
     fn bind_request(&mut self) {
-        let request_type = Type::Tuple(vec![Type::Text, Type::Text, Type::Text]);
+        let request_type = Type::Tuple(vec![
+            Type::Text,
+            Type::Text,
+            Type::Text,
+            Type::map(Type::Text, Type::Text),
+        ]);
         let name = Name::new(REQUEST, Span::default());
         self.declare_local(&name, request_type, false);
     }

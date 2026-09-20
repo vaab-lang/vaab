@@ -32,6 +32,7 @@ pub(super) enum Member {
 pub(super) enum Handle {
     Channel,
     Shared,
+    Db,
 }
 
 /// How a particular callable's arguments are matched up. Constructors, ordinary
@@ -129,6 +130,12 @@ impl Checker {
     pub(super) fn look_up_member(&mut self, target: &Expr, name: &Name) -> Member {
         if let ExprKind::Name(written) = &target.kind {
             if written.text == "request" && self.route_depth > 0 {
+                if name.text == "who" {
+                    return Member::Value {
+                        declared: Type::fallible(Type::named("User"), Type::named("AuthError")),
+                        resolution: Resolution::RequestWho,
+                    };
+                }
                 if let Some(index) = match name.text.as_str() {
                     "method" => Some(0),
                     "path" => Some(1),
@@ -162,6 +169,70 @@ impl Checker {
                 if written.text == "Shared" && name.text == "new" {
                     return Member::Handle(Handle::Shared);
                 }
+                if written.text == "Db" && name.text == "connect" {
+                    return Member::Handle(Handle::Db);
+                }
+            }
+        }
+
+        if let ExprKind::Name(written) = &target.kind {
+            if written.text == "env" {
+                return match name.text.as_str() {
+                    "get" => Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("name", Type::Text)],
+                            Type::maybe(Type::Text),
+                        ),
+                        resolution: Resolution::BuiltinMethod("env_get"),
+                        shape: CallShape::function("env.get", None),
+                    },
+                    "required" => Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("name", Type::Text)],
+                            Type::fallible(Type::Text, Type::named("EnvError")),
+                        ),
+                        resolution: Resolution::BuiltinMethod("env_required"),
+                        shape: CallShape::function("env.required", None),
+                    },
+                    _ => {
+                        self.report(messages::unknown_member(
+                            &Type::named("Env"),
+                            &name.text,
+                            name.span,
+                            &["get".into(), "required".into()],
+                        ));
+                        Member::Unknown
+                    }
+                };
+            }
+            if written.text == "http" {
+                return match name.text.as_str() {
+                    "get" => Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("url", Type::Text)],
+                            Type::fallible(Type::Text, Type::named("HttpError")),
+                        ),
+                        resolution: Resolution::BuiltinMethod("http_get"),
+                        shape: CallShape::function("http.get", None),
+                    },
+                    "post" => Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("url", Type::Text), Parameter::new("body", Type::Text)],
+                            Type::fallible(Type::Text, Type::named("HttpError")),
+                        ),
+                        resolution: Resolution::BuiltinMethod("http_post"),
+                        shape: CallShape::function("http.post", None),
+                    },
+                    _ => {
+                        self.report(messages::unknown_member(
+                            &Type::named("Http"),
+                            &name.text,
+                            name.span,
+                            &["get".into(), "post".into()],
+                        ));
+                        Member::Unknown
+                    }
+                };
             }
         }
 
@@ -299,6 +370,7 @@ impl Checker {
         match &found {
             Type::Named(owner) => self.named_member(owner, &found, name),
             Type::Ability(ability) => self.ability_member(ability, &found, name),
+            Type::Db => self.builtin_member(&found, name, target),
             _ => self.builtin_member(&found, name, target),
         }
     }

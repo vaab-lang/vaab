@@ -18,7 +18,7 @@ pub fn can_json(value: &Type, checked: &Checked) -> bool {
             } else { false }
         }
         Type::Parameter(_) | Type::Unknown => true,
-        Type::Function { .. } | Type::Fallible { .. } | Type::Task(_) | Type::Shared(_) | Type::Channel(_) | Type::Ability(_) => false,
+        Type::Function { .. } | Type::Fallible { .. } | Type::Task(_) | Type::Shared(_) | Type::Channel(_) | Type::Db | Type::Ability(_) => false,
     }
 }
 

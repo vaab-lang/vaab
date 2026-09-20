@@ -184,7 +184,11 @@ pub enum Resolution {
     NewChannel,
     /// `Shared.new(0)`.
     NewShared,
+    /// `Db.connect("sqlite:tasks.db")`.
+    NewDb,
     RequestField(usize),
+    /// `request.who`: the signed bearer user, or AuthError.
+    RequestWho,
 }
 
 /// Where a local lives, relative to the frame doing the reading.

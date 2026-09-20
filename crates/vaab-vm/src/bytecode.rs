@@ -150,6 +150,15 @@ pub enum Op {
     ReadFile(u32),
     Now,
 
+    EnvGet,
+    EnvRequired(u32),
+    DbConnect(u32),
+    DbExecute(u32),
+    DbQuery(u32),
+    HttpGet(u32),
+    HttpPost(u32),
+    RequestWho { user: u32, unauthorized: u32 },
+
     ReplyWith(bool),
     ReplyExplain,
 
@@ -220,6 +229,8 @@ pub struct RouteHandler {
     pub frame: vaab_types::FrameId,
     pub path_param_count: usize,
     pub expects_body: bool,
+    /// Layout index for `expecting T as name`, when the body should be a record.
+    pub body_layout: Option<u32>,
 }
 
 /// One arm of a compiled `select`.

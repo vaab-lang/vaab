@@ -218,6 +218,15 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::LoadLocal(0), span);
                 self.emit(Op::TupleItem(index as u32), span);
             }
+            Some(Resolution::RequestWho) => {
+                self.emit(
+                    Op::RequestWho {
+                        user: self.user_layout(),
+                        unauthorized: self.auth_error_unauthorized(),
+                    },
+                    span,
+                );
+            }
             Some(Resolution::Field { field, .. }) => {
                 self.expression(target);
                 self.emit(Op::Field(field as u32), span);
@@ -356,6 +365,14 @@ impl<'a> Compiler<'a> {
                 }
                 self.emit(Op::SharedNew, span);
             }
+            Some(Resolution::NewDb) => {
+                if let Some(argument) = arguments.first() {
+                    self.expression(&argument.value);
+                } else {
+                    self.emit(Op::Nothing, span);
+                }
+                self.emit(Op::DbConnect(self.db_error_failed()), span);
+            }
 
             // Anything else is a value that holds a function: a parameter typed
             // `to(Int) returns Int`, a field, a local given a closure.
@@ -491,6 +508,32 @@ impl<'a> Compiler<'a> {
                 self.receiver(target, span);
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 return self.emit(Op::SharedUpdate, span);
+            }
+            "env_get" => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::EnvGet, span);
+            }
+            "env_required" => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::EnvRequired(self.env_error_missing()), span);
+            }
+            "http_get" => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::HttpGet(self.http_error_failed()), span);
+            }
+            "http_post" => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::HttpPost(self.http_error_failed()), span);
+            }
+            "execute" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::DbExecute(self.db_error_failed()), span);
+            }
+            "query" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::DbQuery(self.db_error_failed()), span);
             }
             _ => {}
         }

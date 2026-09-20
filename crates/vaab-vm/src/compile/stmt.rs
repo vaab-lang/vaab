@@ -273,6 +273,18 @@ impl<'a> Compiler<'a> {
                 frame: route.frame,
                 path_param_count: route.path_params.len(),
                 expects_body: route.expecting.is_some(),
+                body_layout: route.expecting.as_ref().and_then(|(declared, _)| {
+                    match declared {
+                        vaab_types::Type::Named(name) => {
+                            self.checked.declared_types.iter().enumerate().find_map(
+                                |(index, typed)| {
+                                    (typed.name == *name).then_some(index as u32)
+                                },
+                            )
+                        }
+                        _ => None,
+                    }
+                }),
             });
         }
     }

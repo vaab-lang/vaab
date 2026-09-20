@@ -1,0 +1,120 @@
+# First-class app I/O: env, Db, request.who, http.
+#
+# Run with:
+#   AUTH_SECRET=dev cargo run -p vaab-cli -- serve examples/15_first_class_app.vaab
+
+choice EnvError {
+    Missing(name: Text)
+}
+
+choice DbError {
+    Failed(message: Text)
+}
+
+choice AuthError {
+    Unauthorized
+}
+
+choice HttpError {
+    Failed(message: Text)
+}
+
+choice ApiError {
+    Unauthorized
+    BadRequest(message: Text)
+    Database(message: Text)
+}
+
+type User can Json {
+    id: Text
+    email: Text
+}
+
+type Task can Json {
+    id: Text
+    title: Text
+    owner: Text
+}
+
+type OkResponse can Json {
+    ok: Bool
+}
+
+type NewTask can Json {
+    title: Text
+}
+
+to open_db() returns Db or fails ApiError {
+    match Db.connect("sqlite:examples/tasks.db") {
+        when success db then { return success db }
+        when failure error then match error {
+            when Failed(message) then { return failure ApiError.Database(message) }
+        }
+    }
+}
+
+to ensure_schema(db: Db) returns Int or fails ApiError {
+    let empty: list of Text = []
+    match db.execute("create table if not exists tasks (id text primary key, title text not null, owner text not null)", empty) {
+        when success count then { return success count }
+        when failure error then match error {
+            when Failed(message) then { return failure ApiError.Database(message) }
+        }
+    }
+}
+
+to require_user(who: User or fails AuthError) returns User or fails ApiError {
+    match who {
+        when success user then { return success user }
+        when failure _ then { return failure ApiError.Unauthorized }
+    }
+}
+
+to run_query(db: Db, sql: Text, args: list of Text) returns list of map of Text to Text or fails ApiError {
+    match db.query(sql, args) {
+        when success rows then { return success rows }
+        when failure error then match error {
+            when Failed(message) then { return failure ApiError.Database(message) }
+        }
+    }
+}
+
+to run_execute(db: Db, sql: Text, args: list of Text) returns Int or fails ApiError {
+    match db.execute(sql, args) {
+        when success count then { return success count }
+        when failure error then match error {
+            when Failed(message) then { return failure ApiError.Database(message) }
+        }
+    }
+}
+
+serve on port 8090 {
+    route get "/health" {
+        reply with OkResponse.new(ok: yes)
+    }
+
+    route get "/tasks" {
+        let user = try require_user(request.who)
+        let db = try open_db()
+        try ensure_schema(db)
+        let rows = try run_query(db, "select id, title, owner from tasks where owner = $1", [user.id])
+        reply with rows
+    }
+
+    route post "/tasks" expecting NewTask as body {
+        let user = try require_user(request.who)
+        if body.title.is_empty {
+            reply explain(ApiError.BadRequest("title is required"))
+        } else {
+            let db = try open_db()
+            try ensure_schema(db)
+            let id = "{now()}"
+            try run_execute(db, "insert into tasks(id, title, owner) values ($1, $2, $3)", [id, body.title, user.id])
+            reply with Task.new(id: id, title: body.title, owner: user.id) status 201
+        }
+    }
+
+    when anything fails with ApiError as error {
+        reply explain(error)
+    }
+}

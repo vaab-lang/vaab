@@ -1,13 +1,56 @@
-//! Turning runtime values into JSON text.
+//! Turning runtime values into JSON text, and JSON text back into records.
 
 use serde_json::{Map, Number, Value as Json};
 
 use crate::error::Fault;
-use crate::value::Value;
+use crate::value::{Record, RecordLayout, Ref, Value};
 
 pub fn encode(value: &Value) -> Result<String, Fault> {
     let json = value_to_json(value)?;
     serde_json::to_string(&json).map_err(|_| Fault::Confused("could not turn the value into JSON text"))
+}
+
+pub fn decode_record(text: &str, layout: Ref<RecordLayout>) -> Result<Value, Fault> {
+    let json: Json = serde_json::from_str(text)
+        .map_err(|_| Fault::Confused("the request body is not valid JSON"))?;
+    let Json::Object(object) = json else {
+        return Err(Fault::Confused("the request body must be a JSON object"));
+    };
+    let mut fields = Vec::with_capacity(layout.fields.len());
+    for name in &layout.fields {
+        let value = object
+            .get(name)
+            .ok_or_else(|| Fault::Confused("the request body is missing a field"))?;
+        fields.push(json_to_value(value)?);
+    }
+    Ok(Value::Record(Ref::new(Record { layout, fields })))
+}
+
+fn json_to_value(value: &Json) -> Result<Value, Fault> {
+    match value {
+        Json::Null => Ok(Value::absent()),
+        Json::Bool(yes) => Ok(Value::Bool(*yes)),
+        Json::Number(number) => {
+            if let Some(whole) = number.as_i64() {
+                Ok(Value::Int(whole))
+            } else if let Some(decimal) = number.as_f64() {
+                Ok(Value::Float(decimal))
+            } else {
+                Err(Fault::Confused("a JSON number could not be read"))
+            }
+        }
+        Json::String(text) => Ok(Value::text(text.clone())),
+        Json::Array(items) => Ok(Value::list(
+            items.iter().map(json_to_value).collect::<Result<Vec<_>, _>>()?,
+        )),
+        Json::Object(entries) => {
+            let mut map = indexmap::IndexMap::new();
+            for (key, value) in entries {
+                map.insert(crate::value::Key(Value::text(key.clone())), json_to_value(value)?);
+            }
+            Ok(Value::map(map))
+        }
+    }
 }
 
 fn value_to_json(value: &Value) -> Result<Json, Fault> {

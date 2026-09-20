@@ -43,10 +43,11 @@
 //! * [`Value`] keeps every heap value behind one alias, [`Ref`], so that phase 7's
 //!   threads are a change to that alias rather than to the machine.
 
+pub mod app_io;
 pub mod builtin;
 pub mod bytecode;
 mod compile;
-mod json;
+pub mod json;
 pub mod concurrency;
 pub mod error;
 pub mod machine;

@@ -239,6 +239,31 @@ pub fn methods() -> Vec<Method> {
             signature: Signature::new(Vec::new(), item()),
             property: true,
         },
+        // ---- Database -----------------------------------------------------
+        Method {
+            name: "execute",
+            receiver: Type::Db,
+            signature: Signature::new(
+                vec![
+                    Parameter::new("sql", Type::Text),
+                    Parameter::new("args", Type::list(Type::Text)),
+                ],
+                Type::fallible(Type::Int, Type::named("DbError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "query",
+            receiver: Type::Db,
+            signature: Signature::new(
+                vec![
+                    Parameter::new("sql", Type::Text),
+                    Parameter::new("args", Type::list(Type::Text)),
+                ],
+                Type::fallible(Type::list(Type::map(Type::Text, Type::Text)), Type::named("DbError")),
+            ),
+            property: false,
+        },
     ]
 }
 
@@ -260,10 +285,11 @@ pub fn same_shape(left: &Type, right: &Type) -> bool {
     match (left, right) {
         (Type::List(_), Type::List(_))
         | (Type::Map { .. }, Type::Map { .. })
-        | (Type::Task(_), Type::Task(_))
-        | (Type::Shared(_), Type::Shared(_))
-        | (Type::Channel(_), Type::Channel(_))
-        | (Type::Maybe(_), Type::Maybe(_)) => true,
+            | (Type::Task(_), Type::Task(_))
+            | (Type::Shared(_), Type::Shared(_))
+            | (Type::Channel(_), Type::Channel(_))
+            | (Type::Db, Type::Db)
+            | (Type::Maybe(_), Type::Maybe(_)) => true,
         (left, right) => left == right,
     }
 }

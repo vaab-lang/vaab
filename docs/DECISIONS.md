@@ -826,6 +826,22 @@ unwrap to their held value or `null`.
 When a type claims `can Json` but holds something that cannot be encoded, or when
 `to_json` is called on a non-Json type, the checker reports code `not-json`.
 
+### D80. First-class app I/O lives in the language
+
+A vibe-coded app always needs the same six things: HTTP server, JSON, a database,
+auth, env/secrets, and an outbound HTTP client. Those are builtins — not packages.
+
+* `env.get` / `env.required` — process environment
+* `Db.connect` / `db.execute` / `db.query` — SQLite today (Postgres URLs later);
+  `$1`-style placeholders are accepted and rewritten for SQLite
+* `request.who` — bearer token `id|email|hmac` verified with `AUTH_SECRET`; needs a
+  declared `type User { id: Text, email: Text }` and `choice AuthError { Unauthorized }`
+* `http.get` / `http.post` — outbound HTTP, returning response text
+
+Programs declare the error choices (`EnvError`, `DbError`, `AuthError`, `HttpError`)
+the same way they declare `FileError` for `read_file`. Vendor integrations
+(Stripe, email, AI) stay as riffs.
+
 ---
 
 ## Still open
