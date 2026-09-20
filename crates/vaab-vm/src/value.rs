@@ -57,6 +57,12 @@ pub enum Value {
     /// A local an inner closure can see, so it lives in a cell both can reach
     /// rather than in the frame that declared it.
     Captured(Ref<Captured>),
+    /// A bounded queue between tasks. Phase 7 shares these with `Arc`.
+    Channel(u32),
+    /// State several tasks may read and change through `.value` and `.update`.
+    Shared(Ref<Captured>),
+    /// A handle to a task the scheduler is running.
+    Task(usize),
 }
 
 /// A local that more than one frame can see.
@@ -243,6 +249,9 @@ impl Value {
             // A cell is never handed to anything that shows a value; it is read
             // through first. Showing what is inside is still the honest answer.
             Value::Captured(cell) => cell.get().quoted(),
+            Value::Channel(_) => "channel".to_string(),
+            Value::Shared(held) => format!("shared {}", held.get().quoted()),
+            Value::Task(id) => format!("task {id}"),
         }
     }
 }
@@ -329,6 +338,9 @@ fn compare(left: &Value, right: &Value, floats: Floats) -> bool {
         // There is no way to look inside one and ask whether it would agree.
         (Value::Function(left), Value::Function(right)) => Ref::ptr_eq(left, right),
         (Value::Builtin(left), Value::Builtin(right)) => left == right,
+        (Value::Channel(left), Value::Channel(right)) => left == right,
+        (Value::Shared(left), Value::Shared(right)) => Ref::ptr_eq(left, right),
+        (Value::Task(left), Value::Task(right)) => left == right,
         _ => false,
     }
 }
@@ -401,6 +413,9 @@ fn hash_value<H: Hasher>(value: &Value, state: &mut H) {
         Value::Function(closure) => closure.body.hash(state),
         Value::Builtin(builtin) => builtin.name().hash(state),
         Value::Captured(cell) => hash_value(&cell.get(), state),
+        Value::Channel(id) => id.hash(state),
+        Value::Shared(held) => hash_value(&held.get(), state),
+        Value::Task(id) => id.hash(state),
     }
 }
 

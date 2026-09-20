@@ -498,14 +498,12 @@ there — rather than a panic or a quiet wrong answer. A program may be written
 against phase 4 and phase 5 now; it simply stops at the first thing that is not
 built, and says so.
 
-### D50. `11_concurrency.vaab` is the one example that is not run
+### D50. Every example in `examples/` is run
 
-Every other example in `examples/` is run by a test that walks the folder, and
-what each one prints is a snapshot, so an example that breaks is a failing test.
-`11_concurrency.vaab` is left out by name: it is tasks and channels throughout,
-and running it would stop at its first `Channel.new`. It still has to parse and
-type-check, which `vaab-types` sees to, and the test that excludes it asserts that
-it is the *only* exclusion, so a second one cannot be added quietly.
+The test that walks `examples/` runs each `.vaab` file and snapshots what it
+prints, so an example that breaks is a failing test. `11_concurrency.vaab` was
+held back while the scheduler was missing; it runs now, along with
+`13_worker_pool.vaab`.
 
 ### D51. The machine reports its own confusion instead of panicking
 
@@ -661,11 +659,66 @@ arrive, this is the line to revisit.
 
 ---
 
+## Phase 4: the runtime
+
+Channels, tasks, `select`, `shared`, and a single-threaded scheduler. The
+compile-time half is above; this is what happens during a run.
+
+### D63. `job.wait()` returns `T`, not `T or fails E`
+
+A `task of T` names the success value. `.wait()` hands that value back when the
+task finishes. If the task failed or was cancelled, the wait becomes a fatal
+`RuntimeError` with a call trace — the same shape as division by zero or any
+other thing a running program cannot recover from. A fallible `.wait()` would need
+a failure type on the task itself, which the language does not carry today, and
+would tempt people to treat task failure as ordinary control flow when the
+specification treats every runtime stop as final.
+
+### D64. One OS thread, cooperative preemption
+
+Every task is a `Machine` on a single scheduler thread. After
+`PREEMPT_AFTER` instructions (10_000 by default) the running task yields so
+another runnable task may go. There is no work-stealing yet; phase 7 swaps the
+`Ref` cells for `Arc` and the scheduler shape stays.
+
+### D65. `Host` and `Scheduler` are separate
+
+`Host` owns channels, task metadata, together groups, timeouts, and the spawn
+queue. `Scheduler` owns the `Machine` values and the runnable queue. The split
+keeps borrow-checking honest while every task still shares one world of channels
+and tasks. Phase 7 can wrap the host in a mutex without changing the op
+handlers.
+
+### D66. Deadlock is a `RuntimeError` with every parked task named
+
+When every task is parked and nothing can wake, the run stops with a deadlock
+report. The message lists each live task and where it is stuck — receiving from a
+channel, sending to one, waiting on a job, inside `together`, or in a `select` —
+so a person can see the cycle or the missing sender without attaching a debugger.
+
+### D67. `select` does not treat a closed, drained channel as ready
+
+A standalone `receive from` on a closed empty channel returns `nothing`. In
+`select`, that arm is skipped so a closed inbox does not win over a timeout or
+an `otherwise` arm. Use `receive` when you want the `nothing` answer from a
+closed channel.
+
+### D68. `.update` runs the closure on the scheduler thread
+
+`.update` is synchronous with respect to the caller: it builds a one-off
+`Machine` for the closure, runs it to completion on the same thread, and writes
+the result back. It may not wait (D57); the runtime enforces that by refusing to
+park inside the nested run. Concurrent `.update` from several tasks is serialised
+by the single-threaded scheduler visiting one task at a time; phase 7 will need
+a real lock around the shared cell.
+
+---
+
 ## Phase 5: `pure` and project scaffolding
 
 The first slice of phase 5: the checker holds `pure` functions to their promise, and `vaab new` writes the smallest project that runs today.
 
-## D63. What `pure` means in the checker
+### D69. What `pure` means in the checker
 
 A function declared `pure to f(...)` is checked after its body is type-checked. A
 subtree walk looks for anything the promise rules out:
@@ -685,23 +738,23 @@ subtree walk looks for anything the promise rules out:
 pure closures, reading immutable fields, calling other `pure` functions by name,
 changing `let changing` bindings declared inside the function.
 
-## D64. Closures inside `pure`
+### D70. Closures inside `pure`
 
 Closures inherit the enclosing function's rules because the walk goes into closure
 bodies. A closure passed to `.map` that calls `print` is reported on the `print`,
 with the `pure` signature as a second label.
 
-## D65. `pure` passed as values
+### D71. `pure` passed as values
 
 Function values carry no purity flag. A `pure` function may call another `pure`
 function **by name** only. Calling a parameter or field typed `to(...) returns ...`
 is refused with `not-pure` / "call a function held in a value".
 
-## D66. `pure` methods
+### D72. `pure` methods
 
 `pure to` on a method inside a `type` is checked the same way as a free function.
 
-## D67. Diagnostic code and wording
+### D73. Diagnostic code and wording
 
 - **Code:** `not-pure`
 - **Message shape:** `` `{name}` is declared `pure`, so it cannot {effect} ``
@@ -712,7 +765,7 @@ is refused with `not-pure` / "call a function held in a value".
   - non-pure callee: `` cannot call `log` `` with "this calls `log`, which is not declared `pure`"
   - outside assignment: `` cannot change a value from outside itself ``
 
-## D68. `vaab new <name>`
+### D74. `vaab new <name>`
 
 Creates a single directory with one file:
 
@@ -744,10 +797,6 @@ No package manifest, no modules, no imports — only what Vaab can run today.
 Recorded here so they are not forgotten, to be settled in the phase that needs
 them.
 
-* **`job.wait()`** — does it return `T` or `T or fails E`? To be decided in phase
-  4, when tasks exist. The simplest sound option is likely `T or fails E` with the
-  error being the task's failure, but it is not worth guessing before the failure
-  model is built.
 * **Crate names on crates.io** — `vaab-syntax`, `vaab-types`, `vaab-vm`,
   `vaab-std`, `vaab-server` and `vaab-cli` are local workspace names and have
   **not** been checked for availability. This must be done before any publish; if

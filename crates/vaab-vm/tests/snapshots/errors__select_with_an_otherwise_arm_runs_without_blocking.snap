@@ -1,0 +1,5 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: "support::printed(source)"
+---
+nothing ready

@@ -11,15 +11,15 @@
 //! anything resembling an exception.
 
 use vaab_syntax::ast::{
-    Argument, ArmBody, ArmPattern, BinaryOp, Expr, ExprKind, FunctionBody, IfExpr, MatchExpr,
-    TextPart, UnaryOp,
+    Argument, ArmBody, ArmPattern, BinaryOp, Block, Expr, ExprKind, FunctionBody, IfExpr,
+    MatchExpr, SelectArm, SelectExpr, TextPart, UnaryOp,
 };
 use vaab_syntax::span::Span;
-use vaab_types::{ArgumentSource, Resolution, Type, TypeId};
+use vaab_types::{ArgumentSource, Checked, Resolution, Type, TypeId};
 
 use super::{Builder, Compiler};
 use crate::builtin::Builtin;
-use crate::bytecode::Op;
+use crate::bytecode::{Op, SelectArm as CompiledSelectArm, SelectDescriptor};
 use crate::error::Feature;
 use crate::value::{Ref, Value};
 
@@ -114,9 +114,12 @@ impl<'a> Compiler<'a> {
             ExprKind::Try(inner) => self.attempt(inner, span),
             ExprKind::Otherwise { value, fallback } => self.otherwise(value, fallback, span),
 
-            ExprKind::Receive { .. } => self.emit(Op::NotYet(Feature::Channels), span),
-            ExprKind::Start(_) => self.emit(Op::NotYet(Feature::Tasks), span),
-            ExprKind::Select(_) => self.emit(Op::NotYet(Feature::Select), span),
+            ExprKind::Receive { channel } => {
+                self.expression(channel);
+                self.emit(Op::Receive, span);
+            }
+            ExprKind::Start(body) => self.start_task(expression, body, span),
+            ExprKind::Select(select) => self.select(select, span),
         }
     }
 
@@ -227,7 +230,7 @@ impl<'a> Compiler<'a> {
                     "count" | "length" => Op::Length,
                     "first" => Op::Builtin(Builtin::First),
                     "keys" => Op::Builtin(Builtin::Keys),
-                    "value" => Op::NotYet(Feature::SharedState),
+                    "value" => Op::SharedRead,
                     _ => Op::Nothing,
                 };
                 if matches!(op, Op::NotYet(_)) {
@@ -316,8 +319,26 @@ impl<'a> Compiler<'a> {
                 }
             }
 
-            Some(Resolution::NewChannel) => self.emit(Op::NotYet(Feature::Channels), span),
-            Some(Resolution::NewShared) => self.emit(Op::NotYet(Feature::SharedState), span),
+            Some(Resolution::NewChannel) => {
+                if let Some(argument) = arguments
+                    .iter()
+                    .find(|argument| argument.name.as_ref().is_some_and(|name| name.text == "size"))
+                    .or_else(|| arguments.get(1))
+                {
+                    self.expression(&argument.value);
+                } else {
+                    self.emit(Op::Int(0), span);
+                }
+                self.emit(Op::ChannelNew, span);
+            }
+            Some(Resolution::NewShared) => {
+                if let Some(argument) = arguments.first() {
+                    self.expression(&argument.value);
+                } else {
+                    self.emit(Op::Nothing, span);
+                }
+                self.emit(Op::SharedNew, span);
+            }
 
             // Anything else is a value that holds a function: a parameter typed
             // `to(Int) returns Int`, a field, a local given a closure.
@@ -445,8 +466,15 @@ impl<'a> Compiler<'a> {
         match name {
             "map" => return self.walk(target, arguments, span, Gathering::Into),
             "each" => return self.walk(target, arguments, span, Gathering::Nothing),
-            "wait" => return self.emit(Op::NotYet(Feature::Tasks), span),
-            "update" => return self.emit(Op::NotYet(Feature::SharedState), span),
+            "wait" => {
+                self.receiver(target, span);
+                return self.emit(Op::TaskWait, span);
+            }
+            "update" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::SharedUpdate, span);
+            }
             _ => {}
         }
 
@@ -643,6 +671,114 @@ impl<'a> Compiler<'a> {
         self.emit(Op::Unwrap, span);
     }
 
+    fn start_task(&mut self, expression: &'a Expr, body: &'a Block, span: Span) {
+        let Some(task) = self.checked.tasks.get(&expression.id) else {
+            return self.emit(Op::Nothing, span);
+        };
+        let current_frame = self.current_frame().unwrap_or(Checked::TOP_LEVEL);
+
+        let index = self.builders.len();
+        self.builders.push(Builder::new(Ref::from(TASK_NAME), current_frame));
+        self.open_body(index, current_frame, 0);
+
+        let depth = self.open.len().saturating_sub(1);
+        for local in &task.captures {
+            let Some(held) = self.checked.local(*local) else { continue };
+            if held.frame == Checked::TOP_LEVEL {
+                continue;
+            }
+            self.capture(depth, *local);
+        }
+
+        self.block_value(body);
+        self.emit(Op::Return, span);
+        self.open.pop();
+
+        self.emit(Op::Start(index as u32), span);
+    }
+
+    fn select(&mut self, select: &'a SelectExpr, span: Span) {
+        let skip_arms = self.jump(Op::Jump(0), span);
+        let mut compiled_arms = Vec::new();
+        let mut arm_jumps = Vec::new();
+
+        for arm in &select.arms {
+            let body_pc = self.here();
+            match arm {
+                SelectArm::Receive { binding, body, .. } => {
+                    compiled_arms.push(CompiledSelectArm::Receive { body: body_pc });
+                    if let Some(binding) = binding {
+                        let received = self.temporary();
+                        self.emit(Op::StoreLocal(received), span);
+                        self.emit(Op::LoadLocal(received), span);
+                        self.emit(Op::Unwrap, span);
+                        if let Some((index, _)) = self
+                            .checked
+                            .locals
+                            .iter()
+                            .enumerate()
+                            .find(|(_, local)| local.name == binding.text)
+                        {
+                            let place = self.place_of(vaab_types::LocalId(index as u32));
+                            self.store(place, span);
+                        } else {
+                            self.emit(Op::Pop, span);
+                        }
+                    }
+                    self.block_discard(body);
+                }
+                SelectArm::Timeout { amount, unit, body, .. } => {
+                    let milliseconds = self.timeout_milliseconds(amount, unit);
+                    compiled_arms.push(CompiledSelectArm::Timeout { milliseconds, body: body_pc });
+                    self.block_discard(body);
+                }
+            }
+            arm_jumps.push(self.jump(Op::Jump(0), span));
+        }
+
+        let otherwise_pc = if let Some(otherwise) = &select.otherwise {
+            let start = self.here();
+            self.block_discard(otherwise);
+            arm_jumps.push(self.jump(Op::Jump(0), span));
+            Some(start)
+        } else {
+            None
+        };
+
+        self.land(skip_arms);
+        for arm in &select.arms {
+            if let SelectArm::Receive { channel, .. } = arm {
+                self.expression(channel);
+            }
+        }
+
+        let descriptor = self.program.selects.len() as u32;
+        self.program.selects.push(SelectDescriptor {
+            arms: compiled_arms,
+            otherwise: otherwise_pc,
+            span,
+        });
+        self.emit(Op::Select(descriptor), span);
+        for jump in arm_jumps {
+            self.land(jump);
+        }
+        self.emit(Op::Nothing, span);
+    }
+
+    fn timeout_milliseconds(&self, amount: &Expr, unit: &vaab_syntax::ast::Name) -> i64 {
+        let factor = match unit.text.as_str() {
+            "millisecond" | "milliseconds" => 1,
+            "second" | "seconds" => 1_000,
+            "minute" | "minutes" => 60_000,
+            "hour" | "hours" => 3_600_000,
+            _ => 1_000,
+        };
+        match &amount.kind {
+            ExprKind::Int(held) => held * factor,
+            _ => 0,
+        }
+    }
+
     fn otherwise(&mut self, value: &'a Expr, fallback: &'a Expr, span: Span) {
         let present = match self.checked.type_of(value.id) {
             Some(Type::Fallible { .. }) => Op::IsSuccess,
@@ -674,3 +810,6 @@ enum Gathering {
 
 /// What a trace calls a closure, which has no name of its own.
 const CLOSURE_NAME: &str = "a closure";
+
+/// What a trace calls a `start` body, which has no name of its own.
+const TASK_NAME: &str = "a task";

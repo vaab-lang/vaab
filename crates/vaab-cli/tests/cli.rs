@@ -6,6 +6,10 @@
 
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
+use std::sync::Mutex;
+
+/// These tests change the process working directory; only one may run at a time.
+static WORKING_DIRECTORY: Mutex<()> = Mutex::new(());
 
 const OK: i32 = 0;
 const PROBLEMS: i32 = 1;
@@ -196,6 +200,7 @@ fn the_session_ends_cleanly_when_the_input_runs_out() {
 
 #[test]
 fn new_writes_a_project_that_vaab_run_can_execute() {
+    let _guard = WORKING_DIRECTORY.lock().expect("should lock the working directory");
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
@@ -223,6 +228,7 @@ fn new_writes_a_project_that_vaab_run_can_execute() {
 
 #[test]
 fn new_refuses_to_overwrite_an_existing_directory() {
+    let _guard = WORKING_DIRECTORY.lock().expect("should lock the working directory");
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())

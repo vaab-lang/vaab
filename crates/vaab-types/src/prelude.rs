@@ -211,8 +211,6 @@ pub fn methods() -> Vec<Method> {
         },
         // ---- Tasks and shared state ---------------------------------------
         Method {
-            // Whether this should hand back a failure as well is a phase 4
-            // question; for now a task gives what its block gave.
             name: "wait",
             receiver: Type::task(item()),
             signature: Signature::new(Vec::new(), item()),

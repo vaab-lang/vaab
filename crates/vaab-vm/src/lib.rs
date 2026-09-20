@@ -46,6 +46,7 @@
 pub mod builtin;
 pub mod bytecode;
 mod compile;
+pub mod concurrency;
 pub mod error;
 pub mod machine;
 pub mod value;
@@ -57,6 +58,7 @@ pub use builtin::Builtin;
 pub use bytecode::{Body, Capture, Op, Program};
 pub use compile::compile;
 pub use error::{Fault, Feature, Level, Operation, RuntimeError};
+pub use concurrency::Scheduler;
 pub use machine::{Budget, Machine, Output, Step, World};
 pub use value::{Closure, Record, Ref, Value, Variant};
 
@@ -67,8 +69,7 @@ pub fn prepare(module: &Module, checked: &Checked, output: Output) -> World {
 
 /// Runs a whole file, from its first statement to its last.
 pub fn run(world: &mut World) -> Result<Value, RuntimeError> {
-    let program = Ref::clone(&world.program);
-    Machine::start(&program).run(world)
+    concurrency::run(world)
 }
 
 /// Runs the top-level statements from `first` onwards, leaving the ones before
@@ -79,5 +80,14 @@ pub fn run(world: &mut World) -> Result<Value, RuntimeError> {
 pub fn run_from(world: &mut World, first: usize) -> Result<Value, RuntimeError> {
     let program = Ref::clone(&world.program);
     let start = program.statement_start(first);
-    Machine::entering(&program, Program::TOP_LEVEL, start).run(world)
+    let mut machine = Machine::entering(&program, Program::TOP_LEVEL, start);
+    let mut host = concurrency::Host::scratch(&program);
+    match machine.resume(world, &mut host, Budget::unlimited()) {
+        Step::Finished(value) => Ok(value),
+        Step::Failed(error) => Err(*error),
+        Step::Yielded | Step::Parked(_) => Err(RuntimeError {
+            fault: Fault::Confused("the machine stopped without finishing"),
+            trace: Vec::new(),
+        }),
+    }
 }

@@ -69,6 +69,14 @@ $ vaab run examples/10_collections.vaab
 ADA, ALAN
 6
 
+$ vaab run examples/11_concurrency.vaab
+contents of one
+nothing ready
+contents of c
+contents of c
+contents of c
+3
+
 $ vaab run examples/12_running_programs.vaab
 75025
 [2, 4, 6]
@@ -79,3 +87,9 @@ ADA and ALAN
 first to sign up: Ada
 Ada first entered in 1997
 Alan first entered in 1948
+
+$ vaab run examples/13_worker_pool.vaab
+49
+49
+49
+49

@@ -4,18 +4,12 @@
 //! is documentation that has started lying. This walks the folder rather than
 //! listing the files, so a new example is covered the moment it is added.
 //!
-//! `11_concurrency.vaab` is left out: tasks and channels are phase 4, and running
-//! it today would stop at the first `Channel.new`. It still has to parse and
-//! type-check, which `vaab-types` sees to.
 
 use std::path::{Path, PathBuf};
 
 use insta::assert_snapshot;
 use vaab_syntax::{diagnostic, ColorChoice};
 use vaab_vm::{error, Output};
-
-/// The one example this phase cannot run, and why.
-const CONCURRENT: &str = "11_concurrency.vaab";
 
 fn examples_folder() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("examples")
@@ -40,7 +34,7 @@ fn name_of(path: &Path) -> String {
 }
 
 fn sequential_examples() -> Vec<PathBuf> {
-    example_files().into_iter().filter(|path| name_of(path) != CONCURRENT).collect()
+    example_files()
 }
 
 /// Runs one example, giving back everything it printed.
@@ -81,12 +75,6 @@ fn every_sequential_example_runs() {
     }
 
     assert!(failures.is_empty(), "some examples do not run:\n{failures}");
-}
-
-#[test]
-fn the_concurrency_example_is_the_only_one_left_out() {
-    let all = example_files().len();
-    assert_eq!(all - sequential_examples().len(), 1, "only {CONCURRENT} should be excluded");
 }
 
 /// What the examples print, all in one snapshot, so that a change to any of them

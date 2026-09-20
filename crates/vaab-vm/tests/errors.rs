@@ -184,36 +184,35 @@ fn reading_a_file_says_which_phase_brings_it() {
 }
 
 #[test]
-fn starting_a_task_says_which_phase_brings_it() {
+fn starting_a_task_returns_what_the_body_returned() {
     let source = "to work() returns Int = 1\nlet job = start { work() }\nprint(job.wait())\n";
-    let rendered = stops(source);
-    assert!(rendered.contains("phase 4"), "{rendered}");
-    assert_snapshot!(rendered);
+    assert_snapshot!(support::printed(source));
 }
 
 #[test]
-fn making_a_channel_says_which_phase_brings_it() {
-    assert_snapshot!(stops("let jobs = Channel.new(of: Int, size: 1)\nsend 1 to jobs\n"));
-}
-
-#[test]
-fn shared_state_says_which_phase_brings_it() {
-    let source = "let total = Shared.new(0)\ntotal.update(n -> n + 1)\nprint(total.value)\n";
+fn sending_to_a_closed_channel_stops() {
+    let source = "let jobs = Channel.new(of: Int, size: 1)\nclose jobs\nsend 1 to jobs\n";
     assert_snapshot!(stops(source));
 }
 
 #[test]
-fn waiting_on_several_tasks_says_which_phase_brings_it() {
-    assert_snapshot!(stops("together {\n\x20   start { print(\"working\") }\n}\n"));
+fn shared_state_can_be_read_after_an_update() {
+    let source = "let total = Shared.new(0)\ntotal.update(n -> n + 1)\nprint(total.value)\n";
+    assert_snapshot!(support::printed(source));
 }
 
 #[test]
-fn choosing_between_arms_says_which_phase_brings_it() {
+fn together_waits_for_tasks_started_inside_it() {
+    assert_snapshot!(support::output("together {\n\x20   start { print(\"working\") }\n}\nprint(\"done\")\n").join("\n"));
+}
+
+#[test]
+fn select_with_an_otherwise_arm_runs_without_blocking() {
     let source = "select {\n\
                   \x20   when timeout after 1 seconds { print(\"all quiet\") }\n\
                   \x20   otherwise { print(\"nothing ready\") }\n\
                   }\n";
-    assert_snapshot!(stops(source));
+    assert_snapshot!(support::printed(source));
 }
 
 // ---------------------------------------------------------------------------

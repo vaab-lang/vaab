@@ -111,6 +111,8 @@ pub enum Fault {
     /// says the machine and the checker have fallen out of step.
     NoArmApplied,
     NotYet(Feature),
+    /// Every task is blocked and nothing can wake them.
+    Deadlock { detail: String },
     /// The machine found its own state impossible. Reported rather than panicked,
     /// because a compiler that crashes teaches nobody anything.
     Confused(&'static str),
@@ -219,6 +221,11 @@ impl RuntimeError {
                 .at(at, "this is not built yet")
                 .with_help(feature.help())
                 .with_note("it type-checks today, so the program is ready for the phase that runs it"),
+
+            Fault::Deadlock { detail } => Diagnostic::error("deadlock", "every task is blocked")
+                .at(at, "nothing here can make progress")
+                .with_help("check that some task can still run, send, or receive")
+                .with_note(detail),
 
             Fault::Confused(detail) => {
                 Diagnostic::error("confused", "the Vaab machine found a state it cannot explain")

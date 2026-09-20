@@ -6,7 +6,6 @@ use vaab_types::Type;
 
 use super::Compiler;
 use crate::bytecode::Op;
-use crate::error::Feature;
 
 impl<'a> Compiler<'a> {
     pub(super) fn statement(&mut self, statement: &'a Stmt) {
@@ -42,13 +41,20 @@ impl<'a> Compiler<'a> {
             StmtKind::While(loop_) => self.while_loop(loop_, span),
             StmtKind::Repeat(loop_) => self.repeat(loop_, span),
 
-            // Everything a task does waits for the scheduler in phase 4.
             StmtKind::Send(send) => {
-                let _ = send;
-                self.emit(Op::NotYet(Feature::Channels), span);
+                self.expression(&send.value);
+                self.expression(&send.channel);
+                self.emit(Op::Send, span);
             }
-            StmtKind::Close(_) => self.emit(Op::NotYet(Feature::Channels), span),
-            StmtKind::Together(_) => self.emit(Op::NotYet(Feature::Together), span),
+            StmtKind::Close(channel) => {
+                self.expression(channel);
+                self.emit(Op::Close, span);
+            }
+            StmtKind::Together(block) => {
+                self.emit(Op::BeginTogether, span);
+                self.block_discard(block);
+                self.emit(Op::EndTogether, span);
+            }
 
             StmtKind::Function(declaration) => {
                 // The declaration itself produces nothing: a function becomes a
@@ -126,7 +132,7 @@ impl<'a> Compiler<'a> {
     fn for_each(&mut self, loop_: &'a vaab_syntax::ast::ForEachStmt, span: Span) {
         let walking = self.checked.type_of(loop_.sequence.id).cloned();
         if matches!(walking, Some(Type::Channel(_))) {
-            self.emit(Op::NotYet(Feature::Channels), span);
+            self.for_each_channel(loop_, span);
             return;
         }
 
@@ -195,6 +201,35 @@ impl<'a> Compiler<'a> {
 
         self.block_discard(&loop_.body);
         self.advance(position, span);
+        self.emit(Op::Jump(start), span);
+        self.land(done);
+    }
+
+    fn for_each_channel(&mut self, loop_: &'a vaab_syntax::ast::ForEachStmt, span: Span) {
+        let channel = self.temporary();
+        let received = self.temporary();
+        let item = self.temporary();
+
+        self.expression(&loop_.sequence);
+        self.emit(Op::StoreLocal(channel), span);
+
+        let start = self.here();
+        self.emit(Op::LoadLocal(channel), span);
+        self.emit(Op::Receive, span);
+        self.emit(Op::StoreLocal(received), span);
+        self.emit(Op::LoadLocal(received), span);
+        self.emit(Op::IsFound, span);
+        let done = self.jump(Op::JumpIfFalse(0), span);
+
+        self.emit(Op::LoadLocal(received), span);
+        self.emit(Op::Unwrap, span);
+        self.emit(Op::StoreLocal(item), span);
+
+        let mut skipped = Vec::new();
+        self.take_apart(&loop_.pattern, item, &mut skipped);
+        self.block_discard(&loop_.body);
+
+        self.land_all(&skipped);
         self.emit(Op::Jump(start), span);
         self.land(done);
     }

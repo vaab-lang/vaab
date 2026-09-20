@@ -13,12 +13,10 @@ will type-check it: signatures, generics, `maybe`, failures, abilities, and a
 file.vaab` runs a file, and `vaab repl` opens a session that grows a line at a
 time.
 
-Concurrency is half here. The compile-time rules are checked in full — which
-values may cross into a task or down a channel, and the `let changing` variable a
-task may never use — so a data race is already a compile error. Nothing concurrent
-*runs* yet, because the scheduler arrives with phase 4b: a program that reaches
-`start`, `Channel.new`, `Shared.new`, `select` or `together` stops with a report
-saying so.
+Concurrency is here. The compile-time rules — which values may cross into a task
+or down a channel, and the `let changing` variable a task may never use — make a
+data race a compile error, and channels, tasks, `select`, `together` and `shared`
+run on a single-threaded scheduler with cooperative preemption.
 
 Design choices this document does not explain — the ones the original
 specification left open — are recorded in [DECISIONS.md](DECISIONS.md).
@@ -348,9 +346,9 @@ Comparisons do not chain: write `low < value and value < high`.
 
 ## Concurrency
 
-Everything here has its types today, and the rules that make it *safe* are checked.
-What a failing task does to its siblings, and what happens when every task is
-blocked, are decided during a run **(phase 4b)**.
+Everything here is checked and runs. A failing task inside `together` cancels its
+siblings. When every task is blocked with no way to wake, the run stops with a
+deadlock report that names where each task is stuck.
 
 ```vaab
 let inbox = Channel.new(of: Text, size: 10)   # bounded; size 0 is a rendezvous
@@ -541,8 +539,7 @@ print(2.5.round())          # 3
 ### Arriving later
 
 `read_file` has a signature so that a program can be written against it, and
-stops with a report naming phase 5 if it is reached. `.wait`, `.update` and
-`.value` do the same for phase 4.
+stops with a report naming phase 5 if it is reached.
 
 ---
 

@@ -1,0 +1,7 @@
+---
+source: crates/vaab-vm/tests/concurrency.rs
+expression: "run(source).join(\"\\n\")"
+---
+4
+9
+25

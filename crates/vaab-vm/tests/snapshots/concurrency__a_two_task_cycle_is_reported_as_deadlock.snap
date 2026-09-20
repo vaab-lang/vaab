@@ -1,0 +1,17 @@
+---
+source: crates/vaab-vm/tests/concurrency.rs
+expression: rendered
+---
+[deadlock] Error: every task is blocked
+   ╭─[ example.vaab:7:1 ]
+   │
+ 7 │ send 2 to right
+   │ ───────┬───────  
+   │        ╰───────── nothing here can make progress
+   │ 
+   │ Help: check that some task can still run, send, or receive
+   │ 
+   │ Note: every task is blocked:
+   │         task 0 (the top level): sending to channel 1
+   │         task 1 (a task): sending to channel 0
+───╯

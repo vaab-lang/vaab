@@ -1,0 +1,6 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: "support::output(\"together {\\n\\x20   start { print(\\\"working\\\") }\\n}\\nprint(\\\"done\\\")\\n\").join(\"\\n\")"
+---
+working
+done

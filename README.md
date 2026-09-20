@@ -26,21 +26,19 @@ match account.deposit(25) {
 
 ## Status
 
-Phases 1 to 3 of 7 are complete: the front end, the type checker and the machine.
-Vaab source parses, type-checks and runs, and everything that goes wrong — a
-mistake in the program or a calculation with no answer — is reported with a
-snippet, a caret and an explanation. Concurrency is half here: the compile-time
-rules are checked, so a data race is already a compile error, but nothing
-concurrent runs until the scheduler lands. A program that starts a task stops
-with a report saying which phase brings it.
+Phases 1 to 4 of 7 are complete: the front end, the type checker, the machine,
+and safe concurrency. Vaab source parses, type-checks and runs, and everything
+that goes wrong — a mistake in the program, a calculation with no answer, or a
+deadlock — is reported with a snippet, a caret and an explanation. Data races are
+compile errors; channels, tasks, `select`, `together` and `shared` run on a
+single-threaded scheduler with cooperative preemption.
 
 | Phase | What it brings | State |
 | --- | --- | --- |
 | 1 | Lexer, AST, parser, diagnostics, `vaab parse` | done |
 | 2 | Type checker, `vaab check` | done |
 | 3 | Bytecode VM, standard library basics, `vaab run`, `vaab repl` | done |
-| 4 | Sendability checking | done |
-| 4b | Channels, tasks, `select`, `shared`, the scheduler | next |
+| 4 | Sendability checking, channels, tasks, `select`, `shared`, scheduler | done |
 | 5 | `pure` enforcement, `vaab new` | done |
 | 5b | Standard library — file I/O, time, json | next |
 | 6 | `serve` and `route` | |
@@ -89,6 +87,7 @@ crates/vaab-cli      the `vaab` binary
 docs/LANGUAGE.md     the living specification
 docs/DECISIONS.md    design choices and their reasoning
 examples/            runnable programs, one per feature
+examples/staffpulse/ aspirational StaffPulse API rewrite (phase 5–6 spec)
 ```
 
 Crates for the standard library and the server are added in the phase that first

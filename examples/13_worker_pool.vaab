@@ -1,0 +1,24 @@
+# A small worker pool: several tasks square numbers and send the answers back.
+
+let jobs = Channel.new(of: Int, size: 4)
+let answers = Channel.new(of: Int, size: 4)
+
+for each n in [2, 3, 5, 7] {
+    send n to jobs
+}
+close jobs
+
+together {
+    for each job in jobs {
+        let n = job
+        start {
+            send (n * n) to answers
+        }
+    }
+}
+
+close answers
+
+for each square in answers {
+    print(square)
+}

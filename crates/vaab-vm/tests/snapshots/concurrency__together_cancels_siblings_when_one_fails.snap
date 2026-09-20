@@ -1,0 +1,15 @@
+---
+source: crates/vaab-vm/tests/concurrency.rs
+expression: rendered
+---
+[divide-by-zero] Error: this divides by zero
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ ╭─▶ together {
+   ┆ ┆   
+ 7 │ ├─▶ }
+   │ │       
+   │ ╰─────── the right-hand side is 0
+   │     
+   │     Help: check the divisor first, as in `if count != 0 { ... }`
+───╯

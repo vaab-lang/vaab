@@ -18,8 +18,11 @@
 //! Those are the [`World`], shared by every machine, which is what lets phase 4's
 //! tasks see the same file.
 
+use vaab_syntax::span::Span;
+
 use crate::builtin::{self, Builtin};
-use crate::bytecode::{Capture, Op, Program};
+use crate::bytecode::{Capture, Op, Program, SelectArm};
+use crate::concurrency::{OpResult, SelectStep, WaitSite};
 use crate::error::{Fault, Level, Operation, RuntimeError};
 use crate::value::{Captured, Closure, Record, Ref, Value, Variant};
 
@@ -124,15 +127,36 @@ impl Budget {
 pub enum Step {
     /// The budget ran out. The machine is wherever it got to and may be resumed.
     Yielded,
+    /// The task is waiting for a channel, a task, or a `together`.
+    Parked(WaitSite),
     /// The body the machine started in returned, with this value.
     Finished(Value),
     Failed(Box<RuntimeError>),
+}
+
+enum TickAction {
+    Continue,
+    Done(Value),
+    Park(WaitSite),
+}
+
+#[derive(Clone, Debug)]
+enum Pending {
+    Send { channel: u32, value: Value, span: Span },
+    Select {
+        descriptor: usize,
+        channels: Vec<Value>,
+        resume_pc: usize,
+        span: Span,
+    },
 }
 
 /// A running Vaab program.
 pub struct Machine {
     stack: Vec<Value>,
     frames: Vec<Frame>,
+    pending: Option<Pending>,
+    together_group: Option<usize>,
 }
 
 impl Machine {
@@ -140,6 +164,23 @@ impl Machine {
     ///
     /// The REPL uses this to run the statements a line added without running the
     /// ones before it again.
+    /// A machine about to run a spawned task or a synchronous `.update` closure.
+    pub fn for_body(
+        program: &Program,
+        body: usize,
+        arity: usize,
+        closure: Option<Ref<Closure>>,
+    ) -> Result<Machine, Fault> {
+        let mut machine = Machine {
+            stack: Vec::new(),
+            frames: Vec::new(),
+            pending: None,
+            together_group: None,
+        };
+        machine.enter_call(program, body, arity, Value::Nothing, closure)?;
+        Ok(machine)
+    }
+
     pub fn entering(program: &Program, body: usize, pc: usize) -> Machine {
         let slots = program.body(body).map(|body| body.slots).unwrap_or_default();
         Machine {
@@ -151,7 +192,27 @@ impl Machine {
                 receiver: Value::Nothing,
                 closure: None,
             }],
+            pending: None,
+            together_group: None,
         }
+    }
+
+    pub fn enter_call(
+        &mut self,
+        program: &Program,
+        body: usize,
+        arity: usize,
+        receiver: Value,
+        closure: Option<Ref<Closure>>,
+    ) -> Result<(), Fault> {
+        self.enter(program, body, arity, receiver, closure)
+    }
+
+    pub fn set_argument(&mut self, slot: u32, value: Value) -> Result<(), Fault> {
+        let Some(frame) = self.frames.last() else {
+            return Err(Fault::Confused("an argument was written with no frame"));
+        };
+        self.set_slot(frame.base, slot, value)
     }
 
     /// A machine about to run a whole file.
@@ -171,17 +232,25 @@ impl Machine {
 
     /// Runs until the program finishes, something goes wrong, or the budget runs
     /// out. A machine that yielded may be resumed as often as it takes.
-    pub fn resume(&mut self, world: &mut World, budget: Budget) -> Step {
-        // The program is shared, so the machine takes a count of its own rather
-        // than borrowing the world for as long as it runs.
+    pub fn resume(
+        &mut self,
+        world: &mut World,
+        host: &mut crate::concurrency::Host,
+        budget: Budget,
+    ) -> Step {
         let program = Ref::clone(&world.program);
         let mut left = budget.0;
 
+        if let Some(outcome) = self.retry_pending(world, host) {
+            return outcome;
+        }
+
         while left > 0 {
             left -= 1;
-            match self.tick(&program, world) {
-                Ok(None) => {}
-                Ok(Some(value)) => return Step::Finished(value),
+            match self.tick(&program, world, host) {
+                Ok(TickAction::Continue) => {}
+                Ok(TickAction::Done(value)) => return Step::Finished(value),
+                Ok(TickAction::Park(site)) => return Step::Parked(site),
                 Err(fault) => {
                     return Step::Failed(Box::new(RuntimeError {
                         fault,
@@ -193,14 +262,64 @@ impl Machine {
         Step::Yielded
     }
 
-    /// Runs to the end, which is what a command line wants.
-    pub fn run(&mut self, world: &mut World) -> Result<Value, RuntimeError> {
-        match self.resume(world, Budget::unlimited()) {
+    fn retry_pending(
+        &mut self,
+        world: &mut World,
+        host: &mut crate::concurrency::Host,
+    ) -> Option<Step> {
+        match self.pending.clone() {
+            Some(Pending::Send { channel, value, span }) => {
+                if host.take_completed_send(host.current()) {
+                    self.pending = None;
+                    return None;
+                }
+                match host.send(channel, value.clone(), span) {
+                OpResult::Done => {
+                    self.pending = None;
+                    None
+                }
+                OpResult::Park(site) => Some(Step::Parked(site)),
+                OpResult::Stop(fault) => Some(Step::Failed(Box::new(RuntimeError {
+                    fault,
+                    trace: self.trace(&world.program),
+                }))),
+                OpResult::Ready(_) | OpResult::Failed(_) => Some(Step::Failed(Box::new(RuntimeError {
+                    fault: Fault::Confused("a send named an impossible outcome"),
+                    trace: self.trace(&world.program),
+                }))),
+                }
+            }
+            Some(Pending::Select { descriptor, channels, resume_pc, span }) => {
+                let Some(meta) = world.program.selects.get(descriptor) else {
+                    return Some(Step::Failed(Box::new(RuntimeError {
+                        fault: Fault::Confused("a select named a descriptor that is not there"),
+                        trace: self.trace(&world.program),
+                    })));
+                };
+                match self.run_select(meta, descriptor, channels, resume_pc, span, host) {
+                    Ok(TickAction::Continue) => None,
+                    Ok(TickAction::Done(value)) => Some(Step::Finished(value)),
+                    Ok(TickAction::Park(site)) => Some(Step::Parked(site)),
+                    Err(fault) => Some(Step::Failed(Box::new(RuntimeError {
+                        fault,
+                        trace: self.trace(&world.program),
+                    }))),
+                }
+            }
+            None => None,
+        }
+    }
+
+    /// Runs to the end on an existing scheduler, which is what `.update` needs.
+    pub fn run_alone(
+        &mut self,
+        world: &mut World,
+        host: &mut crate::concurrency::Host,
+    ) -> Result<Value, RuntimeError> {
+        match self.resume(world, host, Budget::unlimited()) {
             Step::Finished(value) => Ok(value),
             Step::Failed(error) => Err(*error),
-            // Nothing can exhaust an unlimited budget, so this is the machine
-            // saying it has stopped without saying why.
-            Step::Yielded => Err(RuntimeError {
+            Step::Yielded | Step::Parked(_) => Err(RuntimeError {
                 fault: Fault::Confused("the machine stopped without finishing"),
                 trace: Vec::new(),
             }),
@@ -228,22 +347,37 @@ impl Machine {
             .collect()
     }
 
+    /// Parks with the instruction pointer back on the operation that must run again.
+    fn park_at(&mut self, pc: usize, site: WaitSite) -> TickAction {
+        if let Some(frame) = self.frames.last_mut() {
+            frame.pc = pc;
+        }
+        TickAction::Park(site)
+    }
+
     // -----------------------------------------------------------------------
     // One instruction
     // -----------------------------------------------------------------------
 
-    fn tick(&mut self, program: &Program, world: &mut World) -> Result<Option<Value>, Fault> {
+    fn tick(
+        &mut self,
+        program: &Program,
+        world: &mut World,
+        host: &mut crate::concurrency::Host,
+    ) -> Result<TickAction, Fault> {
         let Some(frame) = self.frames.last_mut() else {
             return Err(Fault::Confused("the machine was asked to run with no frame"));
         };
         let body = frame.body;
         let base = frame.base;
+        let pc = frame.pc;
         let Some(shape) = program.body(body) else {
             return Err(Fault::Confused("a frame names a body that is not there"));
         };
-        let Some(op) = shape.code.get(frame.pc).copied() else {
+        let Some(op) = shape.code.get(pc).copied() else {
             return Err(Fault::Confused("the machine ran off the end of a body"));
         };
+        let span = shape.spans.get(pc).copied().unwrap_or_default();
         frame.pc += 1;
 
         match op {
@@ -533,7 +667,7 @@ impl Machine {
                 };
                 self.stack.truncate(frame.base);
                 if self.frames.is_empty() {
-                    return Ok(Some(value));
+                    return Ok(TickAction::Done(value));
                 }
                 self.stack.push(value);
             }
@@ -568,12 +702,193 @@ impl Machine {
                 self.stack.push(value);
             }
 
+            Op::ChannelNew => {
+                let capacity = self.pop()?;
+                let Value::Int(capacity) = capacity else {
+                    return Err(Fault::Confused("a channel size was not a whole number"));
+                };
+                self.stack.push(host.channel_new(capacity));
+            }
+            Op::SharedNew => {
+                let value = self.pop()?;
+                self.stack.push(host.shared_new(value));
+            }
+            Op::Send => {
+                let channel_value = self.pop()?;
+                let value = self.pop()?;
+                let Some(channel) = crate::concurrency::Host::channel_id(&channel_value) else {
+                    return Err(Fault::Confused("a send reached something that is not a channel"));
+                };
+                match host.send(channel, value.clone(), span) {
+                    OpResult::Done => {}
+                    OpResult::Park(site) => {
+                        self.pending = Some(Pending::Send { channel, value, span });
+                        return Ok(TickAction::Park(site));
+                    }
+                    OpResult::Stop(fault) => return Err(fault),
+                    OpResult::Ready(_) | OpResult::Failed(_) => {
+                        return Err(Fault::Confused("a send named an impossible outcome"));
+                    }
+                }
+            }
+            Op::Receive => {
+                let channel_value = self.stack.last().ok_or(Fault::Confused(
+                    "a receive was reached with nothing on the stack",
+                ))?;
+                let Some(channel) = crate::concurrency::Host::channel_id(channel_value) else {
+                    return Err(Fault::Confused("a receive reached something that is not a channel"));
+                };
+                match host.receive(channel, span) {
+                    OpResult::Ready(value) => {
+                        self.stack.pop();
+                        self.stack.push(value);
+                    }
+                    OpResult::Park(site) => return Ok(self.park_at(pc, site)),
+                    OpResult::Stop(fault) => return Err(fault),
+                    OpResult::Done | OpResult::Failed(_) => {
+                        return Err(Fault::Confused("a receive named an impossible outcome"));
+                    }
+                }
+            }
+            Op::Close => {
+                let channel_value = self.pop()?;
+                let Some(channel) = crate::concurrency::Host::channel_id(&channel_value) else {
+                    return Err(Fault::Confused("a close reached something that is not a channel"));
+                };
+                match host.close(channel) {
+                    OpResult::Done => {}
+                    OpResult::Stop(fault) => return Err(fault),
+                    OpResult::Park(_) | OpResult::Ready(_) | OpResult::Failed(_) => {
+                        return Err(Fault::Confused("a close named an impossible outcome"));
+                    }
+                }
+            }
+            Op::Start(body) => {
+                let function = self.make_function(program, body as usize, base)?;
+                match host.spawn(function) {
+                    Ok(handle) => self.stack.push(handle),
+                    Err(error) => return Err(error.fault),
+                }
+            }
+            Op::TaskWait => {
+                let task_value = self.stack.last().ok_or(Fault::Confused(
+                    "a wait was reached with nothing on the stack",
+                ))?;
+                let task = match task_value {
+                    Value::Task(id) => *id,
+                    _ => return Err(Fault::Confused("a wait reached something that is not a task")),
+                };
+                match host.wait_task(task, span) {
+                    OpResult::Ready(value) => {
+                        self.stack.pop();
+                        self.stack.push(value);
+                    }
+                    OpResult::Park(site) => return Ok(self.park_at(pc, site)),
+                    OpResult::Stop(fault) => return Err(fault),
+                    OpResult::Failed(error) => return Err(error.fault),
+                    OpResult::Done => return Err(Fault::Confused("a wait named an impossible outcome")),
+                }
+            }
+            Op::SharedRead => {
+                let shared = self.pop()?;
+                let Value::Shared(held) = shared else {
+                    return Err(Fault::Confused("`.value` reached something that is not shared"));
+                };
+                self.stack.push(held.get().clone());
+            }
+            Op::SharedUpdate => {
+                let change = self.pop()?;
+                let shared = self.pop()?;
+                match host.run_shared_update(&shared, change, world) {
+                    Ok(value) => self.stack.push(value),
+                    Err(error) => return Err(error.fault),
+                }
+            }
+            Op::BeginTogether => {
+                let group = host.begin_together();
+                self.together_group = Some(group);
+            }
+            Op::EndTogether => {
+                let group = self.together_group.take().unwrap_or(0);
+                let task = host.current();
+                match host.end_together(group, task) {
+                    OpResult::Done => {}
+                    OpResult::Park(site) => return Ok(self.park_at(pc, site)),
+                    OpResult::Stop(fault) => return Err(fault),
+                    OpResult::Failed(error) => return Err(error.fault),
+                    OpResult::Ready(_) => {
+                        return Err(Fault::Confused("a together named an impossible outcome"));
+                    }
+                }
+            }
+            Op::Select(index) => {
+                let descriptor = index as usize;
+                let Some(meta) = program.selects.get(descriptor) else {
+                    return Err(Fault::Confused("a select named a descriptor that is not there"));
+                };
+                let receive_count = meta
+                    .arms
+                    .iter()
+                    .filter(|arm| matches!(arm, SelectArm::Receive { .. }))
+                    .count();
+                let channels = if receive_count > 0 { self.take(receive_count)? } else { Vec::new() };
+                return self.run_select(meta, descriptor, channels, pc, span, host);
+            }
+
             // -- Stopping --------------------------------------------------
             Op::NotYet(feature) => return Err(Fault::NotYet(feature)),
             Op::NoArm => return Err(Fault::NoArmApplied),
         }
 
-        Ok(None)
+        Ok(TickAction::Continue)
+    }
+
+    fn run_select(
+        &mut self,
+        meta: &crate::bytecode::SelectDescriptor,
+        descriptor: usize,
+        channels: Vec<Value>,
+        resume_pc: usize,
+        span: Span,
+        host: &mut crate::concurrency::Host,
+    ) -> Result<TickAction, Fault> {
+        let task = host.current();
+        match host.try_select(task, meta, &channels, resume_pc) {
+            SelectStep::Arm { arm, value } => {
+                self.pending = None;
+                if let Some(SelectArm::Receive { .. }) = meta.arms.get(arm) {
+                    if let Some(held) = value {
+                        self.stack.push(Value::found(held));
+                    } else {
+                        self.stack.push(Value::absent());
+                    }
+                }
+                if let Some(SelectArm::Receive { body } | SelectArm::Timeout { body, .. }) = meta.arms.get(arm) {
+                    if let Some(frame) = self.frames.last_mut() {
+                        frame.pc = *body as usize;
+                    }
+                }
+                Ok(TickAction::Continue)
+            }
+            SelectStep::Otherwise => {
+                self.pending = None;
+                if let Some(target) = meta.otherwise {
+                    if let Some(frame) = self.frames.last_mut() {
+                        frame.pc = target as usize;
+                    }
+                }
+                Ok(TickAction::Continue)
+            }
+            SelectStep::Park { resume_pc } => {
+                self.pending = Some(Pending::Select {
+                    descriptor,
+                    channels,
+                    resume_pc,
+                    span,
+                });
+                Ok(TickAction::Park(WaitSite::Select { descriptor, resume_pc }))
+            }
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -7,7 +7,13 @@
 mod support;
 
 use support::ready;
+use vaab_vm::concurrency::Host;
 use vaab_vm::{Budget, Machine, Output, Step, Value, World};
+
+fn resume(machine: &mut Machine, world: &mut World, budget: Budget) -> Step {
+    let mut host = Host::scratch(&world.program);
+    machine.resume(world, &mut host, budget)
+}
 
 const COUNTING: &str = "\
 let changing total = 0
@@ -23,7 +29,7 @@ fn a_machine_that_runs_out_of_budget_hands_itself_back_unfinished() {
     let mut world = vaab_vm::prepare(&module, &checked, Output::collected());
     let mut machine = Machine::start(&world.program);
 
-    assert!(matches!(machine.resume(&mut world, Budget::of(20)), Step::Yielded));
+    assert!(matches!(resume(&mut machine, &mut world, Budget::of(20)), Step::Yielded));
     assert!(!machine.is_finished());
     assert!(world.output.lines().is_empty());
 }
@@ -36,8 +42,8 @@ fn a_machine_picked_up_again_carries_on_from_where_it_stopped() {
 
     let mut turns = 0;
     loop {
-        match machine.resume(&mut world, Budget::of(16)) {
-            Step::Yielded => turns += 1,
+        match resume(&mut machine, &mut world, Budget::of(16)) {
+            Step::Yielded | Step::Parked(_) => turns += 1,
             Step::Finished(_) => break,
             Step::Failed(problem) => panic!("stopped: {:?}", problem.fault),
         }
@@ -59,10 +65,10 @@ fn a_machine_can_be_parked_halfway_down_a_call() {
     let mut machine = Machine::start(&world.program);
 
     // Far enough in to be several calls deep, nowhere near far enough to finish.
-    assert!(matches!(machine.resume(&mut world, Budget::of(40)), Step::Yielded));
+    assert!(matches!(resume(&mut machine, &mut world, Budget::of(40)), Step::Yielded));
     assert!(machine.depth() > 1, "expected to be inside a call, not at the top level");
 
-    assert!(matches!(machine.resume(&mut world, Budget::unlimited()), Step::Finished(_)));
+    assert!(matches!(resume(&mut machine, &mut world, Budget::unlimited()), Step::Finished(_)));
     assert_eq!(world.output.lines(), ["0"]);
 }
 
@@ -73,7 +79,7 @@ fn a_finished_machine_says_so() {
     let mut machine = Machine::start(&world.program);
 
     assert!(!machine.is_finished());
-    assert!(matches!(machine.resume(&mut world, Budget::unlimited()), Step::Finished(_)));
+    assert!(matches!(resume(&mut machine, &mut world, Budget::unlimited()), Step::Finished(_)));
     assert!(machine.is_finished());
 }
 
@@ -87,8 +93,8 @@ fn several_machines_may_share_one_world() {
 
     // Stepped in turn, the way a scheduler would, they both get through.
     while !first.is_finished() || !second.is_finished() {
-        first.resume(&mut world, Budget::of(3));
-        second.resume(&mut world, Budget::of(3));
+        resume(&mut first, &mut world, Budget::of(3));
+        resume(&mut second, &mut world, Budget::of(3));
     }
 
     assert_eq!(world.output.lines(), ["from a machine", "from a machine"]);
@@ -128,9 +134,9 @@ fn a_machine_started_with_no_budget_at_all_does_nothing_and_stays_ready() {
     let mut world = vaab_vm::prepare(&module, &checked, Output::collected());
     let mut machine = Machine::start(&world.program);
 
-    assert!(matches!(machine.resume(&mut world, Budget::of(0)), Step::Yielded));
+    assert!(matches!(resume(&mut machine, &mut world, Budget::of(0)), Step::Yielded));
     assert!(!machine.is_finished());
-    assert!(matches!(machine.resume(&mut world, Budget::unlimited()), Step::Finished(_)));
+    assert!(matches!(resume(&mut machine, &mut world, Budget::unlimited()), Step::Finished(_)));
 }
 
 #[test]

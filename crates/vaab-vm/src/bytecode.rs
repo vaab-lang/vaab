@@ -133,6 +133,20 @@ pub enum Op {
     /// Builds a function value, taking a cell for each of the body's captures.
     MakeFunction(u32),
 
+    // -- Concurrency -------------------------------------------------------
+    ChannelNew,
+    SharedNew,
+    Send,
+    Receive,
+    Close,
+    Start(u32),
+    TaskWait,
+    SharedRead,
+    SharedUpdate,
+    BeginTogether,
+    EndTogether,
+    Select(u32),
+
     // -- Stopping ----------------------------------------------------------
     /// Something the language has, and this phase does not run.
     NotYet(Feature),
@@ -188,6 +202,22 @@ pub struct Program {
     /// a final entry for the end. The REPL runs one statement at a time by
     /// starting the machine partway through this body.
     pub statements: Vec<u32>,
+    pub selects: Vec<SelectDescriptor>,
+}
+
+/// One arm of a compiled `select`.
+#[derive(Clone, Debug)]
+pub enum SelectArm {
+    Receive { body: u32 },
+    Timeout { milliseconds: i64, body: u32 },
+}
+
+/// Everything a [`Op::Select`] needs that does not fit in the instruction.
+#[derive(Clone, Debug)]
+pub struct SelectDescriptor {
+    pub arms: Vec<SelectArm>,
+    pub otherwise: Option<u32>,
+    pub span: Span,
 }
 
 impl Program {
@@ -202,6 +232,7 @@ impl Program {
             variants: Vec::new(),
             globals: 0,
             statements: Vec::new(),
+            selects: Vec::new(),
         }
     }
 
