@@ -1,0 +1,23 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nmatch error {\n    when AccountError.InvalidAmount(amount) then report(amount)\n    when AccountError.Frozen then freeze()\n}\n\"#)"
+---
+module
+  match
+    subject
+      name error
+    when
+      variant AccountError.InvalidAmount
+        bind amount
+      then
+        call
+          callee
+            name report
+          argument
+            name amount
+    when
+      variant AccountError.Frozen
+      then
+        call
+          callee
+            name freeze

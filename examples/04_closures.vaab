@@ -1,0 +1,17 @@
+# Closures are written with `->`.
+
+to square(n: Int) returns Int = n * n
+
+let numbers = [1, 2, 3, 4]
+
+# One parameter needs no brackets; several are written as a tuple.
+let squares = numbers.map(n -> n * n)
+let sums = [(1, 2), (3, 4)].map((a, b) -> a + b)
+
+# A closure body may be a block. After `->`, a `{` always opens a block.
+numbers.each(n -> {
+    print("{n} squared is {square(n)}")
+})
+
+print(squares)
+print(sums)

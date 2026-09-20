@@ -1,0 +1,44 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nto read_config(path: Text) returns Config or fails FileError {\n    let text = try read_file(path)\n    let config = try parse_config(text)\n    return success config\n}\n\nlet safe = ages.get(\"Ada\") otherwise 0\n\"#)"
+---
+module
+  to read_config
+    parameter path
+      type Text
+    returns
+      or fails
+        ok
+          type Config
+        error
+          type FileError
+    block
+      let text
+        try
+          call
+            callee
+              name read_file
+            argument
+              name path
+      let config
+        try
+          call
+            callee
+              name parse_config
+            argument
+              name text
+      return
+        success
+          name config
+  let safe
+    otherwise
+      value
+        call
+          callee
+            member .get
+              name ages
+          argument
+            text
+              literal "Ada"
+      fallback
+        int 0

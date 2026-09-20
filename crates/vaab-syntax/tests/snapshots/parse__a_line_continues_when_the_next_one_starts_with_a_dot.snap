@@ -1,0 +1,22 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet shouted = names\n    .map(name -> name.upper())\n    .join(\", \")\n\"#)"
+---
+module
+  let shouted
+    call
+      callee
+        member .join
+          call
+            callee
+              member .map
+                name names
+            argument
+              closure (name)
+                call
+                  callee
+                    member .upper
+                      name name
+      argument
+        text
+          literal ", "

@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# insta writes these when a snapshot changes; they should never be committed.
+**/*.snap.new

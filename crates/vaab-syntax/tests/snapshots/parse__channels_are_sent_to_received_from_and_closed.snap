@@ -1,0 +1,36 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet inbox = Channel.new(of: Text, size: 10)\nsend \"ping\" to inbox\nlet message = receive from inbox\nclose inbox\nfor each item in inbox { print(item) }\n\"#)"
+---
+module
+  let inbox
+    call
+      callee
+        member .new
+          name Channel
+      argument of:
+        name Text
+      argument size:
+        int 10
+  send
+    value
+      text
+        literal "ping"
+    to
+      name inbox
+  let message
+    receive from
+      name inbox
+  close
+    name inbox
+  for each
+    pattern
+      bind item
+    in
+      name inbox
+    block
+      call
+        callee
+          name print
+        argument
+          name item

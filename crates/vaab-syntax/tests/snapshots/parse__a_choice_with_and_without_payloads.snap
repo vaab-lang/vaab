@@ -1,0 +1,10 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nchoice AccountError {\n    InvalidAmount(amount: Int)\n    Frozen\n}\n\"#)"
+---
+module
+  choice AccountError
+    variant InvalidAmount
+      field amount
+        type Int
+    variant Frozen

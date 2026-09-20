@@ -1,0 +1,45 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet whole = 42\nlet big = 1_000_000\nlet fraction = 3.5\nlet truth = yes\nlet falsehood = no\nlet missing = nothing\nlet items = [1, 2, 3]\nlet ages = {\"Ada\": 36, \"Alan\": 41}\nlet pair = (1, \"a\")\nlet span = 1..10\n\"#)"
+---
+module
+  let whole
+    int 42
+  let big
+    int 1000000
+  let fraction
+    float 3.5
+  let truth
+    bool yes
+  let falsehood
+    bool no
+  let missing
+    nothing
+  let items
+    list
+      int 1
+      int 2
+      int 3
+  let ages
+    map
+      entry
+        key
+          text
+            literal "Ada"
+        value
+          int 36
+      entry
+        key
+          text
+            literal "Alan"
+        value
+          int 41
+  let pair
+    tuple
+      int 1
+      text
+        literal "a"
+  let span
+    range
+      int 1
+      int 10

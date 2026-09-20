@@ -1,0 +1,23 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nto greet(name: Text, greeting: Text = \"hello\") returns Text {\n    return \"{greeting}, {name}\"\n}\n\"#)"
+---
+module
+  to greet
+    parameter name
+      type Text
+    parameter greeting
+      type Text
+      default
+        text
+          literal "hello"
+    returns
+      type Text
+    block
+      return
+        text
+          hole
+            name greeting
+          literal ", "
+          hole
+            name name

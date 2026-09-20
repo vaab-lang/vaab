@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"match items {\\n    when [..., last] then last\\n    otherwise then 0\\n}\\n\")"
+---
+[rest-not-last] Error: `...` must come last
+   ╭─[ example.vaab:2:11 ]
+   │
+ 2 │     when [..., last] then last
+   │           ─┬─  
+   │            ╰─── this stands for everything that is left
+   │ 
+   │ Help: move `...` to the end of the pattern
+───╯

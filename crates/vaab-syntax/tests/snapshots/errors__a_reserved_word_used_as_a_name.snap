@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"let to = 1\\n\")"
+---
+[reserved-word] Error: `to` is a reserved word
+   ╭─[ example.vaab:1:5 ]
+   │
+ 1 │ let to = 1
+   │     ─┬  
+   │      ╰── Vaab expected a name for this value here
+   │ 
+   │ Help: `to` has a fixed meaning in Vaab, so it cannot be used as a name; pick another name
+───╯

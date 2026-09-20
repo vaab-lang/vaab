@@ -1,0 +1,55 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nto shapes(\n    a: Int,\n    b: list of Text,\n    c: map of Text to Int,\n    d: maybe Int,\n    e: channel of Text,\n    f: task of Int,\n    g: shared Int,\n    h: (Int, Text),\n    i: to(Int, Text) returns Bool,\n    j: list of maybe list of Int\n) returns Text or fails ShapeError = \"ok\"\n\"#)"
+---
+module
+  to shapes
+    parameter a
+      type Int
+    parameter b
+      list of
+        type Text
+    parameter c
+      map of
+        key
+          type Text
+        value
+          type Int
+    parameter d
+      maybe
+        type Int
+    parameter e
+      channel of
+        type Text
+    parameter f
+      task of
+        type Int
+    parameter g
+      shared
+        type Int
+    parameter h
+      tuple type
+        type Int
+        type Text
+    parameter i
+      function type
+        takes
+          type Int
+        takes
+          type Text
+        returns
+          type Bool
+    parameter j
+      list of
+        maybe
+          list of
+            type Int
+    returns
+      or fails
+        ok
+          type Text
+        error
+          type ShapeError
+    body
+      text
+        literal "ok"

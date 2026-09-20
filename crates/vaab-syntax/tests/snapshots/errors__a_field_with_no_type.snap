@@ -1,0 +1,17 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"type Account {\\n    owner\\n}\\n\")"
+---
+[missing-type] Error: this field has no type
+   ╭─[ example.vaab:2:10 ]
+   │
+ 2 │     owner
+   │     ──┬──┬  
+   │       │  ╰── Vaab expected a `:` and a type here
+   │       │     
+   │       ╰───── `owner` is declared here
+   │ 
+   │ Help: write `owner: Int`, or whichever type fits
+   │ 
+   │ Note: Vaab infers the types of local values, but never of a signature
+───╯

@@ -1,0 +1,12 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(\"let ok = ready and not tired or forced\\n\")"
+---
+module
+  let ok
+    binary or
+      binary and
+        name ready
+        unary not
+          name tired
+      name forced

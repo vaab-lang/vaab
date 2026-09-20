@@ -1,0 +1,14 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(\"to announce(message: Text) {\\n    print(message)\\n}\\n\")"
+---
+module
+  to announce
+    parameter message
+      type Text
+    block
+      call
+        callee
+          name print
+        argument
+          name message

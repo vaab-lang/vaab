@@ -1,0 +1,39 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet account = Account.new(owner: \"Ada\")\nlet funded = Account.new(owner: \"Ada\", balance: 50)\nlet inbox = Channel.new(of: Text, size: 10)\nlet counter = Shared.new(0)\n\"#)"
+---
+module
+  let account
+    call
+      callee
+        member .new
+          name Account
+      argument owner:
+        text
+          literal "Ada"
+  let funded
+    call
+      callee
+        member .new
+          name Account
+      argument owner:
+        text
+          literal "Ada"
+      argument balance:
+        int 50
+  let inbox
+    call
+      callee
+        member .new
+          name Channel
+      argument of:
+        name Text
+      argument size:
+        int 10
+  let counter
+    call
+      callee
+        member .new
+          name Shared
+      argument
+        int 0

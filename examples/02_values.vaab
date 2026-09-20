@@ -1,0 +1,17 @@
+# Values are fixed unless you say otherwise.
+
+let greeting = "hello"      # fixed, inferred as Text
+let changing count = 0      # changeable, inferred as Int
+let total: Int = 3          # an explicit type, for when it helps a reader
+
+# Only a `changing` value may be assigned to.
+count = count + 1
+count = count + 1
+
+print("{greeting}: {count} of {total}")
+
+# Numbers may use `_` to group digits, and both Int and Float are built in.
+let population = 1_000_000
+let ratio = 0.75
+
+print("{population} at {ratio}")

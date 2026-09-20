@@ -1,0 +1,15 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"a + b = 3\\n\")"
+---
+[cannot-assign] Error: this cannot be assigned to
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ a + b = 3
+   │ ──┬── ┬  
+   │   ╰────── only a name, a field or an item can be assigned to
+   │       │  
+   │       ╰── the assignment is here
+   │ 
+   │ Help: give the result a name with `let`, or assign to a single name
+───╯

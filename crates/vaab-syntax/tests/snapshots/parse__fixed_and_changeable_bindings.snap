@@ -1,0 +1,17 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet name = \"world\"\nlet changing count = 0\ncount = count + 1\n\"#)"
+---
+module
+  let name
+    text
+      literal "world"
+  let changing count
+    int 0
+  assign
+    target
+      name count
+    value
+      binary +
+        name count
+        int 1

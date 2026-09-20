@@ -1,0 +1,11 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"print(\"a \\{ brace, and a } brace\")\"#)"
+---
+module
+  call
+    callee
+      name print
+    argument
+      text
+        literal "a { brace, and a } brace"

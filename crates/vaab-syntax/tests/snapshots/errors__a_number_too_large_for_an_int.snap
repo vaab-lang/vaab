@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"let huge = 99999999999999999999\\n\")"
+---
+[number-too-large] Error: this number is too large for an Int
+   ╭─[ example.vaab:1:12 ]
+   │
+ 1 │ let huge = 99999999999999999999
+   │            ──────────┬─────────  
+   │                      ╰─────────── Vaab could not hold this value
+   │ 
+   │ Note: the largest Int is 9223372036854775807
+───╯

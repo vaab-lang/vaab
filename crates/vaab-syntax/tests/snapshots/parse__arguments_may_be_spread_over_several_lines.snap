@@ -1,0 +1,14 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\ngreet(\n    \"Ada\",\n    greeting: \"hi\"\n)\n\"#)"
+---
+module
+  call
+    callee
+      name greet
+    argument
+      text
+        literal "Ada"
+    argument greeting:
+      text
+        literal "hi"

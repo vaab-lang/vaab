@@ -1,0 +1,21 @@
+# Functions start with `to`, and every signature is fully annotated.
+# Local values are inferred; signatures never are.
+
+to greet(name: Text, greeting: Text = "hello") returns Text {
+    return "{greeting}, {name}"
+}
+
+# The one-line form, for a function that is a single expression.
+to double(n: Int) returns Int = n * 2
+
+# No `returns` means the function returns Nothing.
+to announce(message: Text) {
+    print(message)
+}
+
+announce(greet("Ada"))
+
+# Arguments with defaults can be given by name at the call site.
+announce(greet("Alan", greeting: "hi"))
+
+print(double(21))

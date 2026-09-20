@@ -1,0 +1,11 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(\"let total = 1 +\\n    2 +\\n    3\\n\")"
+---
+module
+  let total
+    binary +
+      binary +
+        int 1
+        int 2
+      int 3

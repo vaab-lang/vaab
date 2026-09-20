@@ -1,0 +1,26 @@
+# Lists, maps, tuples and ranges.
+
+let numbers = [1, 2, 3]
+let ages = {"Ada": 36, "Alan": 41}
+let pair = (1, "one")
+let span = 1..5          # inclusive at both ends
+
+print(numbers[0])
+print(ages.get("Ada") otherwise 0)
+print(pair)
+
+for each n in span { print(n) }
+
+# A line that ends with an operator, a comma or an opening bracket continues, and
+# so does a line whose successor starts with `.`.
+let shouted = ["ada", "alan"]
+    .map(name -> name.upper())
+    .join(", ")
+
+print(shouted)
+
+let total = 1 +
+    2 +
+    3
+
+print(total)

@@ -1,0 +1,43 @@
+# Tasks are lightweight and cheap; channels carry values between them.
+#
+# Built-in handles are constructed the same way as any other type, with `.new`.
+
+to fetch(url: Text) returns Text = "contents of {url}"
+
+let inbox = Channel.new(of: Text, size: 4)     # bounded; size 0 is a rendezvous
+let quit = Channel.new(of: Bool, size: 0)
+
+send "ping" to inbox
+let message = receive from inbox               # maybe Text: nothing once drained
+close inbox
+
+# Looping over a channel reads from it until it closes.
+for each item in inbox {
+    print(item)
+}
+
+let job = start { fetch("one") }
+let answer: Text = job.wait()
+print(answer)
+
+# `together` waits for every task started inside it, and cancels the siblings if
+# any one of them fails.
+together {
+    for each url in ["a", "b", "c"] {
+        start { fetch(url) }
+    }
+}
+
+# `select` takes whichever arm is ready first. An `otherwise` arm makes it
+# non-blocking.
+select {
+    when receive from inbox as note { print(note) }
+    when receive from quit          { print("stopping") }
+    when timeout after 2 seconds    { print("all quiet") }
+    otherwise                       { print("nothing ready") }
+}
+
+# `shared` is how changing state is shared safely between tasks.
+let counter = Shared.new(0)
+counter.update(n -> n + 1)
+print(counter.value)

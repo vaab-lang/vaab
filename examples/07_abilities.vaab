@@ -1,0 +1,27 @@
+# An `ability` is an interface: it says what a type must be able to do.
+# A type declares `can` to provide it, and a parameter may be typed as an ability.
+
+ability Describable {
+    to describe() returns Text
+}
+
+type Person can Describable {
+    name: Text
+    age: Int
+
+    to describe() returns Text = "{self.name} is {self.age}"
+}
+
+type Planet can Describable {
+    name: Text
+
+    to describe() returns Text = "{self.name}, a planet"
+}
+
+to announce_all(things: list of Describable) {
+    for each thing in things {
+        print(thing.describe())
+    }
+}
+
+announce_all([Person.new(name: "Ada", age: 36), Planet.new(name: "Mars")])

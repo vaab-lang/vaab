@@ -1,0 +1,27 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet counter = Shared.new(0)\ncounter.update(n -> n + 1)\nprint(counter.value)\n\"#)"
+---
+module
+  let counter
+    call
+      callee
+        member .new
+          name Shared
+      argument
+        int 0
+  call
+    callee
+      member .update
+        name counter
+    argument
+      closure (n)
+        binary +
+          name n
+          int 1
+  call
+    callee
+      name print
+    argument
+      member .value
+        name counter

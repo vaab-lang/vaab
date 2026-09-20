@@ -1,0 +1,16 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"print(\"{greeting}, {name}!\")\"#)"
+---
+module
+  call
+    callee
+      name print
+    argument
+      text
+        hole
+          name greeting
+        literal ", "
+        hole
+          name name
+        literal "!"

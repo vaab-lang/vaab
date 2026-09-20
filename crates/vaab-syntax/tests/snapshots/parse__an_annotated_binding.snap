@@ -1,0 +1,9 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(\"let total: Int = 0\\n\")"
+---
+module
+  let total
+    declared type
+      type Int
+    int 0

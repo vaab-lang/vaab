@@ -1,0 +1,14 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(\"to double(n: Int) returns Int = n * 2\\n\")"
+---
+module
+  to double
+    parameter n
+      type Int
+    returns
+      type Int
+    body
+      binary *
+        name n
+        int 2

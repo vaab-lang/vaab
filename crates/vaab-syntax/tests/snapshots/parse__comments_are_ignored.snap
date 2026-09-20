@@ -1,0 +1,7 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(\"# a note\\nlet a = 1 # another note\\n\")"
+---
+module
+  let a
+    int 1

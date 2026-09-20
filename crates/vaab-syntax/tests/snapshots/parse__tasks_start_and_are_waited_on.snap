@@ -1,0 +1,20 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet job = start { slow_calculation(42) }\nlet answer: Int = job.wait()\n\"#)"
+---
+module
+  let job
+    start
+      block
+        call
+          callee
+            name slow_calculation
+          argument
+            int 42
+  let answer
+    declared type
+      type Int
+    call
+      callee
+        member .wait
+          name job

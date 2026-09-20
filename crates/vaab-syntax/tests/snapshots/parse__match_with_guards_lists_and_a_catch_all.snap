@@ -1,0 +1,43 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet description = match value {\n    when 0            then \"zero\"\n    when n if n < 0   then \"negative\"\n    when [first, ...] then \"starts with {first}\"\n    when found x      then \"got {x}\"\n    otherwise         then \"something else\"\n}\n\"#)"
+---
+module
+  let description
+    match
+      subject
+        name value
+      when
+        int 0
+        then
+          text
+            literal "zero"
+      when
+        bind n
+        if
+          binary <
+            name n
+            int 0
+        then
+          text
+            literal "negative"
+      when
+        list pattern (and the rest)
+          bind first
+        then
+          text
+            literal "starts with "
+            hole
+              name first
+      when
+        found
+          bind x
+        then
+          text
+            literal "got "
+            hole
+              name x
+      otherwise
+        then
+          text
+            literal "something else"

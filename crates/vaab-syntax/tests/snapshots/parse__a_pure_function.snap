@@ -1,0 +1,14 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(\"pure to square(n: Int) returns Int = n * n\\n\")"
+---
+module
+  pure to square
+    parameter n
+      type Int
+    returns
+      type Int
+    body
+      binary *
+        name n
+        name n

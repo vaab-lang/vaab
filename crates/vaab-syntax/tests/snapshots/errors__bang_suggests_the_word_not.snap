@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"if !ready { stop() }\\n\")"
+---
+[unknown-character] Error: `!` is not an operator in Vaab
+   ╭─[ example.vaab:1:4 ]
+   │
+ 1 │ if !ready { stop() }
+   │    ┬  
+   │    ╰── here
+   │ 
+   │ Help: write `not` for negation, or `!=` to compare for inequality
+───╯

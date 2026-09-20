@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(r#\"print(\"what is \\q\")\"#)"
+---
+[bad-escape] Error: `\q` is not an escape Vaab knows
+   ╭─[ example.vaab:1:16 ]
+   │
+ 1 │ print("what is \q")
+   │                ─┬  
+   │                 ╰── this escape has no meaning
+   │ 
+   │ Help: Vaab knows `\n`, `\t`, `\r`, `\\`, `\"`, `\{` and `\}`
+───╯

@@ -1,0 +1,48 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\ntype Account {\n    owner: Text\n    balance: Int = 0\n\n    to deposit(amount: Int) returns Account or fails AccountError {\n        if amount <= 0 { return failure AccountError.InvalidAmount(amount) }\n        return success self.with(balance: self.balance + amount)\n    }\n}\n\"#)"
+---
+module
+  type Account
+    field owner
+      type Text
+    field balance
+      type Int
+      default
+        int 0
+    to deposit
+      parameter amount
+        type Int
+      returns
+        or fails
+          ok
+            type Account
+          error
+            type AccountError
+      block
+        if
+          condition
+            binary <=
+              name amount
+              int 0
+          then
+            block
+              return
+                failure
+                  call
+                    callee
+                      member .InvalidAmount
+                        name AccountError
+                    argument
+                      name amount
+        return
+          success
+            call
+              callee
+                member .with
+                  self
+              argument balance:
+                binary +
+                  member .balance
+                    self
+                  name amount

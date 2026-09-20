@@ -1,0 +1,28 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nto first_of(items: list of T) returns maybe T {\n    if items.is_empty { return nothing }\n    return found items[0]\n}\n\"#)"
+---
+module
+  to first_of
+    parameter items
+      list of
+        type T
+    returns
+      maybe
+        type T
+    block
+      if
+        condition
+          member .is_empty
+            name items
+        then
+          block
+            return
+              nothing
+      return
+        found
+          index
+            of
+              name items
+            at
+              int 0

@@ -1,0 +1,28 @@
+# A `type` holds fields and is immutable. `.new` builds one, and `.with` returns
+# a changed copy rather than altering the original.
+
+type Account {
+    owner: Text
+    balance: Int = 0
+
+    to deposit(amount: Int) returns Account or fails AccountError {
+        if amount <= 0 { return failure AccountError.InvalidAmount(amount) }
+        return success self.with(balance: self.balance + amount)
+    }
+}
+
+choice AccountError {
+    InvalidAmount(amount: Int)
+    Frozen
+}
+
+# `.new` takes its arguments by name. Fields with defaults may be left out.
+let opened = Account.new(owner: "Ada")
+let funded = Account.new(owner: "Alan", balance: 50)
+
+match opened.deposit(25) {
+    when success account then print("{account.owner} now has {account.balance}")
+    when failure error   then print("that deposit did not work")
+}
+
+print(funded.balance)

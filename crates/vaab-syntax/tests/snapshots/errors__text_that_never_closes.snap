@@ -1,0 +1,15 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"let greeting = \\\"hello\\n\")"
+---
+[unterminated-text] Error: this text is never closed
+   ╭─[ example.vaab:1:16 ]
+   │
+ 1 │ let greeting = "hello
+   │                ┬  
+   │                ╰── the text starts here
+   │ 
+   │ Help: add a closing `"` before the end of the line
+   │ 
+   │ Note: text in Vaab stays on one line
+───╯

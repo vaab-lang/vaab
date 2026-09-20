@@ -1,0 +1,11 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"// a note\\n\")"
+---
+[unexpected-token] Error: Vaab expected a value
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ // a note
+   │ ┬  
+   │ ╰── found `/`
+───╯

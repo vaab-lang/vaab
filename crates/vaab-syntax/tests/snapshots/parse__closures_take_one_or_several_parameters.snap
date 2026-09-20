@@ -1,0 +1,37 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet squares = numbers.map(n -> n * n)\nlet sums = pairs.map((a, b) -> a + b)\nitems.each(item -> { print(item) })\n\"#)"
+---
+module
+  let squares
+    call
+      callee
+        member .map
+          name numbers
+      argument
+        closure (n)
+          binary *
+            name n
+            name n
+  let sums
+    call
+      callee
+        member .map
+          name pairs
+      argument
+        closure (a, b)
+          binary +
+            name a
+            name b
+  call
+    callee
+      member .each
+        name items
+    argument
+      closure (item)
+        block
+          call
+            callee
+              name print
+            argument
+              name item

@@ -1,0 +1,37 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nselect {\n    when receive from inbox as message { handle(message) }\n    when receive from quit             { return }\n    when timeout after 2 seconds       { print(\"quiet\") }\n    otherwise                          { print(\"nothing ready\") }\n}\n\"#)"
+---
+module
+  select
+    when receive as message
+      from
+        name inbox
+      block
+        call
+          callee
+            name handle
+          argument
+            name message
+    when receive
+      from
+        name quit
+      block
+        return
+    when timeout after (seconds)
+      int 2
+      block
+        call
+          callee
+            name print
+          argument
+            text
+              literal "quiet"
+    otherwise
+      block
+        call
+          callee
+            name print
+          argument
+            text
+              literal "nothing ready"

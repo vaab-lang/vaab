@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"let a = 1 let b = 2\\n\")"
+---
+[unexpected-token] Error: this statement seems to have ended already
+   ╭─[ example.vaab:1:11 ]
+   │
+ 1 │ let a = 1 let b = 2
+   │           ─┬─  
+   │            ╰─── the word `let` was not expected here
+   │ 
+   │ Help: start a new line, or check for a missing operator or comma
+───╯

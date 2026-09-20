@@ -1,0 +1,17 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"print(\\\"Ada is {age\\\")\\n\")"
+---
+[unclosed-interpolation] Error: this `{` is never closed
+   ╭─[ example.vaab:1:15 ]
+   │
+ 1 │ print("Ada is {age")
+   │       ┬       ┬  
+   │       │       ╰── the hole starts here
+   │       │          
+   │       ╰────────── inside this text
+   │ 
+   │ Help: add a `}` to close it, or write `\{` for a literal `{`
+   │ 
+   │ Note: every piece of text in Vaab can hold values, so `{` always starts a hole
+───╯

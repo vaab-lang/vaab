@@ -1,0 +1,26 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet bigger = if a > b { a } else if a == b { a } else { b }\n\"#)"
+---
+module
+  let bigger
+    if
+      condition
+        binary >
+          name a
+          name b
+      then
+        block
+          name a
+      else
+        if
+          condition
+            binary ==
+              name a
+              name b
+          then
+            block
+              name a
+          else
+            block
+              name b

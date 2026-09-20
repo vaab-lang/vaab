@@ -1,0 +1,17 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"let count\\n\")"
+---
+[let-without-value] Error: this `let` does not give a value
+   ╭─[ example.vaab:1:10 ]
+   │
+ 1 │ let count
+   │     ──┬──┬  
+   │       │  ╰── Vaab expected an `=` and a value here
+   │       │     
+   │       ╰───── `count` is declared here
+   │ 
+   │ Help: write `let count = ...`
+   │ 
+   │ Note: every value in Vaab is given when it is declared, so there is no `nothing` to fall back on
+───╯

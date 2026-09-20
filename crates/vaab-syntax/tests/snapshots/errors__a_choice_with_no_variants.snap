@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"choice AccountError {\\n}\\n\")"
+---
+[empty-choice] Error: `AccountError` has no variants
+   ╭─[ example.vaab:1:8 ]
+   │
+ 1 │ choice AccountError {
+   │        ──────┬─────  
+   │              ╰─────── a choice must offer at least one thing to choose
+   │ 
+   │ Help: add a variant, such as `Frozen`
+───╯

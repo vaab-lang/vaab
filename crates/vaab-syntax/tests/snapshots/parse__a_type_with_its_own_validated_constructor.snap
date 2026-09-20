@@ -1,0 +1,42 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\ntype Email {\n    address: Text\n\n    to new(address: Text) returns Email or fails EmailError {\n        if not address.contains(\"@\") { return failure EmailError.Invalid }\n        return success Email.raw(address: address)\n    }\n}\n\"#)"
+---
+module
+  type Email
+    field address
+      type Text
+    to new
+      parameter address
+        type Text
+      returns
+        or fails
+          ok
+            type Email
+          error
+            type EmailError
+      block
+        if
+          condition
+            unary not
+              call
+                callee
+                  member .contains
+                    name address
+                argument
+                  text
+                    literal "@"
+          then
+            block
+              return
+                failure
+                  member .Invalid
+                    name EmailError
+        return
+          success
+            call
+              callee
+                member .raw
+                  name Email
+              argument address:
+                name address

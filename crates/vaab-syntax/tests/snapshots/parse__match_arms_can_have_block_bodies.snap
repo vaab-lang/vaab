@@ -1,0 +1,31 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nmatch age {\n    when found value then { print(\"Ada is {value}\") }\n    when nothing     then { print(\"unknown\") }\n}\n\"#)"
+---
+module
+  match
+    subject
+      name age
+    when
+      found
+        bind value
+      then
+        block
+          call
+            callee
+              name print
+            argument
+              text
+                literal "Ada is "
+                hole
+                  name value
+    when
+      nothing
+      then
+        block
+          call
+            callee
+              name print
+            argument
+              text
+                literal "unknown"

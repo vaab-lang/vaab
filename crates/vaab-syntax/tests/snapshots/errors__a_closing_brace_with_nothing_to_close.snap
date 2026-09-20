@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"let a = 1\\n}\\n\")"
+---
+[unmatched-brace] Error: this `}` does not close anything
+   ╭─[ example.vaab:2:1 ]
+   │
+ 2 │ }
+   │ ┬  
+   │ ╰── there is no open `{` above it
+   │ 
+   │ Help: remove it, or add the matching `{`
+───╯

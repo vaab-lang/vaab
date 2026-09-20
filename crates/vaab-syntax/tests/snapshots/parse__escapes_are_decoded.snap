@@ -1,0 +1,11 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"print(\"line\\nbreak\\ttab\\\\slash\\\"quote\")\"#)"
+---
+module
+  call
+    callee
+      name print
+    argument
+      text
+        literal "line\nbreak\ttab\\slash\"quote"

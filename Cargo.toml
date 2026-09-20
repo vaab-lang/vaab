@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["crates/vaab-syntax", "crates/vaab-cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/vaab-lang/vaab"
+
+# Dependency versions live here so every crate in the workspace agrees on them.
+[workspace.dependencies]
+ariadne = "0.5"
+indexmap = "2"
+logos = "0.15"
+thiserror = "2"
+
+insta = "1"
+
+vaab-syntax = { path = "crates/vaab-syntax" }
+
+[profile.release]
+lto = "thin"

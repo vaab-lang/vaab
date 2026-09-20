@@ -1,0 +1,8 @@
+# The smallest Vaab program.
+#
+# Text always interpolates: `{name}` is a hole, filled in when the text is built.
+# To write a literal brace, escape it as `\{`.
+
+let name = "world"
+
+print("hello, {name}")

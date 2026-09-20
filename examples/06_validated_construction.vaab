@@ -1,0 +1,21 @@
+# A type can check its own construction by defining `to new`, which replaces the
+# automatic constructor. `Type.raw` is the field-by-field builder, and only the
+# type's own body may use it, so an Email can never exist in an invalid state.
+
+choice EmailError {
+    Invalid
+}
+
+type Email {
+    address: Text
+
+    to new(address: Text) returns Email or fails EmailError {
+        if not address.contains("@") { return failure EmailError.Invalid }
+        return success Email.raw(address: address)
+    }
+}
+
+match Email.new("ada@example.com") {
+    when success email then print("wrote to {email.address}")
+    when failure error then print("that is not an address")
+}

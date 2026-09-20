@@ -1,0 +1,40 @@
+# Conditions are Bool only: there is no truthiness. Boolean operators are words.
+
+let a = 7
+let b = 4
+
+# `if` is an expression, so it can be given a name.
+let bigger = if a > b { a } else if a == b { a } else { b }
+print(bigger)
+
+if a > b and not (a == 0) {
+    print("a wins")
+} else {
+    print("b wins")
+}
+
+for each n in 1..5 { print(n) }
+
+for each word in ["one", "two", "three"] { print(word) }
+
+let changing countdown = 3
+while countdown > 0 {
+    print(countdown)
+    countdown = countdown - 1
+}
+
+repeat 2 times { print("knock") }
+
+# `match` reads top to bottom. A guard narrows an arm further.
+let description = match bigger {
+    when 0            then "zero"
+    when n if n < 0   then "negative"
+    otherwise         then "positive"
+}
+print(description)
+
+# Patterns can take lists apart.
+match [10, 20, 30] {
+    when [first, ...] then print("starts with {first}")
+    otherwise         then print("empty")
+}

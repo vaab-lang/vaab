@@ -1,0 +1,43 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nfor each item in items { print(item) }\nfor each n in 1..10 { print(n) }\nwhile ready { work() }\nrepeat 4 times { knock() }\n\"#)"
+---
+module
+  for each
+    pattern
+      bind item
+    in
+      name items
+    block
+      call
+        callee
+          name print
+        argument
+          name item
+  for each
+    pattern
+      bind n
+    in
+      range
+        int 1
+        int 10
+    block
+      call
+        callee
+          name print
+        argument
+          name n
+  while
+    condition
+      name ready
+    block
+      call
+        callee
+          name work
+  repeat
+    times
+      int 4
+    block
+      call
+        callee
+          name knock

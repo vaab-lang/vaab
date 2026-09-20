@@ -1,0 +1,23 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nability Describable {\n    to describe() returns Text\n}\n\ntype Account can Describable {\n    to describe() returns Text = \"{self.owner} has {self.balance}\"\n}\n\"#)"
+---
+module
+  ability Describable
+    to describe
+      returns
+        type Text
+      required (no body)
+  type Account can Describable
+    to describe
+      returns
+        type Text
+      body
+        text
+          hole
+            member .owner
+              self
+          literal " has "
+          hole
+            member .balance
+              self
