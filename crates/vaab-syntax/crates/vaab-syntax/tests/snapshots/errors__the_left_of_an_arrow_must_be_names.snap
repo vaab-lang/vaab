@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"numbers.map(1 -> 2)\\n\")"
+---
+[bad-closure-parameters] Error: this is not a parameter name
+   ╭─[ example.vaab:1:13 ]
+   │
+ 1 │ numbers.map(1 -> 2)
+   │             ┬  
+   │             ╰── `->` expects names on its left
+   │ 
+   │ Help: write `n -> ...` for one parameter, or `(a, b) -> ...` for several
+───╯

@@ -536,10 +536,44 @@ print(3.to_float() / 2.0)   # 1.5
 print(2.5.round())          # 3
 ```
 
-### Arriving later
+### File I/O
 
-`read_file` has a signature so that a program can be written against it, and
-stops with a report naming phase 5 if it is reached.
+Programs declare a `FileError` choice; `read_file` fails with it when a path is
+missing. Other I/O problems stop the program with a report.
+
+```vaab
+choice FileError {
+    NotFound(path: Text)
+}
+
+match read_file("config.txt") {
+    when success text then print(text)
+    when failure FileError.NotFound(path) then print("no file at {path}")
+}
+```
+
+### Time
+
+| | |
+|---|---|
+| `now()` | whole seconds since 1970-01-01 UTC |
+
+### JSON
+
+A type that `can Json` may be passed to `to_json`, which gives back `Text`.
+
+```vaab
+type Person can Json {
+    name: Text
+    score: Int
+}
+
+print(to_json(Person.new(name: "Ada", score: 36)))
+```
+
+Built-in scalars, lists, maps with `Text` keys, tuples, records, and choices whose
+parts all `can Json` may be encoded. Functions, channels, tasks and other values
+that cannot be written as JSON are rejected by the checker.
 
 ---
 

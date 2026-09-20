@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"match name {\\n    when \\\"{greeting}\\\" then 1\\n    otherwise then 2\\n}\\n\")"
+---
+[interpolation-in-pattern] Error: a pattern cannot contain `{...}`
+   ╭─[ example.vaab:2:10 ]
+   │
+ 2 │     when "{greeting}" then 1
+   │          ──────┬─────  
+   │                ╰─────── this text is built while the program runs
+   │ 
+   │ Help: match a fixed piece of text, or bind a name and compare inside the arm
+───╯

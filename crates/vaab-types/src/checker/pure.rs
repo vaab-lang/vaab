@@ -67,6 +67,8 @@ impl Visit for ImpureFinder<'_> {
             StmtKind::Send(_) => Some(PureViolation::Effect("send on a channel")),
             StmtKind::Close(_) => Some(PureViolation::Effect("close a channel")),
             StmtKind::Together(_) => Some(PureViolation::Effect("wait for tasks")),
+            StmtKind::Serve(_) => Some(PureViolation::Effect("start a web server")),
+            StmtKind::Reply(_) => Some(PureViolation::Effect("send an HTTP response")),
             StmtKind::Assign(assignment) if self.changes_outside(&assignment.target) => {
                 Some(PureViolation::ChangesOutside)
             }
@@ -164,7 +166,8 @@ impl ImpureFinder<'_> {
                 | Resolution::AbilityMethod { .. }
                 | Resolution::Field { .. }
                 | Resolution::Local(_)
-                | Resolution::SelfValue,
+                | Resolution::SelfValue
+                | Resolution::RequestField(_),
             ) => None,
             None => self.impure_value_call(callee),
         }

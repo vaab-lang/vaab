@@ -50,15 +50,17 @@
 
 mod checked;
 mod checker;
+mod json;
 mod messages;
 mod prelude;
 mod types;
 mod unify;
 
+pub use json::can_json;
 pub use checked::{
     Ability, AbilityId, ArgumentSource, Call, Checked, Choice, ChoiceId, Closure, Constructor,
     DeclaredType, Field, Frame, FrameId, FrameKind, Function, FunctionId, Local, LocalId,
-    LocalRef, Required, Resolution, Task, TypeId, Variant,
+    LocalRef, Required, Resolution, Route, RouteSegment, Serve, Task, TypeId, Variant,
 };
 pub use checker::check;
 pub use types::{FunctionType, Parameter, Signature, Type, VariableId};

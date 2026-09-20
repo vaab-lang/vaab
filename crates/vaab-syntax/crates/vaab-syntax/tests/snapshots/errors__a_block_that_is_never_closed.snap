@@ -1,0 +1,16 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"to work() {\\n    print(\\\"hello\\\")\\n\")"
+---
+[unclosed-block] Error: this block is never closed
+   ╭─[ example.vaab:2:19 ]
+   │
+ 1 │ to work() {
+   │           ┬  
+   │           ╰── the block opened here
+ 2 │     print("hello")
+   │                   ┬  
+   │                   ╰── the file ends here
+   │ 
+   │ Help: add a `}` to close it
+───╯

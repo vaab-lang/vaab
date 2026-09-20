@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"print(\\\"{a b}\\\")\\n\")"
+---
+[crowded-interpolation] Error: a `{...}` holds one value
+   ╭─[ example.vaab:1:11 ]
+   │
+ 1 │ print("{a b}")
+   │           ┬  
+   │           ╰── Vaab expected the hole to end before this
+   │ 
+   │ Help: show one value per hole: `"{a} and {b}"`
+───╯

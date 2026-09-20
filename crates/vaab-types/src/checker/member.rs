@@ -127,6 +127,22 @@ impl Checker {
 
     /// Works out what the dot in `target.name` reaches.
     pub(super) fn look_up_member(&mut self, target: &Expr, name: &Name) -> Member {
+        if let ExprKind::Name(written) = &target.kind {
+            if written.text == "request" && self.route_depth > 0 {
+                if let Some(index) = match name.text.as_str() {
+                    "method" => Some(0),
+                    "path" => Some(1),
+                    "body" => Some(2),
+                    _ => None,
+                } {
+                    return Member::Value {
+                        declared: Type::Text,
+                        resolution: Resolution::RequestField(index),
+                    };
+                }
+            }
+        }
+
         // A name to the left of a dot may be a declaration rather than a value. A
         // local of the same name wins, so `let account = ...` is not shadowed by a
         // type called `account`.

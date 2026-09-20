@@ -1,0 +1,29 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nserve on port 8080 {\n    before every request { print(\"{request.method}\") }\n    route get \"/hello\" { reply with \"hello\" }\n    when anything fails with ApiError as error { reply explain(error) }\n}\n\"#)"
+---
+module
+  serve
+    port
+      int 8080
+    before every request
+      block
+        call
+          callee
+            name print
+          argument
+            text
+              hole
+                member .method
+                  name request
+    route get
+      path [Literal("/hello")]
+      block
+        reply with
+          text
+            literal "hello"
+    when anything fails as error
+      type ApiError
+      block
+        reply explain
+          name error

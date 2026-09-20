@@ -1,0 +1,15 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"let ok = low < value < high\\n\")"
+---
+[chained-comparison] Error: comparisons cannot be chained
+   ╭─[ example.vaab:1:22 ]
+   │
+ 1 │ let ok = low < value < high
+   │                      ┬  
+   │                      ╰── this `<` compares the result of the comparison before it
+   │ 
+   │ Help: write the two comparisons separately, joined with `and`
+   │ 
+   │ Note: for example, `low < value and value < high`
+───╯

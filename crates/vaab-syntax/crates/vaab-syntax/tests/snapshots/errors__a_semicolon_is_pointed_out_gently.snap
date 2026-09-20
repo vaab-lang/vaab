@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"let count = 1;\\n\")"
+---
+[no-semicolons] Error: Vaab does not use semicolons
+   ╭─[ example.vaab:1:14 ]
+   │
+ 1 │ let count = 1;
+   │              ┬  
+   │              ╰── here
+   │ 
+   │ Help: statements end at the end of the line, so this `;` can go
+───╯

@@ -72,17 +72,24 @@ impl Output {
 /// top-level values, and somewhere for `print` to go.
 ///
 /// Phase 4 gives one of these to a whole scheduler full of machines.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HttpResponse {
+    pub status: u16,
+    pub body: String,
+}
+
 pub struct World {
     pub program: Ref<Program>,
     /// The file's top-level values, which outlive any one frame.
     pub globals: Vec<Value>,
     pub output: Output,
+    pub response: Option<HttpResponse>,
 }
 
 impl World {
     pub fn new(program: Ref<Program>, output: Output) -> World {
         let globals = vec![Value::Nothing; program.globals];
-        World { program, globals, output }
+        World { program, globals, output, response: None }
     }
 
     /// Takes a freshly compiled program, keeping the values the session already
@@ -833,6 +840,27 @@ impl Machine {
                     .count();
                 let channels = if receive_count > 0 { self.take(receive_count)? } else { Vec::new() };
                 return self.run_select(meta, descriptor, channels, pc, span, host);
+            }
+
+            Op::ReplyWith(has_status) => {
+                let status = if has_status {
+                    match self.pop()? {
+                        Value::Int(number) if number > 0 && number <= u16::MAX as i64 => {
+                            number as u16
+                        }
+                        _ => return Err(Fault::Confused("reply status must be a whole number")),
+                    }
+                } else {
+                    200
+                };
+                let value = self.pop()?;
+                let body = crate::json::encode(&value)?;
+                world.response = Some(HttpResponse { status, body });
+            }
+            Op::ReplyExplain => {
+                let value = self.pop()?;
+                let body = crate::json::encode(&value)?;
+                world.response = Some(HttpResponse { status: 400, body });
             }
 
             // -- Stopping --------------------------------------------------

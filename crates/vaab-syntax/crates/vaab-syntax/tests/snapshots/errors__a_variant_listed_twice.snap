@@ -1,0 +1,16 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"choice AccountError {\\n    Frozen\\n    Frozen\\n}\\n\")"
+---
+[duplicate-variant] Error: `Frozen` is listed twice
+   ╭─[ example.vaab:3:5 ]
+   │
+ 2 │     Frozen
+   │     ───┬──  
+   │        ╰──── first listed here
+ 3 │     Frozen
+   │     ───┬──  
+   │        ╰──── this variant repeats an earlier one
+   │ 
+   │ Help: give one of them a different name, or remove it
+───╯

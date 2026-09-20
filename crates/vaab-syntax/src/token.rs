@@ -78,6 +78,17 @@ pub enum TokenKind {
     Task,
     Timeout,
     After,
+    Serve,
+    Route,
+    Reply,
+    Port,
+    Expecting,
+    Explain,
+    Status,
+    With,
+    Before,
+    Every,
+    Anything,
 
     // ---- Symbols ------------------------------------------------------------
     /// `->`
@@ -195,6 +206,17 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("task", TokenKind::Task),
     ("timeout", TokenKind::Timeout),
     ("after", TokenKind::After),
+    ("serve", TokenKind::Serve),
+    ("route", TokenKind::Route),
+    ("reply", TokenKind::Reply),
+    ("port", TokenKind::Port),
+    ("expecting", TokenKind::Expecting),
+    ("explain", TokenKind::Explain),
+    ("status", TokenKind::Status),
+    ("with", TokenKind::With),
+    ("before", TokenKind::Before),
+    ("every", TokenKind::Every),
+    ("anything", TokenKind::Anything),
 ];
 
 impl TokenKind {
@@ -234,6 +256,17 @@ impl TokenKind {
                 | Task
                 | Timeout
                 | After
+                | Serve
+                | Route
+                | Reply
+                | Port
+                | Expecting
+                | Explain
+                | Status
+                | With
+                | Before
+                | Every
+                | Anything
         )
     }
 
@@ -369,7 +402,7 @@ mod tests {
 
     #[test]
     fn ordinary_words_are_not_keywords() {
-        for word in ["count", "request", "route", "status", "serve", "port", "new", "raw", "with"] {
+        for word in ["count", "request", "new", "raw"] {
             assert_eq!(TokenKind::keyword(word), None, "{word} should stay usable as a name");
         }
     }

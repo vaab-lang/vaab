@@ -40,9 +40,9 @@ single-threaded scheduler with cooperative preemption.
 | 3 | Bytecode VM, standard library basics, `vaab run`, `vaab repl` | done |
 | 4 | Sendability checking, channels, tasks, `select`, `shared`, scheduler | done |
 | 5 | `pure` enforcement, `vaab new` | done |
-| 5b | Standard library — file I/O, time, json | next |
-| 6 | `serve` and `route` | |
-| 7 | Multi-threaded work-stealing scheduler | |
+| 5b | Standard library — file I/O, time, json | done |
+| 6 | `serve` and `route`, `vaab-server`, `vaab serve` | done |
+| 7 | Multi-threaded work-stealing scheduler | done |
 
 ## Try it
 

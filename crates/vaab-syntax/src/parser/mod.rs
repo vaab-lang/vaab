@@ -17,6 +17,7 @@
 
 mod expr;
 mod pattern;
+mod serve;
 mod stmt;
 mod string;
 mod types;

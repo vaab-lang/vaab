@@ -46,6 +46,7 @@
 pub mod builtin;
 pub mod bytecode;
 mod compile;
+mod json;
 pub mod concurrency;
 pub mod error;
 pub mod machine;
@@ -59,7 +60,7 @@ pub use bytecode::{Body, Capture, Op, Program};
 pub use compile::compile;
 pub use error::{Fault, Feature, Level, Operation, RuntimeError};
 pub use concurrency::Scheduler;
-pub use machine::{Budget, Machine, Output, Step, World};
+pub use machine::{Budget, HttpResponse, Machine, Output, Step, World};
 pub use value::{Closure, Record, Ref, Value, Variant};
 
 /// Compiles a checked module and builds the world it runs in.

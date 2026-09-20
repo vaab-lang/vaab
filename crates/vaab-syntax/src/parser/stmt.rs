@@ -40,6 +40,8 @@ impl<'src> Parser<'src> {
             Type => StmtKind::Type(Box::new(self.type_declaration()?)),
             Choice => StmtKind::Choice(Box::new(self.choice_declaration()?)),
             Ability => StmtKind::Ability(Box::new(self.ability_declaration()?)),
+            Serve => StmtKind::Serve(Box::new(self.serve_declaration()?)),
+            Reply => StmtKind::Reply(self.reply_statement()?),
 
             // `to` at the start of a statement always defines a function. Elsewhere
             // it is the connector in `send ... to ...` and in `map of K to V`.
@@ -56,7 +58,7 @@ impl<'src> Parser<'src> {
     }
 
     /// The span of the token just consumed, used to close off a statement's span.
-    fn previous_span(&self) -> Span {
+    pub(crate) fn previous_span(&self) -> Span {
         let index = self.position.saturating_sub(1);
         self.tokens[index].span
     }

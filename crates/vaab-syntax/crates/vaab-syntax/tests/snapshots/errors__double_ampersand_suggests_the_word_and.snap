@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"let both = a && b\\n\")"
+---
+[unknown-character] Error: `&&` is not an operator in Vaab
+   ╭─[ example.vaab:1:14 ]
+   │
+ 1 │ let both = a && b
+   │              ─┬  
+   │               ╰── here
+   │ 
+   │ Help: write `and` instead
+───╯

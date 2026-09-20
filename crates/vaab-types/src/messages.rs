@@ -923,6 +923,53 @@ fn pure_effect_help(effect: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Web server (phase 6)
+// ---------------------------------------------------------------------------
+
+pub fn serve_port_must_be_a_number(span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "serve-port-must-be-a-number",
+        "the port in `serve on port ...` must be a whole number",
+    )
+    .at(span, "this is not a plain whole number")
+    .with_help("write something like `serve on port 8080 { ... }`")
+}
+
+pub fn unknown_http_method(method: &str, span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "unknown-http-method",
+        format!("`{method}` is not an HTTP method Vaab knows"),
+    )
+    .at(span, format!("`{method}` was written here"))
+    .with_help("use `get`, `post`, `put`, `patch` or `delete`")
+}
+
+pub fn route_param_type(found: &Type, span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "route-param-type",
+        format!("a route parameter may be `Int` or `Text`, not {found}"),
+    )
+    .at(span, format!("this parameter is declared as {found}"))
+}
+
+pub fn reply_outside_route(span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "reply-outside-route",
+        "`reply` may only appear inside a route body or error handler",
+    )
+    .at(span, "`reply` was written here")
+}
+
+pub fn cannot_json(span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "cannot-json",
+        "this value cannot be turned into JSON for the response body",
+    )
+    .at(span, "Vaab can only reply with JSON-serialisable values")
+    .with_help("use text, numbers, lists, maps, records or choices whose fields can all be JSON")
+}
+
+// ---------------------------------------------------------------------------
 // Sendability: what may cross between tasks
 // ---------------------------------------------------------------------------
 

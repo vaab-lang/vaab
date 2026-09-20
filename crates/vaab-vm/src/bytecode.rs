@@ -147,6 +147,9 @@ pub enum Op {
     EndTogether,
     Select(u32),
 
+    ReplyWith(bool),
+    ReplyExplain,
+
     // -- Stopping ----------------------------------------------------------
     /// Something the language has, and this phase does not run.
     NotYet(Feature),
@@ -203,6 +206,17 @@ pub struct Program {
     /// starting the machine partway through this body.
     pub statements: Vec<u32>,
     pub selects: Vec<SelectDescriptor>,
+    pub routes: Vec<RouteHandler>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RouteHandler {
+    pub method: String,
+    pub path: Vec<vaab_types::RouteSegment>,
+    pub body: usize,
+    pub frame: vaab_types::FrameId,
+    pub path_param_count: usize,
+    pub expects_body: bool,
 }
 
 /// One arm of a compiled `select`.
@@ -233,6 +247,7 @@ impl Program {
             globals: 0,
             statements: Vec::new(),
             selects: Vec::new(),
+            routes: Vec::new(),
         }
     }
 

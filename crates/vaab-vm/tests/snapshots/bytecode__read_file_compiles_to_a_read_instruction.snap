@@ -1,0 +1,9 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"choice FileError { NotFound(path: Text) }\\nprint(read_file(\\\"notes.txt\\\"))\\n\")"
+---
+body 0: the top level — 0 slots, 0 parameters
+    0  Constant 0 ("notes.txt")
+    1  ReadFile 0
+    2  Builtin print
+    3  Return

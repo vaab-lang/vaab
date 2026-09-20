@@ -1,0 +1,15 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"ability Describable {\\n    to describe() returns Text = \\\"hi\\\"\\n}\\n\")"
+---
+[ability-with-body] Error: an ability describes what a type must do, not how it does it
+   ╭─[ example.vaab:2:32 ]
+   │
+ 2 │     to describe() returns Text = "hi"
+   │        ────┬───                ┬  
+   │            │                   ╰── this function should have no body
+   │            │                      
+   │            ╰────────────────────── `describe` is required here
+   │ 
+   │ Help: end the line after the signature, and write the body in each `type ... can ...` that provides `describe`
+───╯

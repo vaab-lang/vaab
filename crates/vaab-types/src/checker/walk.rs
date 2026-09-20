@@ -91,6 +91,27 @@ pub(super) fn statement(node: &Stmt, visitor: &mut impl Visit) {
         // inside a block has already been reported and its body is not worth
         // walking into.
         StmtKind::Type(_) | StmtKind::Choice(_) | StmtKind::Ability(_) => {}
+        StmtKind::Serve(serve) => {
+            expression(&serve.port, visitor);
+            if let Some(before) = &serve.before {
+                block(before, visitor);
+            }
+            for route in &serve.routes {
+                block(&route.body, visitor);
+            }
+            if let Some(handler) = &serve.error_handler {
+                block(&handler.body, visitor);
+            }
+        }
+        StmtKind::Reply(reply) => match &reply.kind {
+            vaab_syntax::ast::ReplyKind::With { value, status } => {
+                expression(value, visitor);
+                if let Some(status) = status {
+                    expression(status, visitor);
+                }
+            }
+            vaab_syntax::ast::ReplyKind::Explain(value) => expression(value, visitor),
+        },
         StmtKind::Expr(inner) => expression(inner, visitor),
     }
 }

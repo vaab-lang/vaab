@@ -1,0 +1,15 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"to risky() returns Int or Text = 1\\n\")"
+---
+[incomplete-or-fails] Error: `or` on its own is not a type
+   ╭─[ example.vaab:1:24 ]
+   │
+ 1 │ to risky() returns Int or Text = 1
+   │                        ─┬  
+   │                         ╰── Vaab expected `or fails` and then an error type
+   │ 
+   │ Help: write `or fails SomeError` to say how this can fail
+   │ 
+   │ Note: Vaab has no union types; a value that may fail is `T or fails E`
+───╯

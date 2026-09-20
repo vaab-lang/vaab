@@ -97,9 +97,62 @@ pub enum StmtKind {
     Choice(Box<ChoiceDecl>),
     /// `ability Describable { ... }`
     Ability(Box<AbilityDecl>),
+    /// `serve on port 8080 { route ... }`
+    Serve(Box<ServeDecl>),
+    /// `reply with value` or `reply explain error`, inside a route body.
+    Reply(ReplyStmt),
     /// An expression evaluated for its effect, or, if it is last in a block, for
     /// the block's value.
     Expr(Expr),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ServeDecl {
+    pub port: Expr,
+    pub before: Option<Block>,
+    pub routes: Vec<RouteDecl>,
+    pub error_handler: Option<ServeErrorHandler>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ServeErrorHandler {
+    pub error_type: TypeExpr,
+    pub binding: Name,
+    pub body: Block,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RouteDecl {
+    pub method: Name,
+    pub path: Vec<RouteSegment>,
+    pub expecting: Option<ExpectingDecl>,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RouteSegment {
+    Literal(String),
+    Param { name: Name, declared: Option<TypeExpr> },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExpectingDecl {
+    pub declared: TypeExpr,
+    pub binding: Name,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReplyStmt {
+    pub kind: ReplyKind,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReplyKind {
+    With { value: Expr, status: Option<Expr> },
+    Explain(Expr),
 }
 
 #[derive(Clone, Debug, PartialEq)]

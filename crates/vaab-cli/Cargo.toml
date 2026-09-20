@@ -15,3 +15,5 @@ path = "src/main.rs"
 vaab-syntax.workspace = true
 vaab-types.workspace = true
 vaab-vm.workspace = true
+vaab-server.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

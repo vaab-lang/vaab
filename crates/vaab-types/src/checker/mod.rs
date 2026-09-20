@@ -32,6 +32,7 @@ mod member;
 mod pattern;
 mod pure;
 mod sendable;
+mod serve;
 mod stmt;
 mod walk;
 
@@ -157,6 +158,7 @@ pub(crate) struct Checker {
     /// Which captures have already been refused, so that a task nested inside
     /// another does not have the same value explained to it twice.
     reported_captures: HashSet<(LocalId, Span)>,
+    route_depth: u32,
 }
 
 /// Checks a module.
@@ -195,6 +197,7 @@ impl Checker {
             closure_captures: sendable::ClosureCaptures::default(),
             closure_of_local: sendable::ClosuresOfLocals::default(),
             reported_captures: HashSet::new(),
+            route_depth: 0,
         }
     }
 

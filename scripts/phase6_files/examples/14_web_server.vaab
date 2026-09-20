@@ -1,0 +1,18 @@
+# A small HTTP API in Vaab.
+# Run with: vaab serve examples/14_web_server.vaab
+
+choice ApiError {
+    NotFound
+}
+
+serve on port 8080 {
+    before every request { print("{request.method} {request.path}") }
+
+    route get "/hello" {
+        reply with "hello"
+    }
+
+    when anything fails with ApiError as error {
+        reply explain(error)
+    }
+}

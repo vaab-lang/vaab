@@ -1,0 +1,17 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"to greet(name) returns Text = name\\n\")"
+---
+[missing-type] Error: this parameter has no type
+   ╭─[ example.vaab:1:14 ]
+   │
+ 1 │ to greet(name) returns Text = name
+   │          ──┬─┬  
+   │            │ ╰── Vaab expected a `:` and a type here
+   │            │    
+   │            ╰──── `name` is declared here
+   │ 
+   │ Help: write `name: Int`, or whichever type fits
+   │ 
+   │ Note: Vaab infers the types of local values, but never of a signature
+───╯

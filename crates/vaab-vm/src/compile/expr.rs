@@ -211,6 +211,10 @@ impl<'a> Compiler<'a> {
 
     fn member(&mut self, expression: &'a Expr, target: &'a Expr, span: Span) {
         match self.checked.resolution(expression.id).cloned() {
+            Some(Resolution::RequestField(index)) => {
+                self.emit(Op::LoadLocal(0), span);
+                self.emit(Op::TupleItem(index as u32), span);
+            }
             Some(Resolution::Field { field, .. }) => {
                 self.expression(target);
                 self.emit(Op::Field(field as u32), span);

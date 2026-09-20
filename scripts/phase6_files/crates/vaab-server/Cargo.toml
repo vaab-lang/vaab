@@ -1,0 +1,17 @@
+[package]
+name = "vaab-server"
+description = "The Vaab web server runtime."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hyper = { workspace = true, features = ["server", "http1"] }
+hyper-util = { workspace = true, features = ["server", "tokio", "http1"] }
+http-body-util.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
+vaab-syntax.workspace = true
+vaab-types.workspace = true
+vaab-vm.workspace = true

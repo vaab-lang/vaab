@@ -95,6 +95,44 @@ impl Printer {
             StmtKind::Type(declaration) => self.type_declaration(declaration),
             StmtKind::Choice(declaration) => self.choice_declaration(declaration),
             StmtKind::Ability(declaration) => self.ability_declaration(declaration),
+            StmtKind::Serve(serve) => self.node("serve", |printer| {
+                printer.node("port", |printer| printer.expression(&serve.port));
+                if let Some(before) = &serve.before {
+                    printer.node("before every request", |printer| printer.block(before));
+                }
+                for route in &serve.routes {
+                    printer.node(format!("route {}", route.method.text), |printer| {
+                        printer.line(format!("path {:?}", route.path));
+                        if let Some(expecting) = &route.expecting {
+                            printer.node(
+                                format!("expecting as {}", expecting.binding.text),
+                                |printer| printer.type_expression(&expecting.declared),
+                            );
+                        }
+                        printer.block(&route.body);
+                    });
+                }
+                if let Some(handler) = &serve.error_handler {
+                    printer.node(
+                        format!("when anything fails as {}", handler.binding.text),
+                        |printer| {
+                            printer.type_expression(&handler.error_type);
+                            printer.block(&handler.body);
+                        },
+                    );
+                }
+            }),
+            StmtKind::Reply(reply) => match &reply.kind {
+                ReplyKind::With { value, status } => self.node("reply with", |printer| {
+                    printer.expression(value);
+                    if let Some(status) = status {
+                        printer.node("status", |printer| printer.expression(status));
+                    }
+                }),
+                ReplyKind::Explain(value) => {
+                    self.node("reply explain", |printer| printer.expression(value))
+                }
+            },
             StmtKind::Expr(expression) => self.expression(expression),
         }
     }

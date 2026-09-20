@@ -1,0 +1,11 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(r#\"reply with \"oops\"\n\"#)"
+---
+[reply-outside-route] Error: `reply` may only appear inside a route body or error handler
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ reply with "oops"
+   │ ────────┬────────  
+   │         ╰────────── `reply` was written here
+───╯

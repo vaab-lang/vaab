@@ -55,6 +55,7 @@ fn run(args: Args) -> ExitCode {
         Command::Parse { path } => parse_file(&path, args.color),
         Command::Check { path } => check_file(&path, args.color),
         Command::Run { path } => run_file(&path, args.color),
+        Command::Serve { path } => serve_file(&path, args.color),
         Command::Repl => {
             repl::start(args.color);
             exit::OK
@@ -99,6 +100,32 @@ fn check_file(path: &Path, color: ColorChoice) -> ExitCode {
             exit::OK
         }
         Err(problems) => report(&problems, &name, &source, color),
+    }
+}
+
+/// `vaab serve file.vaab`: check a file, then start its HTTP server.
+fn serve_file(path: &Path, color: ColorChoice) -> ExitCode {
+    let Some(source) = read(path) else { return exit::misuse() };
+
+    let name = path.display().to_string();
+    let parsed = vaab_syntax::parse(&source);
+
+    if parsed.has_errors() {
+        return report(&parsed.diagnostics, &name, &source, color);
+    }
+
+    let checked = match vaab_types::check(&parsed.module) {
+        Ok(checked) => checked,
+        Err(problems) => return report(&problems, &name, &source, color),
+    };
+
+    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+    match runtime.block_on(vaab_server::serve_file(&source, &parsed.module, &checked)) {
+        Ok(()) => exit::OK,
+        Err(message) => {
+            eprintln!("vaab: {message}");
+            exit::PROBLEMS
+        }
     }
 }
 
@@ -190,6 +217,7 @@ Commands:
   parse <file>   Read a file and print the syntax tree
   check <file>   Read a file and check its types
   run <file>     Check a file and run it
+  serve <file>   Check a file and start its HTTP server
   repl           Start an interactive session
   new <name>     Start a new project in a new directory
   help           Show this message

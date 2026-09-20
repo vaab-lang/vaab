@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 indexmap.workspace = true
+serde_json.workspace = true
 vaab-syntax.workspace = true
 vaab-types.workspace = true
 

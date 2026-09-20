@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"print(\\\"nothing here: {}\\\")\\n\")"
+---
+[empty-interpolation] Error: this `{...}` has nothing in it
+   ╭─[ example.vaab:1:22 ]
+   │
+ 1 │ print("nothing here: {}")
+   │                      ─┬  
+   │                       ╰── Vaab expected a value to show here
+   │ 
+   │ Help: put a value inside, as in `"hello, {name}"`, or write `\{` for a literal `{`
+───╯

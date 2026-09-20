@@ -10,6 +10,23 @@ use insta::assert_snapshot;
 use support::tree;
 
 // ---------------------------------------------------------------------------
+// Web server (phase 6)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn serve_block() {
+    assert_snapshot!(tree(
+        r#"
+serve on port 8080 {
+    before every request { print("{request.method}") }
+    route get "/hello" { reply with "hello" }
+    when anything fails with ApiError as error { reply explain(error) }
+}
+"#
+    ));
+}
+
+// ---------------------------------------------------------------------------
 // Values and bindings
 // ---------------------------------------------------------------------------
 

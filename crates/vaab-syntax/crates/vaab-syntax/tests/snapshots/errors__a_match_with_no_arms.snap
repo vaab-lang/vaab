@@ -1,0 +1,14 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"match value {\\n}\\n\")"
+---
+[empty-match] Error: this `match` has no arms
+   ╭─[ example.vaab:1:13 ]
+   │
+ 1 │ ╭─▶ match value {
+ 2 │ ├─▶ }
+   │ │       
+   │ ╰─────── there is nothing to match against
+   │     
+   │     Help: add at least one arm, such as `when nothing then ...`
+───╯

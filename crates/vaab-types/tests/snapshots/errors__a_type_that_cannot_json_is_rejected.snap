@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: rendered
+---
+[not-json] Error: a `Box` cannot be turned into JSON
+   ╭─[ example.vaab:1:14 ]
+   │
+ 1 │ type Box can Json { inbox: channel of Int }
+   │              ──┬─  
+   │                ╰─── this is Box
+   │ 
+   │ Help: only types that `can Json` may be passed to `to_json`
+   │ 
+   │ Note: a type `can Json` when every field, variant and item it holds can Json too
+───╯

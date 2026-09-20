@@ -1,0 +1,16 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(\"type Account {\\n    owner: Text\\n    owner: Int\\n}\\n\")"
+---
+[duplicate-field] Error: `owner` is declared twice
+   ╭─[ example.vaab:3:5 ]
+   │
+ 2 │     owner: Text
+   │     ──┬──  
+   │       ╰──── first declared here
+ 3 │     owner: Int
+   │     ──┬──  
+   │       ╰──── this field repeats an earlier one
+   │ 
+   │ Help: give one of them a different name, or remove it
+───╯

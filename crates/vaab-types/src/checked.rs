@@ -84,6 +84,30 @@ pub struct Checked {
     pub closures: HashMap<NodeId, Closure>,
     /// Every `start { ... }`, by the id of the expression that wrote it.
     pub tasks: HashMap<NodeId, Task>,
+    pub serves: HashMap<NodeId, Serve>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RouteSegment {
+    Literal(String),
+    Param(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct Route {
+    pub method: String,
+    pub path: Vec<RouteSegment>,
+    pub frame: FrameId,
+    pub path_params: Vec<(String, Type)>,
+    pub expecting: Option<(Type, LocalId)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Serve {
+    pub port: u16,
+    pub before: Option<FrameId>,
+    pub routes: Vec<Route>,
+    pub error_handler: Option<(Type, LocalId, FrameId)>,
 }
 
 impl Checked {
@@ -160,6 +184,7 @@ pub enum Resolution {
     NewChannel,
     /// `Shared.new(0)`.
     NewShared,
+    RequestField(usize),
 }
 
 /// Where a local lives, relative to the frame doing the reading.
@@ -202,6 +227,7 @@ pub enum FrameKind {
     Function(FunctionId),
     /// A closure, identified by the expression that wrote it.
     Closure(NodeId),
+    Route(NodeId),
 }
 
 /// How to fill each parameter of a call, once names, order and defaults have been

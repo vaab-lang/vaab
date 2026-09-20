@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: rendered
+---
+[not-json] Error: a to(Int) returns Int cannot be turned into JSON
+   ╭─[ example.vaab:2:15 ]
+   │
+ 2 │ print(to_json(echo))
+   │               ──┬─  
+   │                 ╰─── this is to(Int) returns Int
+   │ 
+   │ Help: only types that `can Json` may be passed to `to_json`
+   │ 
+   │ Note: a type `can Json` when every field, variant and item it holds can Json too
+───╯

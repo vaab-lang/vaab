@@ -790,6 +790,42 @@ No package manifest, no modules, no imports — only what Vaab can run today.
 - Succeeds with exit code **0** and prints how to run the file.
 - Tested with a temp working directory and `vaab run` on the generated file.
 
+
+---
+
+## Phase 5b
+
+### D75. `read_file` and `FileError`
+
+`read_file(path: Text) returns Text or fails FileError` is pinned in the prelude.
+`FileError` is **not** injected by the runtime — each program declares its own
+choice, and the compiler looks up `FileError.NotFound` when compiling `read_file`.
+A missing path becomes `failure FileError.NotFound(path)`; other I/O errors stop
+the program with a confused report rather than a second variant.
+
+### D76. `now()`
+
+`now()` returns an `Int` of whole seconds since the Unix epoch (1970-01-01 UTC).
+Sub-second precision is deferred.
+
+### D77. `can Json`
+
+`Json` is a built-in marker ability with no required methods. The checker
+registers it before user abilities and validates that every field, variant payload
+and nested container of a claiming type may itself be encoded. Serialization is
+`to_json(value)` → `Text`; deserialization is deferred.
+
+### D78. JSON encoding
+
+Encoding uses `serde_json`. Records become JSON objects; choice variants use
+externally tagged objects (`{"VariantName": {...}}`); `maybe`/`success`/`failure`
+unwrap to their held value or `null`.
+
+### D79. `not-json` diagnostic
+
+When a type claims `can Json` but holds something that cannot be encoded, or when
+`to_json` is called on a non-Json type, the checker reports code `not-json`.
+
 ---
 
 ## Still open

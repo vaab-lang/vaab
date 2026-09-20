@@ -1,6 +1,11 @@
 //! Statements, blocks and the bodies of declarations.
 
-use vaab_syntax::ast::{Block, Expr, ExprKind, Stmt, StmtKind};
+use vaab_syntax::ast::{Block, Expr, ExprKind, ReplyKind, ServeDecl, Stmt, StmtKind};
+
+use crate::bytecode::RouteHandler;
+use crate::value::Ref;
+
+use super::Builder;
 use vaab_syntax::span::Span;
 use vaab_types::Type;
 
@@ -74,6 +79,9 @@ impl<'a> Compiler<'a> {
             }
 
             StmtKind::Choice(_) | StmtKind::Ability(_) => {}
+
+            StmtKind::Serve(serve) => self.serve(statement, serve),
+            StmtKind::Reply(reply) => self.reply(reply, span),
 
             StmtKind::Expr(expression) => {
                 self.expression(expression);
@@ -240,5 +248,50 @@ impl<'a> Compiler<'a> {
         self.emit(Op::Int(1), span);
         self.emit(Op::Add, span);
         self.emit(Op::StoreLocal(position), span);
+    }
+
+    fn serve(&mut self, statement: &'a Stmt, serve: &'a ServeDecl) {
+        let Some(checked) = self.checked.serves.get(&statement.id) else { return };
+
+        for (route, route_decl) in checked.routes.iter().zip(&serve.routes) {
+            let body_index = self.builders.len();
+            let name = Ref::from(format!("route {}", route.method).as_str());
+            self.builders.push(Builder::new(name, route.frame));
+
+            let parameters = 1
+                + route.path_params.len()
+                + usize::from(route.expecting.is_some());
+            self.open_body(body_index, route.frame, parameters);
+            self.block_discard(&route_decl.body);
+            self.emit(Op::Return, route_decl.span);
+            self.open.pop();
+
+            self.program.routes.push(RouteHandler {
+                method: route.method.clone(),
+                path: route.path.clone(),
+                body: body_index,
+                frame: route.frame,
+                path_param_count: route.path_params.len(),
+                expects_body: route.expecting.is_some(),
+            });
+        }
+    }
+
+    fn reply(&mut self, reply: &'a vaab_syntax::ast::ReplyStmt, span: Span) {
+        match &reply.kind {
+            ReplyKind::With { value, status } => {
+                self.expression(value);
+                if let Some(status) = status {
+                    self.expression(status);
+                    self.emit(Op::ReplyWith(true), span);
+                } else {
+                    self.emit(Op::ReplyWith(false), span);
+                }
+            }
+            ReplyKind::Explain(value) => {
+                self.expression(value);
+                self.emit(Op::ReplyExplain, span);
+            }
+        }
     }
 }
