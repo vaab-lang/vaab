@@ -1,0 +1,19 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"let answer = match 2 {\\n\\\n         \\x20   when 1 then \\\"one\\\"\\n\\\n         \\x20   otherwise then \\\"more\\\"\\n\\\n         }\\n\")"
+---
+body 0: the top level — 1 slot, 0 parameters
+    0  Int(2)
+    1  StoreLocal(0)
+    2  LoadLocal(0)
+    3  Int(1)
+    4  Equal
+    5  JumpIfFalse(8)
+    6  Constant 0 ("one")
+    7  Jump(11)
+    8  Constant 1 ("more")
+    9  Jump(11)
+   10  NoArm
+   11  StoreGlobal(0)
+   12  Nothing
+   13  Return

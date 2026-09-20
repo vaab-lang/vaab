@@ -147,11 +147,11 @@ impl Checker {
             }
 
             ExprKind::Start(body) => {
-                let value = self.start_block(body);
+                let value = self.start_block(expression, body);
                 Type::task(value)
             }
 
-            ExprKind::Select(select) => self.select_expression(select),
+            ExprKind::Select(select) => self.select_expression(select, expression.span),
         }
     }
 
@@ -487,6 +487,10 @@ impl Checker {
         let frame = self.new_frame(FrameKind::Closure(expression.id));
         self.enter_frame(frame);
 
+        // Everything declared from here on belongs to the closure, so it is not
+        // something the closure reached for. See [`super::sendable`].
+        let closure_locals_begin = self.checked.locals.len();
+
         let mut locals: Vec<LocalId> = Vec::new();
         let mut declared: Vec<Parameter> = Vec::new();
         for (position, name) in parameters.iter().enumerate() {
@@ -503,6 +507,7 @@ impl Checker {
         };
 
         self.leave_frame();
+        self.record_closure_captures(expression.id, body, closure_locals_begin);
 
         let signature = Signature::new(declared, result);
         self.checked.closures.insert(
@@ -696,13 +701,24 @@ impl Checker {
     // -----------------------------------------------------------------------
 
     /// The value a `start { ... }` block produces, which becomes the task's result.
-    fn start_block(&mut self, body: &Block) -> Type {
-        self.block(body, Wanted::Anything).declared
+    ///
+    /// A task runs on its own, so once the body has a type the sendability rules
+    /// decide whether everything it reaches for outside itself may go with it.
+    fn start_block(&mut self, expression: &Expr, body: &Block) -> Type {
+        // Everything declared from here on belongs to the task, so it is not
+        // something the task reached for. See [`super::sendable`].
+        let task_locals_begin = self.checked.locals.len();
+
+        let value = self.block(body, Wanted::Anything).declared;
+        self.check_task(expression.id, body, expression.span, &value, task_locals_begin);
+        value
     }
 
     /// `select` is checked for what its arms do, not for a value: it is a way of
-    /// waiting, and each arm goes its own way. The real rules arrive in phase 4.
-    fn select_expression(&mut self, select: &SelectExpr) -> Type {
+    /// waiting, and each arm goes its own way.
+    fn select_expression(&mut self, select: &SelectExpr, span: Span) -> Type {
+        self.check_select_has_arms(select.arms.len(), span);
+
         for arm in &select.arms {
             match arm {
                 SelectArm::Receive { channel, binding, body, .. } => {
@@ -729,8 +745,9 @@ impl Checker {
                     self.block_statements(body, Wanted::Discarded);
                     self.pop_scope();
                 }
-                SelectArm::Timeout { amount, body, .. } => {
+                SelectArm::Timeout { amount, unit, body, .. } => {
                     self.expression(amount, Wanted::Exactly(Type::Int));
+                    self.check_time_unit(unit);
                     self.block(body, Wanted::Discarded);
                 }
             }

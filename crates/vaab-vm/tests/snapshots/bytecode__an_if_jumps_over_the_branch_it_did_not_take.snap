@@ -1,0 +1,16 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"let n = 1\\nprint(if n > 0 { \\\"up\\\" } else { \\\"down\\\" })\\n\")"
+---
+body 0: the top level — 0 slots, 0 parameters
+    0  Int(1)
+    1  StoreGlobal(0)
+    2  LoadGlobal(0)
+    3  Int(0)
+    4  Greater
+    5  JumpIfFalse(8)
+    6  Constant 0 ("up")
+    7  Jump(9)
+    8  Constant 1 ("down")
+    9  Builtin print
+   10  Return

@@ -1,0 +1,15 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: "support::rendered(Fault::Confused(\"a frame names a body that is not there\"),\n\"print(1)\\n\", Span::new(0, 8),)"
+---
+[confused] Error: the Vaab machine found a state it cannot explain
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ print(1)
+   │ ────┬───  
+   │     ╰───── this is where it stopped
+   │ 
+   │ Help: this is a bug in Vaab itself, not in the program
+   │ 
+   │ Note: a frame names a body that is not there
+───╯

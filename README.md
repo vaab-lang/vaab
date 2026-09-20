@@ -26,16 +26,21 @@ match account.deposit(25) {
 
 ## Status
 
-Phases 1 and 2 of 7 are complete: the front end and the type checker. Vaab source
-parses and type-checks, and mistakes are reported with a snippet, a caret and an
-explanation. Nothing runs yet.
+Phases 1 to 3 of 7 are complete: the front end, the type checker and the machine.
+Vaab source parses, type-checks and runs, and everything that goes wrong — a
+mistake in the program or a calculation with no answer — is reported with a
+snippet, a caret and an explanation. Concurrency is half here: the compile-time
+rules are checked, so a data race is already a compile error, but nothing
+concurrent runs until the scheduler lands. A program that starts a task stops
+with a report saying which phase brings it.
 
 | Phase | What it brings | State |
 | --- | --- | --- |
 | 1 | Lexer, AST, parser, diagnostics, `vaab parse` | done |
 | 2 | Type checker, `vaab check` | done |
-| 3 | Bytecode VM, standard library basics, `vaab run`, `vaab repl` | next |
-| 4 | Channels, tasks, `select`, `shared`, sendability checking | |
+| 3 | Bytecode VM, standard library basics, `vaab run`, `vaab repl` | done |
+| 4 | Sendability checking | done |
+| 4b | Channels, tasks, `select`, `shared`, the scheduler | next |
 | 5 | Standard library, `pure` enforcement, `vaab new` | |
 | 6 | `serve` and `route` | |
 | 7 | Multi-threaded work-stealing scheduler | |
@@ -43,8 +48,20 @@ explanation. Nothing runs yet.
 ## Try it
 
 ```sh
+cargo run -p vaab-cli -- run examples/12_running_programs.vaab
 cargo run -p vaab-cli -- check examples/05_types.vaab
 cargo run -p vaab-cli -- parse examples/01_hello.vaab
+```
+
+Or type at it:
+
+```sh
+cargo run -p vaab-cli -- repl
+```
+```
+vaab> let numbers = [1, 2, 3]
+vaab> numbers.map(n -> n * n)
+[1, 4, 9]
 ```
 
 Feed it something broken to see the diagnostics:
@@ -55,6 +72,9 @@ cargo run -p vaab-cli -- parse /tmp/oops.vaab
 
 printf 'let ages = {"Ada": 36}\nlet age: Int = ages.get("Ada")\n' > /tmp/maybe.vaab
 cargo run -p vaab-cli -- check /tmp/maybe.vaab
+
+printf 'let none = 0\nprint(10 / none)\n' > /tmp/nope.vaab
+cargo run -p vaab-cli -- run /tmp/nope.vaab
 ```
 
 ## Layout
@@ -62,13 +82,14 @@ cargo run -p vaab-cli -- check /tmp/maybe.vaab
 ```
 crates/vaab-syntax   lexer, AST, parser, diagnostics
 crates/vaab-types    the type checker
+crates/vaab-vm       the bytecode compiler and the machine that runs it
 crates/vaab-cli      the `vaab` binary
 docs/LANGUAGE.md     the living specification
 docs/DECISIONS.md    design choices and their reasoning
 examples/            runnable programs, one per feature
 ```
 
-Crates for the VM, standard library and server are added in the phase that first
+Crates for the standard library and the server are added in the phase that first
 needs them.
 
 ## Development

@@ -1,0 +1,13 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: "stops(\"let none = 0\\nprint(10 % none)\\n\")"
+---
+[divide-by-zero] Error: this takes a remainder by zero
+   ╭─[ example.vaab:2:7 ]
+   │
+ 2 │ print(10 % none)
+   │       ────┬────  
+   │           ╰────── the right-hand side is 0
+   │ 
+   │ Help: check the right-hand side first, as in `if step != 0 { ... }`
+───╯

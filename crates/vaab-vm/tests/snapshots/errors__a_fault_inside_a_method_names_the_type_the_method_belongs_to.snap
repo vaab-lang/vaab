@@ -1,0 +1,16 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: stops(source)
+---
+[divide-by-zero] Error: this divides by zero
+   ╭─[ example.vaab:4:40 ]
+   │
+ 4 │     to per(minutes: Int) returns Int = self.per_hour / minutes
+   │                                        ───────────┬───────────  
+   │                                                   ╰───────────── the right-hand side is 0
+   │ 
+   │ Help: check the divisor first, as in `if count != 0 { ... }`
+───╯
+Trace:
+  in `Rate.per` at example.vaab:4:40
+  in the top level at example.vaab:6:7

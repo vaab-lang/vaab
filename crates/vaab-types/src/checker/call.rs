@@ -90,9 +90,15 @@ impl Checker {
     ) -> Type {
         match self.look_up_member(target, name) {
             Member::Callable { signature, resolution, shape } => {
+                // `.update` is the only built-in whose argument has rules of its
+                // own, and it is checked once the argument's own `.`s are resolved.
+                let updating = resolution == Resolution::BuiltinMethod("update");
                 self.resolve_to(callee.id, resolution);
                 let (returns, ready) = self.apply(call, &signature, &shape, arguments);
                 self.checked.types.insert(callee.id, ready.as_type());
+                if updating {
+                    self.check_update_change(arguments);
+                }
                 returns
             }
 
@@ -151,7 +157,8 @@ impl Checker {
                             self.expression(&argument.value, Wanted::Exactly(Type::Int));
                         }
                         _ if carries.is_none() => {
-                            carries = Some(self.type_argument(&argument.value));
+                            carries =
+                                Some((self.type_argument(&argument.value), argument.value.span));
                         }
                         _ => {
                             self.expression(&argument.value, Wanted::Anything);
@@ -160,7 +167,11 @@ impl Checker {
                     sources.push(ArgumentSource::Given(position));
                 }
                 match carries {
-                    Some(carries) => Type::channel(carries),
+                    // A channel is how values cross between tasks, so what it
+                    // carries has to be able to make the journey.
+                    Some((carries, span)) => {
+                        Type::channel(self.check_channel_type(carries, span))
+                    }
                     None => {
                         self.report(messages::needs_a_type_name(call.span));
                         Type::channel(Type::Unknown)
@@ -170,15 +181,18 @@ impl Checker {
 
             Handle::Shared => {
                 self.resolve_to(callee.id, Resolution::NewShared);
-                let mut held = Type::Unknown;
+                let mut held = None;
                 for (position, argument) in arguments.iter().enumerate() {
                     let found = self.expression(&argument.value, Wanted::Anything);
                     if position == 0 {
-                        held = found;
+                        held = Some((found, argument.value.span));
                     }
                     sources.push(ArgumentSource::Given(position));
                 }
-                Type::shared(held)
+                match held {
+                    Some((held, span)) => Type::shared(self.check_shared_value(held, span)),
+                    None => Type::shared(Type::Unknown),
+                }
             }
         };
 

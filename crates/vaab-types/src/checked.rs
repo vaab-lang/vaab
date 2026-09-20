@@ -82,6 +82,8 @@ pub struct Checked {
     pub abilities: Vec<Ability>,
     /// Every closure, by the id of the expression that wrote it.
     pub closures: HashMap<NodeId, Closure>,
+    /// Every `start { ... }`, by the id of the expression that wrote it.
+    pub tasks: HashMap<NodeId, Task>,
 }
 
 impl Checked {
@@ -252,6 +254,19 @@ pub struct Closure {
     /// both halves of it. The caller still passes one value; whoever runs the
     /// closure has to take it apart into the slots above.
     pub unpacks: bool,
+}
+
+/// A `start { ... }` block, which becomes a task of its own.
+///
+/// A task does not share the stack it was started from: whatever it reaches for
+/// outside itself has to be carried in when it starts. [`Task::captures`] is that
+/// list, worked out by the sendability rules, so nothing has to find it again.
+#[derive(Clone, Debug, Default)]
+pub struct Task {
+    /// Every local the body uses that was declared outside it, in first-use order.
+    /// Locals reached only by a task nested inside this one are here too, because
+    /// this task has to carry them as far as that one.
+    pub captures: Vec<LocalId>,
 }
 
 /// A declared `type`.

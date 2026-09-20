@@ -1,0 +1,13 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: rendered
+---
+[range-too-long] Error: this range holds too many numbers to build
+   ╭─[ example.vaab:2:15 ]
+   │
+ 2 │ for each n in 1..far { print(n) }
+   │               ───┬──  
+   │                  ╰──── this stands for 1000000000 whole numbers
+   │ 
+   │ Help: a range is a list, so it is built all at once: count with a `while` loop instead when there are this many
+───╯

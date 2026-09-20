@@ -1,0 +1,16 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: stops(source)
+---
+[index-out-of-range] Error: this list has no item at 9
+   ╭─[ example.vaab:1:58 ]
+   │
+ 1 │ to at(names: list of Text, position: Int) returns Text = names[position]
+   │                                                          ───────┬───────  
+   │                                                                 ╰───────── the list holds 1 item
+   │ 
+   │ Help: positions start at 0, so the last item is at 0; `items.count` says how many there are
+───╯
+Trace:
+  in `at` at example.vaab:1:58
+  in the top level at example.vaab:2:7

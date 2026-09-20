@@ -1,0 +1,48 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"to total(numbers: list of Int) returns Int {\\n\\\n         \\x20   let changing sum = 0\\n\\\n         \\x20   numbers.each(n -> { sum = sum + n })\\n\\\n         \\x20   return sum\\n\\\n         }\\n\")"
+---
+body 0: the top level — 0 slots, 0 parameters
+    0  Nothing
+    1  Return
+
+body 1: `total` — 6 slots, 1 parameter
+    0  Int(0)
+    1  StoreLocal(1)
+    2  Box(1)
+    3  LoadLocal(0)
+    4  StoreLocal(2)
+    5  MakeFunction a closure
+    6  StoreLocal(3)
+    7  Int(0)
+    8  StoreLocal(4)
+    9  LoadLocal(4)
+   10  LoadLocal(2)
+   11  Length
+   12  Less
+   13  JumpIfFalse(25)
+   14  LoadLocal(3)
+   15  LoadLocal(2)
+   16  LoadLocal(4)
+   17  Index
+   18  Call(1)
+   19  Pop
+   20  LoadLocal(4)
+   21  Int(1)
+   22  Add
+   23  StoreLocal(4)
+   24  Jump(9)
+   25  Nothing
+   26  Pop
+   27  LoadCell(1)
+   28  Return
+   29  Nothing
+   30  Return
+
+body 2: a closure — 1 slot, 1 parameter, captures [Local(1)]
+    0  LoadUpvalue(0)
+    1  LoadLocal(0)
+    2  Add
+    3  StoreUpvalue(0)
+    4  Nothing
+    5  Return

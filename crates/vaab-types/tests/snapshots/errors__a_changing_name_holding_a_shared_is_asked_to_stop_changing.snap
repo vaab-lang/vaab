@@ -1,0 +1,18 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let changing counter = Shared.new(0)\\n\\\n         let job = start { counter.value }\\n\")"
+---
+[changing-captured-by-task] Error: `counter` can change, so a task cannot use it.
+   ╭─[ example.vaab:2:19 ]
+   │
+ 1 │ let changing counter = Shared.new(0)
+   │              ───┬───  
+   │                 ╰───── `counter` is declared `changing` here
+ 2 │ let job = start { counter.value }
+   │                   ───┬───  
+   │                      ╰───── this task uses `counter`, which lives outside it
+   │ 
+   │ Help: drop the `changing`: a `shared` is changed with `counter.update(value -> ...)`, never by assignment
+   │ 
+   │ Note: what a `shared` holds is safe to change from any number of tasks, but the name is not: assigning to `counter` would leave the tasks looking at different values
+───╯

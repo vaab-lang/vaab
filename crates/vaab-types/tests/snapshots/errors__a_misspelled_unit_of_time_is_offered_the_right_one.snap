@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let inbox = Channel.new(of: Int, size: 1)\\n\\\n         select {\\n\\\n         \\x20   when timeout after 2 secnds { print(\\\"slow\\\") }\\n\\\n         }\\n\")"
+---
+[unknown-time-unit] Error: `secnds` is not a unit of time Vaab knows
+   ╭─[ example.vaab:3:26 ]
+   │
+ 3 │     when timeout after 2 secnds { print("slow") }
+   │                          ───┬──  
+   │                             ╰──── Vaab expected a unit of time here
+   │ 
+   │ Help: did you mean `seconds`?
+───╯

@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let inbox = Channel.new(of: Int, size: 1)\\n\\\n         select {\\n\\\n         \\x20   when timeout after 2 fortnights { print(\\\"slow\\\") }\\n\\\n         }\\n\")"
+---
+[unknown-time-unit] Error: `fortnights` is not a unit of time Vaab knows
+   ╭─[ example.vaab:3:26 ]
+   │
+ 3 │     when timeout after 2 fortnights { print("slow") }
+   │                          ─────┬────  
+   │                               ╰────── Vaab expected a unit of time here
+   │ 
+   │ Help: write `milliseconds`, `seconds`, `minutes` or `hours` — or the singular of any of them, as in `timeout after 1 second`
+───╯

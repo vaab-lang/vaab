@@ -280,13 +280,20 @@ will have when phase 5 puts a runtime behind it.
 whatever error the surrounding function declares. Phase 5 pins it to a real
 `FileError` once there is a runtime behind it.
 
-### D29. Concurrency is typed, not yet checked
+### D29. Concurrency is typed *and* checked; the runtime is not here yet
 
 `Channel.new(of: T)`, `Shared.new(v)`, `start`, `send`, `receive`, `select` and
-`together` are given their types — `channel of T`, `shared T`, `task of T`, and
-`maybe T` for a `receive` — and nothing more. Sendability, whether a `select` arm's
-channel is still open, and what a failing task does are phase 4. This keeps
-`11_concurrency.vaab` honestly checked as far as phase 2 reaches.
+`together` have both their types and their rules. A value crossing into a task,
+down a channel, or into a `shared` must be **sendable**, and a `let changing` name
+may never cross at all — that last one is the error the language exists to give.
+The rules are structural and live in `checker/sendable.rs`; `Checked::tasks`
+records what each `start` has to carry in, so the runtime does not work it out
+again. The rules themselves are D53 onwards.
+
+What is still open is everything that needs a machine underneath it: whether a
+`select` arm's channel is still open, what a failing task does to its siblings, and
+deadlock detection. Those are properties of a run, not of a program, and no amount
+of reading can settle them.
 
 ### D30. A type cannot be changed in place, and neither can a list
 
@@ -323,6 +330,334 @@ A branch that sometimes produces no value cannot be a value, so an `if` with no
 `else` is `Nothing` and may only be used for its effect. Asked for a real type, it
 reports the missing `else` and then carries on *as if* it had the type asked for,
 so one missing `else` is one message rather than two.
+
+---
+
+## Phase 3: the machine
+
+### D35. The compiler reads the checker's answers and never works one out twice
+
+`vaab-vm` takes the `Checked` the type checker produced and treats it as settled:
+which declaration a name refers to, how many frames out a local lives, which slot
+a field is in, which type a method belongs to, whether a call is a constructor.
+The compiler never asks a question the checker has already answered. The cost is
+that the two crates are coupled through `Checked` and a change to it is a change
+to both; the gain is that there is exactly one place where a name is resolved, so
+the machine cannot disagree with the type errors a person was shown.
+
+### D36. A Vaab call is a frame pushed onto the machine, never a Rust call
+
+`Machine` holds a value stack and a frame stack, and a call to a Vaab function
+pushes a frame rather than calling into Rust. How deep a Vaab program goes
+therefore has nothing to do with how much Rust stack is left, and `fib(25)` — or
+a recursion ten thousand deep — cannot take the process down. It also means the
+machine can stop between any two instructions and be picked up later, which is
+what phase 4's scheduler needs and what a Rust-recursive interpreter could not
+give it without threads. The cost is that everything the interpreter would have
+kept in Rust locals has to be a field of the frame or a slot on the stack.
+
+### D37. One alias, `Ref`, stands for every shared value
+
+Every heap value — text, a list, a map, a record, a closure — sits behind
+`value::Ref<T>`, which is `std::rc::Rc<T>` today. Phase 7 adds a work-stealing
+scheduler across threads, and when it does, `Ref` becomes `Arc` and nothing else
+changes shape. `Value::Captured` is part of the same promise: it holds a `Cell`,
+which is exactly the amount of interior mutability an `Rc` allows, and becomes a
+`Mutex` beside the `Arc`. The cost is a layer of indirection where a plain `Rc` or
+`Arc` could have been written; the gain is that phase 7 is a change to one file
+rather than to every file that touches a value.
+
+### D38. A local a closure reaches is put in a box where it is declared
+
+The checker already says how many frames out each name lives. Before compiling,
+the machine's compiler collects every local reached from further in than its own
+frame and boxes exactly those: at the point of declaration they become a
+`Value::Captured` cell, and every read and write goes through it. A closure then
+captures the cell, so `numbers.each(n -> { sum = sum + n })` changes the very
+`sum` the function declared rather than a copy of it.
+
+The rejected alternative was a chain of environments, one per call, which is
+simpler to write and slower everywhere: every local would cost an allocation,
+whether a closure ever looked at it or not. Boxing only what is shared keeps the
+common case — a local nobody captures — a plain slot on the value stack. The cost
+is the pass that works out which locals those are, and one indirection on the ones
+that are shared.
+
+### D39. `.map` and `.each` are compiled as loops, not as calls into Rust
+
+They would be easy to write as builtins that take a closure and call it. But a
+builtin that calls back into Vaab would have to run a machine inside a machine,
+and a machine halfway through a `map` could not then be parked — which is exactly
+what phase 4 will want to do when a closure blocks on a channel. So the compiler
+writes out the loop: a position, a length, an `Index`, a `Call`, a jump back.
+`.map` also needs a list to gather into, so it takes one more slot than `.each`.
+The cost is a longer listing for a common thing; the gain is that there is one
+kind of call in the machine and every one of them can be parked.
+
+### D40. How a value is written when it is printed
+
+`print` shows text bare when the text *is* the value and in quotes when it sits
+inside something else, so `print("a")` is `a` while `print(["a"])` is `["a"]` and
+not two bare words. Lists are `[1, 2, 3]`, maps `{"Ada": 36}`, tuples
+`(1, "one")` — each the way the same value is written in Vaab source, so a printed
+value can be pasted back into a program. Booleans are `yes` and `no`, the words
+the language uses. A `Float` keeps its point, so `5.0` does not read as a whole
+number. A record is `Account(owner: "Ada", balance: 0)`: the constructor's shape
+without the `.new`, because `Account.new(...)` would suggest the value was being
+made rather than shown. A variant is `Colour.Red`, a `maybe` is `found 3` or
+`nothing`, a result is `success 1` or `failure Trouble.Broken` — all exactly as a
+pattern would spell them.
+
+### D41. Dividing a decimal by zero is an error, like dividing a whole number
+
+IEEE arithmetic would answer `inf`, and Vaab does not. The specification says a
+program stops abnormally only on an unrecoverable runtime error and names
+division by zero as one; having it be an error for `Int` and a strange value for
+`Float` would make the rule something a person has to remember the exceptions to.
+The cost is that a program doing deliberate IEEE arithmetic cannot; nothing in the
+language asks for that yet, and a `Float` that reaches `inf` by overflow is still
+left alone.
+
+### D42. A range stands for at most ten million numbers
+
+`1..10` is a list, so `1..1_000_000_000_000` is a list too, and building it would
+take the machine down before anything could report it. Ten million is the line:
+far past any loop a person writes on purpose, far short of anything that hurts.
+Crossing it is a `range-too-long` report pointing at the range. The alternative —
+a lazy range that a `for each` walks without building — is a better answer and a
+larger one, because a range is a `list of Int` everywhere else in the language and
+would stop being one. Worth revisiting when the standard library arrives.
+
+### D43. Calls stop at ten thousand deep
+
+Runaway recursion has to end somewhere, and ending it with a report and a trace
+is the difference between a language that explains itself and one that dies. Ten
+thousand is deep enough for any recursion that was going to terminate and shallow
+enough to hit quickly. The trace shows the nearest six calls and the furthest
+three with a count of the rest, because nobody reads the middle of ten thousand
+identical lines.
+
+### D44. A file's top-level values belong to the world, not to a frame
+
+Locals inside a function live in slots on the value stack and vanish when the
+frame does. The file's own `let`s are different: they outlive every call, a
+closure at the top level can change one, and a REPL session needs them to still
+be there on the next line. So they are globals, held by the `World` rather than by
+any `Machine`. Phase 4 gets the same arrangement for free — many machines, one
+world, one copy of the file's values, which is what "tasks see the same file"
+means.
+
+### D45. A machine is run for a budget of instructions and handed back
+
+`Machine::resume(world, budget)` runs up to a given number of instructions and
+answers `Yielded`, `Finished(value)` or `Failed(error)`. A machine that yielded
+holds a borrow of nothing, so a scheduler may own as many as it likes and step
+them in turn; `Budget::unlimited()` is what `vaab run` uses, since it has nothing
+to share with. When a machine parks on a channel in phase 4 it will stop exactly
+the same way, with one more `Step` saying what it is waiting for, and none of the
+machinery here has to change.
+
+### D46. The REPL keeps the file and checks the whole of it every line
+
+A session is a Vaab file that grows. Each line typed is added to the source, the
+whole file is parsed and checked again, and only the statements the line added are
+run — the machine is started at the new statements' instruction, with the world's
+values still in place. Re-checking costs nothing at the size a person types, and
+buys exact agreement with `vaab run`: a session cannot accept something a file
+would reject, because it *is* a file. A line that does not compile is thrown away
+and the session is untouched. A line that compiles and then stops is kept, because
+the statements before the fault really did run.
+
+A line is read on when a `{`, `(` or `[` is still open, counted outside text and
+comments. Anything subtler is the parser's job, and the parser gets its turn as
+soon as the brackets balance.
+
+### D47. Rounding goes to the nearest whole number, halves away from zero
+
+`2.5.round()` is `3` and `(-2.5).round()` is `-3`. This is the rounding taught in
+school, and the one a reader of plain English expects; banker's rounding is a
+better default for statistics and a worse one for a language that is trying not to
+surprise anybody. A result too large to be an `Int` is an overflow report rather
+than a saturated number.
+
+### D48. `.count` for things that are counted, `.length` for text
+
+A list and a map answer `.count`, because what is being asked is how many things
+there are. Text answers `.length`, because a length is a measurement, and it is
+measured in characters rather than bytes: `"héllo".length` is `5`. The cost is two
+names for what a shorter language would call one thing; the gain is that both read
+as English where one would not.
+
+### D49. Everything a later phase brings compiles to one instruction that names it
+
+`read_file`, `Channel.new`, `Shared.new`, `start`, `receive`, `send`, `close`,
+`select` and `together` all type-check today and none of them runs. Each compiles
+to a `NotYet` instruction carrying which feature it was, so reaching one is a
+report — "`read_file` arrives in phase 5", with a help line and the call that led
+there — rather than a panic or a quiet wrong answer. A program may be written
+against phase 4 and phase 5 now; it simply stops at the first thing that is not
+built, and says so.
+
+### D50. `11_concurrency.vaab` is the one example that is not run
+
+Every other example in `examples/` is run by a test that walks the folder, and
+what each one prints is a snapshot, so an example that breaks is a failing test.
+`11_concurrency.vaab` is left out by name: it is tasks and channels throughout,
+and running it would stop at its first `Channel.new`. It still has to parse and
+type-check, which `vaab-types` sees to, and the test that excludes it asserts that
+it is the *only* exclusion, so a second one cannot be added quietly.
+
+### D51. The machine reports its own confusion instead of panicking
+
+Nothing in the machine unwraps, and a state the machine cannot explain — a frame
+naming a body that is not there, an instruction given a value of the wrong shape —
+becomes a `confused` report saying it is a bug in Vaab rather than in the program.
+A checked program cannot reach one; the point is that if a bug in the compiler
+ever does, the person running the program gets a sentence and a source position
+instead of a Rust backtrace. `no-arm-applied` is the same kind of net: the checker
+makes every `match` exhaustive, so nothing should ever fall off the end of one.
+
+### D52. A `return` inside a closure returns from the closure
+
+The machine returns from the innermost frame, which is the closure. This is what
+every language with closures does and the only reading that works when a closure
+outlives the function that made it. The checker currently reads a `return` inside
+a closure as belonging to the enclosing *function*, which makes such a `return`
+practically unusable rather than wrong: the closure's body is then `Nothing` and
+the types do not line up. Nobody writes one today. Settling the checker's side of
+it is a phase 5 job, and the machine's answer is recorded here so that it is
+settled in the direction the machine already goes.
+
+---
+
+## Phase 4: concurrency, the compile-time half
+
+The rules a program has to obey to be safe. What happens during a run — a failing task's siblings, deadlock, the scheduler — is the other half, and arrives with the runtime.
+
+### D53. Sendability is a property of the type, worked out structurally
+
+The checker asks one question of a type — *could two tasks holding this disagree
+about what it is?* — and answers it by looking at what the type holds, not by any
+declaration a person writes. `Int`, `Float`, `Bool`, `Text` and `Nothing` are
+sendable because nothing can change them. A list, map, tuple, `maybe T` or
+`T or fails E` is sendable when everything inside it is, which follows from D30: a
+list cannot be changed in place, so it is a value like any other. A declared `type`
+is sendable when every field is, and a `choice` when every part of every variant is.
+
+A marker trait in the manner of Rust's `Send` was rejected. It would be a second
+thing to teach, it would need a `derive` or an explicit `can Sendable` on almost
+every type, and the structural answer is the same answer with none of the writing.
+The cost is that the reason a value is refused can be several steps away from the
+value, which is why every refusal spells the path out: "``Job``'s field ``work`` is
+``to(Int) returns Int``".
+
+### D54. A function value is the only thing that cannot cross
+
+Every refusal bottoms out at a function value. A closure holds on to whatever was
+around it when it was written; a value of type `to(Int) returns Int` carries no
+record of what that was, so Vaab cannot promise it is safe to move. Everything else
+is judged by what it holds, and so every unsendable type is unsendable because a
+function value is somewhere inside it.
+
+This keeps the rule sayable in one sentence, which was the point. A *declared*
+function — `to fetch(url: Text)` — is not a value and is never carried, so calling
+one by name from inside a task is always fine; this is the first thing the help
+text offers.
+
+### D55. A `let changing` name may never cross, whatever it holds
+
+Rule 2 of the specification, taken literally. It is checked on the *name*, before
+the type is looked at, so even `let changing counter = Shared.new(0)` is refused —
+what a `shared` holds is safe to change from any number of tasks, but the name is
+not, and assigning to it would leave the tasks looking at different values. That
+case gets its own help, which asks for the `changing` to be dropped rather than
+offering a `Shared` the code already has.
+
+The message is fixed by the specification, word for word, and has a unit
+test guarding its wording, so a later edit cannot drift it by accident.
+
+### D56. A closure bound straight to a fixed name is judged by its captures
+
+"A closure that captures something unsendable cannot itself be sent" is only a real
+rule if some closures *can* be sent. So a local bound straight to a closure — `let
+double = n -> n * 2` — remembers which closure it holds, and a task using that name
+is judged by that closure's own captures rather than refused for being a function.
+`double` crosses; `n -> n + total` does not, and the error points at the line inside
+the closure where `total` is read.
+
+A function value that arrived any other way — a parameter, the result of a call, a
+field, a name bound to another name — cannot be traced back to a body, and is
+refused. This is sound in the direction that matters: it never lets an unsafe
+closure through, it only sometimes refuses a safe one. Widening it needs a real
+capture analysis over the whole module, which is not worth its weight yet.
+
+### D57. The change handed to `.update` may not wait
+
+`shared.update(...)` holds the value while the change runs. If the change waited —
+a `receive`, a `send`, a `.wait()`, a nested `.update`, a `select`, a `together`, or
+a `start` needing its turn — it would hold the value for as long as it waited, and
+what it was waiting for could be waiting for that same value. That is a deadlock
+written by hand, and it is visible in the source, so it is refused in the source.
+
+`.value` is a plain read and waits for nothing. Together these are the whole
+contract of a `shared`: read it whenever, change it through a change that finishes
+on its own.
+
+### D58. An unsendable `T` poisons its handle rather than cascading
+
+`Channel.new(of: Job)` where `Job` cannot cross is reported once, and the channel is
+then treated as carrying `Unknown`. Every later `send` to it is silently accepted,
+because `Unknown` fits anywhere — which is the existing "one mistake stays one
+mistake" rule, applied to a new place. `Shared.new` does the same. Without this, one
+bad channel prints a paragraph for every `send` in the program and buries the line
+that has to change.
+
+### D59. A `together` that cannot start a task, and a `select` with no arms, are errors
+
+`together` exists to wait for tasks and to cancel the rest when one fails. A body
+with no `start` in it and no call that could contain one provably waits for nothing,
+so it is dead syntax and is refused. Any call at all is taken as possibly starting a
+task, which makes the check conservative: it fires only when there is nothing there.
+
+`select` with no `when` arms has nothing that could ever become ready, with or
+without an `otherwise`. Both are cheap to spot and both are almost certainly a
+half-finished edit.
+
+### D60. Timeout units are a closed list, in both spellings
+
+`when timeout after 2 seconds` takes `millisecond`, `second`, `minute` or `hour`,
+and the plural of each. The parser accepts any word there, because only the checker
+knows which words are units; an unknown one is offered the nearest match by the same
+`did you mean` the rest of the checker uses, so `secnds` is answered with `seconds`.
+
+Both spellings are accepted so that `after 1 second` and `after 2 seconds` both read
+as English. Nothing smaller than a millisecond is offered, because a scheduler that
+preempts on an instruction count cannot honestly promise it.
+
+### D61. A value known only by its ability is judged by every type that claims it
+
+A parameter declared `thing: Runnable` could be any type declared `can Runnable`, so
+it is sendable only when every one of them is. The note names the type in the way —
+"any `Runnable` could be a `Job`, and `Job`'s field `work` is …" — because the
+reader never wrote `Job` down and would otherwise have no idea where the refusal
+came from.
+
+This is the conservative answer, and it means adding an unsendable provider to an
+ability can break a distant `start`. The alternative, checking at each call site
+where the concrete type is known, needs flow information the checker does not keep.
+
+### D62. What each task captures is recorded on `Checked`
+
+`Checked::tasks` maps each `start` expression to the locals its body uses from
+outside itself, in first-use order, including those reached only by a task nested
+inside it. The sendability rules have to work this out anyway, and the VM needs
+exactly the same list to build a task's frame, so it is published rather than thrown
+away. This follows the existing `Checked` contract: the checker answers questions
+once, and later phases read the answers.
+
+A type parameter such as `T` is treated as sendable throughout. Nothing in Vaab
+bounds a type parameter yet, so there is nothing to check it against; when bounds
+arrive, this is the line to revisit.
 
 ---
 

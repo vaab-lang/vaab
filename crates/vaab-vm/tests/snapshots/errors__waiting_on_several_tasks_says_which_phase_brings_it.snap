@@ -1,0 +1,17 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: "stops(\"together {\\n\\x20   start { print(\\\"working\\\") }\\n}\\n\")"
+---
+[not-yet] Error: `together` arrives in phase 4
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ ╭─▶ together {
+   ┆ ┆   
+ 3 │ ├─▶ }
+   │ │       
+   │ ╰─────── this is not built yet
+   │     
+   │     Help: phase 4 builds the scheduler that tasks and channels run on
+   │     
+   │     Note: it type-checks today, so the program is ready for the phase that runs it
+───╯

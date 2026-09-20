@@ -7,13 +7,18 @@ concurrency is safe by construction.
 This document is the living specification. Where it says **(phase N)**, the
 feature is designed but not yet built; everything else works today.
 
-**Status:** phases 1 and 2 are complete. Everything below parses, and `vaab check`
+**Status:** phases 1 to 3 are complete. Everything below parses, and `vaab check`
 will type-check it: signatures, generics, `maybe`, failures, abilities, and a
-`match` that has to cover every case. Nothing runs yet.
+`match` that has to cover every case. Sequential programs then run: `vaab run
+file.vaab` runs a file, and `vaab repl` opens a session that grows a line at a
+time.
 
-The type rules for concurrency are the exception. `channel of T`, `task of T` and
-`shared T` have their types today, but which values may cross a channel is checked
-in phase 4.
+Concurrency is half here. The compile-time rules are checked in full — which
+values may cross into a task or down a channel, and the `let changing` variable a
+task may never use — so a data race is already a compile error. Nothing concurrent
+*runs* yet, because the scheduler arrives with phase 4b: a program that reaches
+`start`, `Channel.new`, `Shared.new`, `select` or `together` stops with a report
+saying so.
 
 Design choices this document does not explain — the ones the original
 specification left open — are recorded in [DECISIONS.md](DECISIONS.md).
@@ -31,9 +36,10 @@ specification left open — are recorded in [DECISIONS.md](DECISIONS.md).
 7. [Control flow](#control-flow)
 8. [Concurrency](#concurrency)
 9. [Standard library](#standard-library)
-10. [Web server](#web-server-phase-6)
-11. [Reserved words](#reserved-words)
-12. [Symbols](#symbols)
+10. [When a program stops](#when-a-program-stops)
+11. [Web server](#web-server-phase-6)
+12. [Reserved words](#reserved-words)
+13. [Symbols](#symbols)
 
 ---
 
@@ -337,8 +343,9 @@ Comparisons do not chain: write `low < value and value < high`.
 
 ## Concurrency
 
-Everything here has its types today. The rules that make it *safe* — which values
-may cross a channel, what a failing task does to its siblings — are **(phase 4)**.
+Everything here has its types today, and the rules that make it *safe* are checked.
+What a failing task does to its siblings, and what happens when every task is
+blocked, are decided during a run **(phase 4b)**.
 
 ```vaab
 let inbox = Channel.new(of: Text, size: 10)   # bounded; size 0 is a rendezvous
@@ -370,17 +377,63 @@ print(counter.value)
 
 ### Sendability
 
-Data races are compile errors. The rules:
+A task does not share the stack it was started from, so every value a `start { ... }`
+body uses from outside itself has to be **carried in**. A value may be carried when
+two tasks holding it can never disagree about what it is. Vaab calls that
+*sendable*, works it out from the type, and refuses the rest at compile time.
 
-1. Fixed (`let`) values of sendable types may be captured by `start` blocks and
-   sent over channels.
-2. `let changing` variables may **never** be captured by a `start` block.
-3. `shared T` and `channel of T` are sendable handles, and the only ways to share
-   changing state. The `T` inside must itself be sendable.
+| | sendable when |
+| --- | --- |
+| `Int`, `Float`, `Bool`, `Text`, nothing | always |
+| a list, a map, a tuple, `maybe T`, `T or fails E` | everything inside is |
+| a `type` | every field is |
+| a `choice` | every part of every variant is |
+| an ability, as in `thing: Runnable` | every type that `can` it is |
+| `channel of T`, `shared T`, `task of T` | `T` is |
+| a closure | never, unless the name was bound straight to it |
 
-Breaking rule 2 reads:
+The one thing that is never sendable is a **function value**. A closure holds on to
+whatever was around it when it was written, and Vaab cannot look inside that, so
+every other refusal is really a function value found somewhere within:
+
+    a task cannot be given `job`
+      this task uses `job`, which is a `Job`
+      note: `Job`'s field `work` is `to(Int) returns Int`; a function value holds on
+            to whatever was around it when it was written, which Vaab has no way to
+            look inside
+
+A closure is sendable when the name was bound straight to it, and everything it
+reaches for is sendable too — `let double = n -> n * 2` may cross, and
+`n -> n + total` may not.
+
+A **`let changing` name may never be carried into a task**, whatever it holds:
 
 > `` `total` can change, so a task cannot use it. Use `Shared` instead. ``
+
+    help: use `Shared` instead: `let total = Shared.new(...)`, and change it
+          inside the task with `total.update(value -> ...)`
+    note: two tasks could change `total` at the same moment, and then neither
+          would see what the other did; if the task only needs the value `total`
+          holds right now, copy it into a fixed name first and use that
+
+### Sharing changing state
+
+`shared T` is the sanctioned way, and the `T` inside it must itself be sendable.
+`.value` reads what is held, and waits for nothing. `.update(change)` runs `change`
+on the held value with every other task kept out, and hands back what it returns.
+Because the value is held for as long as the change runs, **the change may not wait
+for anything**: no `receive`, `send`, `.wait()`, `select`, `together`, `start`, or
+second `.update`. Work the new value out first and hand the finished value in.
+
+### `together`, `select` and `receive`
+
+`together` must be able to start a task — a body with no `start` and no call is
+refused, because it would wait for nothing. `select` must have at least one `when`
+arm, with or without an `otherwise`. A `timeout after` takes `milliseconds`,
+`seconds`, `minutes` or `hours`, or the singular of any of them.
+
+`receive from` needs a channel; reaching for a `shared` there is answered with the
+way to read one, since mistaking the two is an easy thing to do.
 
 ### Runtime
 
@@ -394,14 +447,132 @@ deadlock report listing where each task is stuck.
 
 ## Standard library
 
-The full standard library — text, list, map, math, time, file I/O and json —
-arrives in **phase 5**, and `pure` enforcement with it.
+The full standard library — time, file I/O and json among it — arrives in
+**phase 5**, and `pure` enforcement with it. What exists today is the handful of
+things a small program genuinely needs, and all of it runs.
 
-What the type checker knows today is a small table of signatures with no
-implementations behind them: `print`, `read_file`, and the methods the examples
-use — `.map`, `.each`, `.is_empty`, `.join`, `.get`, `.upper`, `.contains`,
-`.wait`, `.update`, `.value`. That is enough for every example to type-check for
-real. See D28 in [DECISIONS.md](DECISIONS.md).
+### Printing
+
+```vaab
+print("hello")              # Text is shown as it is
+print([1, 2, 3])            # [1, 2, 3]
+print({"Ada": 36})          # {"Ada": 36}
+print((1, "one"))           # (1, "one")
+print(found 3)              # found 3
+print(Colour.Red)           # Colour.Red
+```
+
+`print` takes a value of any type and writes one line. Text is shown bare when it
+*is* the value and in quotes when it sits inside something else, so a list of two
+words does not read as two bare words. See D40 in [DECISIONS.md](DECISIONS.md).
+
+### Text
+
+| | |
+|---|---|
+| `text.upper()` | the same text in capitals |
+| `text.lower()` | the same text in small letters |
+| `text.contains(part: Text)` | whether `part` appears anywhere in it |
+| `text.is_empty` | whether it has no characters |
+| `text.length` | how many characters it has |
+
+```vaab
+print("ada@example.com".contains("@"))   # yes
+print("héllo".length)                    # 5, counted in characters
+```
+
+### Lists
+
+| | |
+|---|---|
+| `items.map(change)` | a new list, each item put through `change` |
+| `items.each(do)` | runs `do` on every item and gives back nothing |
+| `items.is_empty` | whether it holds nothing |
+| `items.count` | how many items it holds |
+| `items.first` | `maybe` the first item, since the list may be empty |
+| `items.join(separator: Text)` | one piece of text, for a list of Text |
+
+```vaab
+print([1, 2, 3].map(n -> n * 2))          # [2, 4, 6]
+print(["ada", "alan"].map(n -> n.upper()).join(", "))
+```
+
+### Maps
+
+| | |
+|---|---|
+| `entries.get(key)` | `maybe` the value, since the key may not be there |
+| `entries.is_empty` | whether it holds nothing |
+| `entries.count` | how many entries it holds |
+| `entries.keys` | the keys, in the order they were first put in |
+
+```vaab
+let ages = {"Ada": 36, "Alan": 41}
+for each name in ages.keys {
+    print("{name} is {ages.get(name) otherwise 0}")
+}
+```
+
+### Numbers
+
+| | |
+|---|---|
+| `n.abs()` | the size of a whole number, without its sign |
+| `n.min(other: Int)` | the smaller of two whole numbers |
+| `n.max(other: Int)` | the larger of two whole numbers |
+| `n.to_float()` | the same number as a Float |
+| `x.abs()` | the size of a decimal, without its sign |
+| `x.round()` | the nearest whole number, halves away from zero |
+
+Vaab never turns an `Int` into a `Float` behind your back, so `.to_float()` is
+how a calculation mixes them. A method binds tighter than a minus sign, so the
+size of a negative literal is written `(-7).abs()`.
+
+```vaab
+print(3.to_float() / 2.0)   # 1.5
+print(2.5.round())          # 3
+```
+
+### Arriving later
+
+`read_file` has a signature so that a program can be written against it, and
+stops with a report naming phase 5 if it is reached. `.wait`, `.update` and
+`.value` do the same for phase 4.
+
+---
+
+## When a program stops
+
+A running program stops for exactly one reason: something happened that has no
+answer. There is nothing to catch and nothing to recover from — a failure a
+program is meant to handle is a `failure`, which is part of a function's type.
+
+| | |
+|---|---|
+| a sum, difference, product, division or negation too large for an `Int` | Vaab checks every calculation instead of wrapping round |
+| dividing, or taking a remainder, by zero | for whole numbers and decimals alike |
+| reading a list at a position it has not got | positions start at 0 |
+| a range standing for more than ten million numbers | a range is a list, so it is built all at once |
+| calls ten thousand deep | runaway recursion is a report rather than a crash |
+| reaching something a later phase brings | named with the phase that brings it |
+
+Each is reported the way a type error is, with the line it happened on and the
+calls that led there:
+
+```
+[divide-by-zero] Error: this divides by zero
+   ╭─[ rates.vaab:4:40 ]
+   │
+ 4 │     to per(minutes: Int) returns Int = self.per_hour / minutes
+   │                                        ───────────┬───────────
+   │                                                   ╰───────────── the right-hand side is 0
+   │
+   │ Help: check the divisor first, as in `if count != 0 { ... }`
+───╯
+Trace:
+  in `Rate.per` at rates.vaab:4:40
+  in the top level at rates.vaab:6:7
+```
 
 ## Web server (phase 6)
 

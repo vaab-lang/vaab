@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"type Job {\\n\\\n         \\x20   work: to(Int) returns Int\\n\\\n         }\\n\\\n         to queue(jobs: channel of Job, job: Job) {\\n\\\n         \\x20   send job to jobs\\n\\\n         }\\n\")"
+---
+[unsendable-value] Error: a `Job` cannot be sent
+   ╭─[ example.vaab:5:10 ]
+   │
+ 5 │     send job to jobs
+   │          ─┬─  
+   │           ╰─── this is a `Job`
+   │ 
+   │ Help: pass the parts of it that are needed, rather than the whole value
+   │ 
+   │ Note: `Job`'s field `work` is `to(Int) returns Int`; a function value holds on to whatever was around it when it was written, which Vaab has no way to look inside
+───╯

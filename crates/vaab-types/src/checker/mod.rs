@@ -20,15 +20,19 @@
 //! * [`member`] — `.field`, `.method`, `Type.new`
 //! * [`pattern`] — patterns
 //! * [`exhaustive`] — whether a `match` covers everything
+//! * [`sendable`] — what may cross between tasks
+//! * [`walk`] — one walk over a subtree, which [`sendable`] asks its questions with
 
 mod call;
 mod exhaustive;
 mod expr;
 mod member;
 mod pattern;
+mod sendable;
 mod stmt;
+mod walk;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use vaab_syntax::ast::{
     AbilityDecl, ChoiceDecl, Expr, FunctionDecl, Module, Name, NodeId, Stmt, StmtKind, TypeDecl,
@@ -141,6 +145,15 @@ pub(crate) struct Checker {
     global_spans: HashMap<String, Span>,
     builtin_functions: Vec<prelude::Function>,
     builtin_methods: Vec<prelude::Method>,
+    /// What each closure uses from outside itself. A function value is not sendable
+    /// on its own, so this is what lets a closure be judged by its captures when a
+    /// task is given the local holding it. See [`sendable`].
+    closure_captures: sendable::ClosureCaptures,
+    /// The closure a fixed local was bound straight to, when it was.
+    closure_of_local: sendable::ClosuresOfLocals,
+    /// Which captures have already been refused, so that a task nested inside
+    /// another does not have the same value explained to it twice.
+    reported_captures: HashSet<(LocalId, Span)>,
 }
 
 /// Checks a module.
@@ -176,6 +189,9 @@ impl Checker {
             global_spans: HashMap::new(),
             builtin_functions: prelude::functions(),
             builtin_methods: prelude::methods(),
+            closure_captures: sendable::ClosureCaptures::default(),
+            closure_of_local: sendable::ClosuresOfLocals::default(),
+            reported_captures: HashSet::new(),
         }
     }
 

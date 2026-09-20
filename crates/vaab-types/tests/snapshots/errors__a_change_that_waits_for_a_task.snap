@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let counter = Shared.new(0)\\n\\\n         let job = start { 1 }\\n\\\n         counter.update(n -> job.wait())\\n\")"
+---
+[update-cannot-wait] Error: the change given to `.update` cannot wait for anything
+   ╭─[ example.vaab:3:21 ]
+   │
+ 3 │ counter.update(n -> job.wait())
+   │                     ─────┬────  
+   │                          ╰────── this waits for a task to finish
+   │ 
+   │ Help: work the new value out before the `.update`, and hand the finished value in: `let next = ...` and then `.update(value -> next)`
+   │ 
+   │ Note: `.update` holds the shared value while the change runs, so a wait inside it would keep every other task away from the value until the wait ended — and it may be one of those tasks the wait is for
+───╯

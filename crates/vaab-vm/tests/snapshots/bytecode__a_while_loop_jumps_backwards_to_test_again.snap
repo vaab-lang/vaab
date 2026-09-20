@@ -1,0 +1,18 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"let changing n = 3\\nwhile n > 0 { n = n - 1 }\\n\")"
+---
+body 0: the top level — 0 slots, 0 parameters
+    0  Int(3)
+    1  StoreGlobal(0)
+    2  LoadGlobal(0)
+    3  Int(0)
+    4  Greater
+    5  JumpIfFalse(11)
+    6  LoadGlobal(0)
+    7  Int(1)
+    8  Subtract
+    9  StoreGlobal(0)
+   10  Jump(2)
+   11  Nothing
+   12  Return

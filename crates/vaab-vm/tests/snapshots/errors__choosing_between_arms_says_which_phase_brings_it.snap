@@ -1,0 +1,17 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: stops(source)
+---
+[not-yet] Error: `select` arrives in phase 4
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ ╭─▶ select {
+   ┆ ┆   
+ 4 │ ├─▶ }
+   │ │       
+   │ ╰─────── this is not built yet
+   │     
+   │     Help: phase 4 builds the scheduler that tasks and channels run on
+   │     
+   │     Note: it type-checks today, so the program is ready for the phase that runs it
+───╯

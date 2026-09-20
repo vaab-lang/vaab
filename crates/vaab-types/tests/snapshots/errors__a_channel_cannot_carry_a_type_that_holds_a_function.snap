@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"type Job {\\n\\\n         \\x20   work: to(Int) returns Int\\n\\\n         }\\n\\\n         let jobs = Channel.new(of: Job, size: 1)\\n\")"
+---
+[unsendable-channel] Error: a channel cannot carry a `Job`
+   ╭─[ example.vaab:4:28 ]
+   │
+ 4 │ let jobs = Channel.new(of: Job, size: 1)
+   │                            ─┬─  
+   │                             ╰─── this asks for a channel of Job
+   │ 
+   │ Help: pass the parts of it that are needed, rather than the whole value
+   │ 
+   │ Note: `Job`'s field `work` is `to(Int) returns Int`; a function value holds on to whatever was around it when it was written, which Vaab has no way to look inside
+───╯

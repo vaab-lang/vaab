@@ -1,0 +1,40 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"print([1, 2].map(n -> n * 2))\\n\")"
+---
+body 0: the top level — 4 slots, 0 parameters
+    0  Int(1)
+    1  Int(2)
+    2  List(2)
+    3  StoreLocal(0)
+    4  Constant 0 (a closure)
+    5  StoreLocal(1)
+    6  Int(0)
+    7  StoreLocal(2)
+    8  List(0)
+    9  StoreLocal(3)
+   10  LoadLocal(2)
+   11  LoadLocal(0)
+   12  Length
+   13  Less
+   14  JumpIfFalse(26)
+   15  LoadLocal(1)
+   16  LoadLocal(0)
+   17  LoadLocal(2)
+   18  Index
+   19  Call(1)
+   20  Append(3)
+   21  LoadLocal(2)
+   22  Int(1)
+   23  Add
+   24  StoreLocal(2)
+   25  Jump(10)
+   26  LoadLocal(3)
+   27  Builtin print
+   28  Return
+
+body 1: a closure — 1 slot, 1 parameter
+    0  LoadLocal(0)
+    1  Int(2)
+    2  Multiply
+    3  Return

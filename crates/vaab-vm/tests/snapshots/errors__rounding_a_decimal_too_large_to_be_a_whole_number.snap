@@ -1,0 +1,15 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: "stops(\"let huge = 99_999_999_999_999_999_999_999.0\\nprint(huge.round())\\n\")"
+---
+[integer-overflow] Error: this rounding does not fit in an Int
+   ╭─[ example.vaab:2:7 ]
+   │
+ 2 │ print(huge.round())
+   │       ──────┬─────  
+   │             ╰─────── this went past what an Int can hold
+   │ 
+   │ Help: an Int is 64 bits, so it holds whole numbers from -9223372036854775808 to 9223372036854775807
+   │ 
+   │ Note: Vaab checks every calculation rather than quietly wrapping round
+───╯

@@ -1,0 +1,17 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"together {\\n\\x20   let total = 1 + 2\\n}\\n\")"
+---
+[together-waits-for-nothing] Error: this `together` has nothing to wait for
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ ╭─▶ together {
+   ┆ ┆   
+ 3 │ ├─▶ }
+   │ │       
+   │ ╰─────── nothing in here starts a task or calls anything that could
+   │     
+   │     Help: start the work inside it, with `start { ... }`
+   │     
+   │     Note: `together` is how a group of tasks is waited for, and it cancels the rest if one of them fails; with no task to watch it does nothing at all
+───╯

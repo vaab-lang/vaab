@@ -1,0 +1,11 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"type Account {\\n\\x20   owner: Text\\n\\x20   balance: Int = 0\\n}\\n\\\n         let account = Account.new(owner: \\\"Ada\\\")\\n\")"
+---
+body 0: the top level — 0 slots, 0 parameters
+    0  Constant 0 ("Ada")
+    1  Int(0)
+    2  Record Account (2 fields)
+    3  StoreGlobal(0)
+    4  Nothing
+    5  Return

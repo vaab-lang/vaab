@@ -1,0 +1,32 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"for each n in [1, 2] { print(n) }\\n\")"
+---
+body 0: the top level — 3 slots, 0 parameters
+    0  Int(1)
+    1  Int(2)
+    2  List(2)
+    3  StoreLocal(0)
+    4  Int(0)
+    5  StoreLocal(1)
+    6  LoadLocal(1)
+    7  LoadLocal(0)
+    8  Length
+    9  Less
+   10  JumpIfFalse(25)
+   11  LoadLocal(0)
+   12  LoadLocal(1)
+   13  Index
+   14  StoreLocal(2)
+   15  LoadLocal(2)
+   16  StoreGlobal(0)
+   17  LoadGlobal(0)
+   18  Builtin print
+   19  Pop
+   20  LoadLocal(1)
+   21  Int(1)
+   22  Add
+   23  StoreLocal(1)
+   24  Jump(6)
+   25  Nothing
+   26  Return

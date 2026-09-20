@@ -1,0 +1,42 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"to scale(by: Int, numbers: list of Int) returns list of Int = \\\n         numbers.map(n -> n * by)\\n\")"
+---
+body 0: the top level — 0 slots, 0 parameters
+    0  Nothing
+    1  Return
+
+body 1: `scale` — 6 slots, 2 parameters
+    0  Box(0)
+    1  LoadLocal(1)
+    2  StoreLocal(2)
+    3  MakeFunction a closure
+    4  StoreLocal(3)
+    5  Int(0)
+    6  StoreLocal(4)
+    7  List(0)
+    8  StoreLocal(5)
+    9  LoadLocal(4)
+   10  LoadLocal(2)
+   11  Length
+   12  Less
+   13  JumpIfFalse(25)
+   14  LoadLocal(3)
+   15  LoadLocal(2)
+   16  LoadLocal(4)
+   17  Index
+   18  Call(1)
+   19  Append(5)
+   20  LoadLocal(4)
+   21  Int(1)
+   22  Add
+   23  StoreLocal(4)
+   24  Jump(9)
+   25  LoadLocal(5)
+   26  Return
+
+body 2: a closure — 1 slot, 1 parameter, captures [Local(0)]
+    0  LoadLocal(0)
+    1  LoadUpvalue(0)
+    2  Multiply
+    3  Return

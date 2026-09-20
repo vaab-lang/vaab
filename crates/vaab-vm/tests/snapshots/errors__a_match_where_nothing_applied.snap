@@ -1,0 +1,13 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: "support::rendered(Fault::NoArmApplied,\n\"let answer = match 1 {\\n\\x20   when 1 then \\\"one\\\"\\n}\\n\", Span::new(13, 21),)"
+---
+[no-arm-applied] Error: no arm of this `match` applied
+   ╭─[ example.vaab:1:14 ]
+   │
+ 1 │ let answer = match 1 {
+   │              ────┬───  
+   │                  ╰───── nothing here matched the value
+   │ 
+   │ Help: add an `otherwise` arm, which matches whatever is left
+───╯

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/vaab-syntax", "crates/vaab-types", "crates/vaab-cli"]
+members = ["crates/vaab-syntax", "crates/vaab-types", "crates/vaab-vm", "crates/vaab-cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -20,6 +20,7 @@ insta = "1"
 
 vaab-syntax = { path = "crates/vaab-syntax" }
 vaab-types = { path = "crates/vaab-types" }
+vaab-vm = { path = "crates/vaab-vm" }
 
 [profile.release]
 lto = "thin"

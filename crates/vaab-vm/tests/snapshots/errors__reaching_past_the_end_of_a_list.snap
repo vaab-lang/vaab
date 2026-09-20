@@ -1,0 +1,13 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: rendered
+---
+[index-out-of-range] Error: this list has no item at 5
+   ╭─[ example.vaab:2:7 ]
+   │
+ 2 │ print(names[5])
+   │       ────┬───  
+   │           ╰───── the list holds 2 items
+   │ 
+   │ Help: positions start at 0, so the last item is at 1; `items.count` says how many there are
+───╯

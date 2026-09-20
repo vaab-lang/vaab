@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"type Worker {\\n\\\n         \\x20   work: to(Int) returns Int\\n\\\n         \\n\\\n         \\x20   to run() {\\n\\\n         \\x20       let started = start { print(self.work(1)) }\\n\\\n         \\x20   }\\n\\\n         }\\n\")"
+---
+[unsendable-capture] Error: a task cannot be given `self`
+   ╭─[ example.vaab:5:37 ]
+   │
+ 5 │         let started = start { print(self.work(1)) }
+   │                                     ──┬─  
+   │                                       ╰─── this task uses `self`, which is a `Worker`
+   │ 
+   │ Help: take the parts the task needs out of `self` first, and let it use those
+   │ 
+   │ Note: `Worker`'s field `work` is `to(Int) returns Int`; a function value holds on to whatever was around it when it was written, which Vaab has no way to look inside
+───╯

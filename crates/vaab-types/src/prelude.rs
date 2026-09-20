@@ -83,6 +83,19 @@ pub fn methods() -> Vec<Method> {
             property: true,
         },
         Method {
+            name: "count",
+            receiver: Type::list(item()),
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: true,
+        },
+        Method {
+            // A list that might be empty has no first item, so this is a `maybe`.
+            name: "first",
+            receiver: Type::list(item()),
+            signature: Signature::new(Vec::new(), Type::maybe(item())),
+            property: true,
+        },
+        Method {
             // Only a list of text can be joined, so the receiver says so and a list
             // of anything else is told what is wrong with it.
             name: "join",
@@ -109,9 +122,29 @@ pub fn methods() -> Vec<Method> {
             signature: Signature::new(Vec::new(), Type::Bool),
             property: true,
         },
+        Method {
+            name: "count",
+            receiver: Type::map(Type::parameter("K"), Type::parameter("V")),
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: true,
+        },
+        Method {
+            // In the order the keys were first put in, which is the order a map
+            // keeps.
+            name: "keys",
+            receiver: Type::map(Type::parameter("K"), Type::parameter("V")),
+            signature: Signature::new(Vec::new(), Type::list(Type::parameter("K"))),
+            property: true,
+        },
         // ---- Text ---------------------------------------------------------
         Method {
             name: "upper",
+            receiver: Type::Text,
+            signature: Signature::new(Vec::new(), Type::Text),
+            property: false,
+        },
+        Method {
+            name: "lower",
             receiver: Type::Text,
             signature: Signature::new(Vec::new(), Type::Text),
             property: false,
@@ -127,6 +160,54 @@ pub fn methods() -> Vec<Method> {
             receiver: Type::Text,
             signature: Signature::new(Vec::new(), Type::Bool),
             property: true,
+        },
+        Method {
+            // Counted in characters, which is what a reader counts. A list and a
+            // map are asked for their `count`, because English says a length is a
+            // measurement and a count is a number of things.
+            name: "length",
+            receiver: Type::Text,
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: true,
+        },
+        // ---- Numbers ------------------------------------------------------
+        Method {
+            name: "abs",
+            receiver: Type::Int,
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: false,
+        },
+        Method {
+            name: "min",
+            receiver: Type::Int,
+            signature: Signature::new(vec![Parameter::new("other", Type::Int)], Type::Int),
+            property: false,
+        },
+        Method {
+            name: "max",
+            receiver: Type::Int,
+            signature: Signature::new(vec![Parameter::new("other", Type::Int)], Type::Int),
+            property: false,
+        },
+        Method {
+            // Vaab has no implicit conversions, so going from Int to Float is
+            // something a program asks for.
+            name: "to_float",
+            receiver: Type::Int,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "abs",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "round",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: false,
         },
         // ---- Tasks and shared state ---------------------------------------
         Method {

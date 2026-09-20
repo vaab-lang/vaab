@@ -1,0 +1,21 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let changing total = 0\\n\\\n         let add: to(Int) returns Int = n -> n + total\\n\\\n         let job = start { add(1) }\\n\")"
+---
+[changing-captured-by-task] Error: `total` can change, so a task cannot use it.
+   ╭─[ example.vaab:3:19 ]
+   │
+ 1 │ let changing total = 0
+   │              ──┬──  
+   │                ╰──── `total` is declared `changing` here
+ 2 │ let add: to(Int) returns Int = n -> n + total
+   │                                         ──┬──  
+   │                                           ╰──── `add` reads `total` here
+ 3 │ let job = start { add(1) }
+   │                   ─┬─  
+   │                    ╰─── this task uses `add`, which holds on to `total`
+   │ 
+   │ Help: use `Shared` instead: `let total = Shared.new(...)`, and change it inside the task with `total.update(value -> ...)`
+   │ 
+   │ Note: a closure keeps the variable it was written beside rather than a copy of it, so sending `add` into a task would send `total` along with it
+───╯

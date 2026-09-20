@@ -36,6 +36,15 @@ impl Checker {
                 let local =
                     self.declare_local(&declaration.name, declared, declaration.changing);
                 self.checked.bindings.insert(statement.id, local);
+
+                // A fixed name bound straight to a closure holds that closure and no
+                // other, which is what lets a task given it be judged by what the
+                // closure captured rather than refused outright.
+                if !declaration.changing {
+                    if let ExprKind::Closure { .. } = &declaration.value.kind {
+                        self.record_closure_of_local(local, declaration.value.id);
+                    }
+                }
             }
 
             StmtKind::Assign(assignment) => self.assignment(&assignment.target, &assignment.value),
@@ -70,7 +79,13 @@ impl Checker {
                 let channel = self.expression(&send.channel, Wanted::Anything);
                 match self.variables.resolve(&channel) {
                     Type::Channel(carries) => {
-                        self.expression(&send.value, Wanted::Exactly(*carries));
+                        // A channel that could not carry what it was asked for has
+                        // already been told so, and carries `Unknown` from then on.
+                        let explained = carries.is_unknown();
+                        let found = self.expression(&send.value, Wanted::Exactly(*carries));
+                        if !explained {
+                            self.check_sent_value(&send.value, &found);
+                        }
                     }
                     Type::Unknown => {
                         self.expression(&send.value, Wanted::Anything);
@@ -94,6 +109,7 @@ impl Checker {
 
             StmtKind::Together(body) => {
                 self.block(body, Wanted::Discarded);
+                self.check_together(body, statement.span);
             }
 
             StmtKind::Function(declaration) => {

@@ -1,0 +1,15 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: rendered
+---
+[not-yet] Error: `read_file` arrives in phase 5
+   ╭─[ example.vaab:1:7 ]
+   │
+ 1 │ print(read_file("notes.txt"))
+   │       ───────────┬──────────  
+   │                  ╰──────────── this is not built yet
+   │ 
+   │ Help: phase 5 builds the standard library, and file reading comes with it
+   │ 
+   │ Note: it type-checks today, so the program is ready for the phase that runs it
+───╯

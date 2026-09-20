@@ -1,0 +1,81 @@
+---
+source: crates/vaab-vm/tests/examples.rs
+expression: transcript
+---
+$ vaab run examples/01_hello.vaab
+hello, world
+
+$ vaab run examples/02_values.vaab
+hello: 2 of 3
+1000000 at 0.75
+
+$ vaab run examples/03_functions.vaab
+hello, Ada
+hi, Alan
+42
+
+$ vaab run examples/04_closures.vaab
+1 squared is 1
+2 squared is 4
+3 squared is 9
+4 squared is 16
+[1, 4, 9, 16]
+[3, 7]
+
+$ vaab run examples/05_types.vaab
+Ada now has 25
+50
+
+$ vaab run examples/06_validated_construction.vaab
+wrote to ada@example.com
+
+$ vaab run examples/07_abilities.vaab
+Ada is 36
+Mars, a planet
+
+$ vaab run examples/08_maybe_and_errors.vaab
+Ada is 36
+0
+starts with 1
+
+$ vaab run examples/09_control_flow.vaab
+7
+a wins
+1
+2
+3
+4
+5
+one
+two
+three
+3
+2
+1
+knock
+knock
+positive
+starts with 10
+
+$ vaab run examples/10_collections.vaab
+1
+36
+(1, "one")
+1
+2
+3
+4
+5
+ADA, ALAN
+6
+
+$ vaab run examples/12_running_programs.vaab
+75025
+[2, 4, 6]
+Ada ran 5.0 km
+Alan ran 12.5 km
+2 runners, 17500 metres between them
+ADA and ALAN
+first to sign up: Ada
+Ada first entered in 1997
+Alan first entered in 1948

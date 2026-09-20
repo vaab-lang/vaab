@@ -37,7 +37,18 @@ select {
     otherwise                       { print("nothing ready") }
 }
 
-# `shared` is how changing state is shared safely between tasks.
+# `shared` is how changing state is shared safely between tasks. A `let changing`
+# name cannot cross into a `start`, because two tasks could then change it at the
+# same moment; a `shared` can, because `.update` lets only one in at a time.
 let counter = Shared.new(0)
-counter.update(n -> n + 1)
+
+together {
+    for each url in ["a", "b", "c"] {
+        start {
+            print(fetch(url))
+            counter.update(n -> n + 1)
+        }
+    }
+}
+
 print(counter.value)

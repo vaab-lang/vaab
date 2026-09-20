@@ -1,0 +1,18 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"ability Runnable {\\n\\\n         \\x20   to go() returns Int\\n\\\n         }\\n\\\n         type Job can Runnable {\\n\\\n         \\x20   work: to(Int) returns Int\\n\\\n         \\n\\\n         \\x20   to go() returns Int = self.work(1)\\n\\\n         }\\n\\\n         to run(thing: Runnable) {\\n\\\n         \\x20   let started = start { thing.go() }\\n\\\n         }\\n\")"
+---
+[unsendable-capture] Error: a task cannot be given `thing`
+    ╭─[ example.vaab:10:27 ]
+    │
+  9 │ to run(thing: Runnable) {
+    │        ──┬──  
+    │          ╰──── `thing` is declared here
+ 10 │     let started = start { thing.go() }
+    │                           ──┬──  
+    │                             ╰──── this task uses `thing`, which is a `Runnable`
+    │ 
+    │ Help: pass the parts of it that are needed, rather than the whole value
+    │ 
+    │ Note: any `Runnable` could be a `Job`, and `Job`'s field `work` is `to(Int) returns Int`; a function value holds on to whatever was around it when it was written, which Vaab has no way to look inside
+────╯

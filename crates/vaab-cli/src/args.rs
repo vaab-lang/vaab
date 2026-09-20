@@ -17,6 +17,8 @@ pub struct Args {
 pub enum Command {
     Parse { path: PathBuf },
     Check { path: PathBuf },
+    Run { path: PathBuf },
+    Repl,
     Help,
     Version,
     /// A command the language will have, but does not have yet.
@@ -57,11 +59,11 @@ impl Args {
         let command = match command.to_str() {
             Some("parse") => Command::Parse { path: expect_file(&mut words, "parse")? },
             Some("check") => Command::Check { path: expect_file(&mut words, "check")? },
+            Some("run") => Command::Run { path: expect_file(&mut words, "run")? },
+            Some("repl") => Command::Repl,
             Some("help") => Command::Help,
             Some("version") => Command::Version,
 
-            Some(name @ "run") => not_yet(name, 3, "runs a file"),
-            Some(name @ "repl") => not_yet(name, 3, "starts an interactive session"),
             Some(name @ "new") => not_yet(name, 5, "starts a new project"),
 
             Some(other) => return Err(format!("`{other}` is not a command vaab knows")),
@@ -164,9 +166,47 @@ mod tests {
 
     #[test]
     fn later_commands_say_which_phase_brings_them() {
-        match parse(&["run", "a.vaab"]).map(|a| a.command) {
-            Ok(Command::NotYet { phase, .. }) => assert_eq!(phase, 3),
+        match parse(&["new", "orchard"]).map(|a| a.command) {
+            Ok(Command::NotYet { phase, .. }) => assert_eq!(phase, 5),
             _ => panic!("expected a not-yet command"),
         }
+    }
+
+    #[test]
+    fn run_takes_a_file_like_check_does() {
+        let args = parse(&["run", "main.vaab"]).expect("should parse");
+        match args.command {
+            Command::Run { path } => assert_eq!(path, PathBuf::from("main.vaab")),
+            _ => panic!("expected a run command"),
+        }
+    }
+
+    #[test]
+    fn run_without_a_file_is_explained() {
+        match parse(&["run"]) {
+            Err(error) => assert!(error.contains("vaab run main.vaab"), "{error}"),
+            Ok(_) => panic!("`vaab run` with no file should be rejected"),
+        }
+    }
+
+    #[test]
+    fn run_rejects_a_second_file() {
+        assert!(parse(&["run", "a.vaab", "b.vaab"]).is_err());
+    }
+
+    #[test]
+    fn the_repl_needs_nothing_after_it() {
+        assert!(matches!(parse(&["repl"]).map(|a| a.command), Ok(Command::Repl)));
+    }
+
+    #[test]
+    fn the_repl_rejects_a_file_because_it_reads_from_the_keyboard() {
+        assert!(parse(&["repl", "a.vaab"]).is_err());
+    }
+
+    #[test]
+    fn the_repl_still_takes_the_colour_options() {
+        let args = parse(&["repl", "--no-color"]).expect("should parse");
+        assert_eq!(args.color, ColorChoice::Never);
     }
 }

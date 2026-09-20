@@ -781,3 +781,276 @@ fn problems_are_reported_from_the_top_of_the_file_down() {
     let second = rendered.find("expected Text").unwrap_or(0);
     assert!(first < second, "messages are out of order:\n{rendered}");
 }
+
+// ---------------------------------------------------------------------------
+// Sendability: what may cross between tasks
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_changing_variable_captured_by_a_task() {
+    let rendered = errors("let changing total = 0\nlet job = start { total + 1 }\n");
+    // The specification fixes this wording, so it is asserted rather than left to
+    // the snapshot alone.
+    assert!(rendered.contains("`total` can change, so a task cannot use it."), "{rendered}");
+    assert!(rendered.contains("Shared"), "{rendered}");
+    assert_snapshot!(rendered);
+}
+
+#[test]
+fn a_changing_variable_assigned_inside_a_task() {
+    assert_snapshot!(errors("let changing total = 0\nlet job = start { total = 1 }\n"));
+}
+
+#[test]
+fn a_changing_variable_reached_through_a_closure() {
+    assert_snapshot!(errors(
+        "let changing total = 0\n\
+         let add: to(Int) returns Int = n -> n + total\n\
+         let job = start { add(1) }\n"
+    ));
+}
+
+#[test]
+fn a_changing_name_holding_a_shared_is_asked_to_stop_changing() {
+    assert_snapshot!(errors(
+        "let changing counter = Shared.new(0)\n\
+         let job = start { counter.value }\n"
+    ));
+}
+
+#[test]
+fn a_function_value_cannot_be_carried_into_a_task() {
+    assert_snapshot!(errors(
+        "to run(work: to(Int) returns Int) {\n\
+         \x20   let job = start { work(1) }\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn a_type_holding_a_function_cannot_be_carried_into_a_task() {
+    assert_snapshot!(errors(
+        "type Job {\n\
+         \x20   work: to(Int) returns Int\n\
+         }\n\
+         to run(job: Job) {\n\
+         \x20   let started = start { job.work(1) }\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn a_value_known_only_by_its_ability_is_refused_when_a_provider_cannot_cross() {
+    assert_snapshot!(errors(
+        "ability Runnable {\n\
+         \x20   to go() returns Int\n\
+         }\n\
+         type Job can Runnable {\n\
+         \x20   work: to(Int) returns Int\n\
+         \n\
+         \x20   to go() returns Int = self.work(1)\n\
+         }\n\
+         to run(thing: Runnable) {\n\
+         \x20   let started = start { thing.go() }\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn self_cannot_be_carried_into_a_task_when_its_type_holds_a_function() {
+    assert_snapshot!(errors(
+        "type Worker {\n\
+         \x20   work: to(Int) returns Int\n\
+         \n\
+         \x20   to run() {\n\
+         \x20       let started = start { print(self.work(1)) }\n\
+         \x20   }\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn a_task_cannot_hand_back_a_function() {
+    assert_snapshot!(errors(
+        "to double(n: Int) returns Int = n * 2\n\
+         let job = start { double }\n"
+    ));
+}
+
+#[test]
+fn a_channel_cannot_carry_a_type_that_holds_a_function() {
+    assert_snapshot!(errors(
+        "type Job {\n\
+         \x20   work: to(Int) returns Int\n\
+         }\n\
+         let jobs = Channel.new(of: Job, size: 1)\n"
+    ));
+}
+
+#[test]
+fn a_shared_cannot_hold_a_function() {
+    assert_snapshot!(errors(
+        "to run(work: to(Int) returns Int) {\n\
+         \x20   let held = Shared.new(work)\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn a_value_that_cannot_cross_is_refused_at_the_send() {
+    assert_snapshot!(errors(
+        "type Job {\n\
+         \x20   work: to(Int) returns Int\n\
+         }\n\
+         to queue(jobs: channel of Job, job: Job) {\n\
+         \x20   send job to jobs\n\
+         }\n"
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// Shared state
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_change_that_waits_for_a_value_to_arrive() {
+    assert_snapshot!(errors(
+        "let counter = Shared.new(0)\n\
+         let inbox = Channel.new(of: Int, size: 1)\n\
+         counter.update(n -> receive from inbox otherwise n)\n"
+    ));
+}
+
+#[test]
+fn a_change_that_sends_a_value() {
+    assert_snapshot!(errors(
+        "let counter = Shared.new(0)\n\
+         let inbox = Channel.new(of: Int, size: 1)\n\
+         counter.update(n -> {\n\
+         \x20   send n to inbox\n\
+         \x20   n\n\
+         })\n"
+    ));
+}
+
+#[test]
+fn a_change_that_starts_a_task() {
+    assert_snapshot!(errors(
+        "let counter = Shared.new(0)\n\
+         counter.update(n -> {\n\
+         \x20   start { n }\n\
+         \x20   n\n\
+         })\n"
+    ));
+}
+
+#[test]
+fn a_wait_inside_a_wait_is_explained_once() {
+    assert_snapshot!(errors(
+        "let inbox = Channel.new(of: Int, size: 1)\n\
+         let counter = Shared.new(0)\n\
+         counter.update(n -> {\n\
+         \x20   start { receive from inbox otherwise 0 }\n\
+         \x20   n\n\
+         })\n"
+    ));
+}
+
+#[test]
+fn a_change_that_waits_for_a_task() {
+    assert_snapshot!(errors(
+        "let counter = Shared.new(0)\n\
+         let job = start { 1 }\n\
+         counter.update(n -> job.wait())\n"
+    ));
+}
+
+#[test]
+fn a_change_that_changes_another_shared_value() {
+    assert_snapshot!(errors(
+        "let counter = Shared.new(0)\n\
+         let other = Shared.new(0)\n\
+         counter.update(n -> {\n\
+         \x20   other.update(m -> m + 1)\n\
+         \x20   n\n\
+         })\n"
+    ));
+}
+
+#[test]
+fn receiving_from_a_shared_points_at_its_value() {
+    assert_snapshot!(errors(
+        "let counter = Shared.new(0)\n\
+         let n = receive from counter\n"
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// `together` and `select`
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_together_with_nothing_to_wait_for() {
+    assert_snapshot!(errors("together {\n\x20   let total = 1 + 2\n}\n"));
+}
+
+#[test]
+fn a_select_with_no_arms_to_wait_on() {
+    assert_snapshot!(errors("select {\n\x20   otherwise { print(\"nothing ready\") }\n}\n"));
+}
+
+#[test]
+fn a_timeout_in_a_unit_vaab_does_not_know() {
+    assert_snapshot!(errors(
+        "let inbox = Channel.new(of: Int, size: 1)\n\
+         select {\n\
+         \x20   when timeout after 2 fortnights { print(\"slow\") }\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn a_misspelled_unit_of_time_is_offered_the_right_one() {
+    assert_snapshot!(errors(
+        "let inbox = Channel.new(of: Int, size: 1)\n\
+         select {\n\
+         \x20   when timeout after 2 secnds { print(\"slow\") }\n\
+         }\n"
+    ));
+}
+
+// ---------------------------------------------------------------------------
+// One mistake stays one mistake
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_changing_value_used_twice_in_one_task_is_reported_once() {
+    assert_eq!(
+        codes("let changing total = 0\nlet job = start { total + total }\n"),
+        ["changing-captured-by-task"]
+    );
+}
+
+#[test]
+fn a_changing_value_a_nested_task_reaches_for_is_reported_once() {
+    assert_eq!(
+        codes("let changing total = 0\nlet job = start { start { total } }\n"),
+        ["changing-captured-by-task"]
+    );
+}
+
+#[test]
+fn a_channel_that_cannot_carry_what_it_was_asked_for_does_not_cascade() {
+    assert_eq!(
+        codes(
+            "type Job {\n\
+             \x20   work: to(Int) returns Int\n\
+             }\n\
+             to queue(job: Job) {\n\
+             \x20   let jobs = Channel.new(of: Job, size: 1)\n\
+             \x20   send job to jobs\n\
+             }\n"
+        ),
+        ["unsendable-channel"]
+    );
+}

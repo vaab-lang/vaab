@@ -1,0 +1,21 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"type Counter {\\n\\\n         \\x20   count: Int = 0\\n\\n\\\n         \\x20   to next() returns Counter = self.with(count: self.count + 1)\\n\\\n         }\\n\\\n         print(Counter.new().next().count)\\n\")"
+---
+body 0: the top level — 0 slots, 0 parameters
+    0  Int(0)
+    1  Record Counter (1 fields)
+    2  CallMethod `Counter.next` (0)
+    3  Field(0)
+    4  Builtin print
+    5  Return
+
+body 1: `Counter.next` — 1 slot, 0 parameters
+    0  LoadSelf
+    1  StoreLocal(0)
+    2  LoadSelf
+    3  Field(0)
+    4  Int(1)
+    5  Add
+    6  Record Counter (1 fields)
+    7  Return

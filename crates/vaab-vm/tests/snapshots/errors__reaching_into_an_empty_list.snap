@@ -1,0 +1,13 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: "stops(\"let names: list of Text = []\\nprint(names[0])\\n\")"
+---
+[index-out-of-range] Error: this list has no item at 0
+   ╭─[ example.vaab:2:7 ]
+   │
+ 2 │ print(names[0])
+   │       ────┬───  
+   │           ╰───── the list is empty
+   │ 
+   │ Help: the list is empty, so there is nothing to reach for: check `items.is_empty` first
+───╯

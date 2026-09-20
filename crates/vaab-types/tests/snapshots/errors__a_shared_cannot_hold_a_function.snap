@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"to run(work: to(Int) returns Int) {\\n\\\n         \\x20   let held = Shared.new(work)\\n\\\n         }\\n\")"
+---
+[unsendable-value] Error: a `shared` cannot hold the function value `to(Int) returns Int`
+   ╭─[ example.vaab:2:27 ]
+   │
+ 2 │     let held = Shared.new(work)
+   │                           ──┬─  
+   │                             ╰─── this is the function value `to(Int) returns Int`, which every task sharing it would hold
+   │ 
+   │ Help: work the answer out first and pass that instead, or declare the work with `to` and call it by name, since a declared function is never carried across
+   │ 
+   │ Note: a function value holds on to whatever was around it when it was written, which Vaab has no way to look inside
+───╯

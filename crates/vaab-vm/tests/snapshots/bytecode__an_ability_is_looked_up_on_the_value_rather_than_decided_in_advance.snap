@@ -1,0 +1,20 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"ability Greets {\\n\\x20   to greet() returns Text\\n}\\n\\\n         type Dog can Greets {\\n\\\n         \\x20   name: Text\\n\\n\\\n         \\x20   to greet() returns Text = \\\"woof\\\"\\n\\\n         }\\n\\\n         to say(who: Greets) { print(who.greet()) }\\n\\\n         say(Dog.new(name: \\\"Rex\\\"))\\n\")"
+---
+body 0: the top level — 0 slots, 0 parameters
+    0  Constant 1 (`say`)
+    1  Constant 2 ("Rex")
+    2  Record Dog (1 fields)
+    3  Call(1)
+    4  Return
+
+body 1: `Dog.greet` — 0 slots, 0 parameters
+    0  Constant 0 ("woof")
+    1  Return
+
+body 2: `say` — 1 slot, 1 parameter
+    0  LoadLocal(0)
+    1  CallAbility { ability: 0, slot: 0, arity: 0 }
+    2  Builtin print
+    3  Return

@@ -1,0 +1,26 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: stops(source)
+---
+[too-many-calls] Error: too many calls inside one another
+   ╭─[ example.vaab:1:31 ]
+   │
+ 1 │ to ping(n: Int) returns Int = pong(n + 1)
+   │                               ─────┬─────  
+   │                                    ╰─────── this call is 10000 deep
+   │ 
+   │ Help: a function that calls itself needs a case that stops it
+   │ 
+   │ Note: Vaab stops here so that runaway recursion is a report rather than a crash
+───╯
+Trace:
+  in `ping` at example.vaab:1:31
+  in `pong` at example.vaab:2:31
+  in `ping` at example.vaab:1:31
+  in `pong` at example.vaab:2:31
+  in `ping` at example.vaab:1:31
+  in `pong` at example.vaab:2:31
+  ... 9991 more calls ...
+  in `pong` at example.vaab:2:31
+  in `ping` at example.vaab:1:31
+  in the top level at example.vaab:3:7

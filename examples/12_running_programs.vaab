@@ -1,0 +1,52 @@
+# Programs run now. Try this one:
+#
+#     vaab run examples/12_running_programs.vaab
+#
+# Everything here is the standard library the interpreter implements: printing,
+# a handful of methods on Text, lists, maps and numbers, and nothing else.
+
+to fib(n: Int) returns Int {
+    if n < 2 { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+print(fib(25))
+print([1, 2, 3].map(n -> n * 2))
+
+type Runner {
+    name: Text
+    metres: Int
+
+    # Vaab never turns an Int into a Float behind your back, so say when to.
+    to kilometres() returns Float = self.metres.to_float() / 1000.0
+}
+
+let runners = [
+    Runner.new(name: "Ada", metres: 5_000),
+    Runner.new(name: "Alan", metres: 12_500),
+]
+
+for each runner in runners {
+    print("{runner.name} ran {runner.kilometres()} km")
+}
+
+# A closure can change a value declared outside it, which is how a running total
+# is kept.
+let changing metres = 0
+runners.each(runner -> { metres = metres + runner.metres })
+print("{runners.count} runners, {metres} metres between them")
+
+print(runners.map(runner -> runner.name.upper()).join(" and "))
+
+# `.first` is a `maybe`, because the list might have been empty.
+print(match runners.first {
+    when found runner then "first to sign up: {runner.name}"
+    when nothing then "nobody signed up"
+})
+
+# A map answers `.get` with a `maybe` too, since the key might not be there, and
+# it keeps its keys in the order they were first put in.
+let entered = {"Ada": 1997, "Alan": 1948}
+for each name in entered.keys {
+    print("{name} first entered in {entered.get(name) otherwise 0}")
+}

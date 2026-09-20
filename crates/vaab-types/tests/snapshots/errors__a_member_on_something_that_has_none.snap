@@ -1,6 +1,5 @@
 ---
 source: crates/vaab-types/tests/errors.rs
-assertion_line: 223
 expression: "errors(\"let n = 1\\nprint(n.size)\\n\")"
 ---
 [unknown-member] Error: an Int has nothing called `size`
@@ -9,4 +8,6 @@ expression: "errors(\"let n = 1\\nprint(n.size)\\n\")"
  2 │ print(n.size)
    │         ──┬─  
    │           ╰─── this asks an Int for `size`
+   │ 
+   │ Help: an Int offers `abs`, `min`, `max` and `to_float`
 ───╯

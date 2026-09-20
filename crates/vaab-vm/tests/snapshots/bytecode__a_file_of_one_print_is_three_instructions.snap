@@ -1,0 +1,8 @@
+---
+source: crates/vaab-vm/tests/bytecode.rs
+expression: "listing(\"print(1)\\n\")"
+---
+body 0: the top level — 0 slots, 0 parameters
+    0  Int(1)
+    1  Builtin print
+    2  Return

@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let counter = Shared.new(0)\\n\\\n         let n = receive from counter\\n\")"
+---
+[not-a-channel] Error: `receive` needs a channel
+   ╭─[ example.vaab:2:22 ]
+   │
+ 2 │ let n = receive from counter
+   │                      ───┬───  
+   │                         ╰───── this is shared Int
+   │ 
+   │ Help: a `shared Int` is read with `.value` and changed with `.update(...)`, with no waiting either way
+───╯

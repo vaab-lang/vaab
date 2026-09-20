@@ -1,0 +1,16 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: "stops(\"let none = 0\\nprint([1, 2].map(n -> n / none))\\n\")"
+---
+[divide-by-zero] Error: this divides by zero
+   ╭─[ example.vaab:2:23 ]
+   │
+ 2 │ print([1, 2].map(n -> n / none))
+   │                       ────┬───  
+   │                           ╰───── the right-hand side is 0
+   │ 
+   │ Help: check the divisor first, as in `if count != 0 { ... }`
+───╯
+Trace:
+  in a closure at example.vaab:2:23
+  in the top level at example.vaab:2:7

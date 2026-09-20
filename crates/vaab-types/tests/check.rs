@@ -811,3 +811,246 @@ fn a_binding_in_a_pattern_becomes_a_local() {
         "the pattern should say which local it fills"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Concurrency: what may cross into a task
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_fixed_value_may_cross_into_a_task() {
+    assert_answer("let name = \"Ada\"\nlet answer = start { name }\n", "task of Text");
+}
+
+#[test]
+fn a_list_may_cross_into_a_task() {
+    assert_answer("let names = [\"Ada\"]\nlet answer = start { names }\n", "task of list of Text");
+}
+
+#[test]
+fn a_map_may_cross_into_a_task() {
+    assert_answer(
+        "let ages = {\"Ada\": 36}\nlet answer = start { ages }\n",
+        "task of map of Text to Int",
+    );
+}
+
+#[test]
+fn a_shared_may_cross_into_a_task() {
+    assert_answer("let counter = Shared.new(0)\nlet answer = start { counter.value }\n", "task of Int");
+}
+
+#[test]
+fn a_channel_may_cross_into_a_task() {
+    assert_answer(
+        "let inbox = Channel.new(of: Text, size: 1)\n\
+         let answer = start { receive from inbox }\n",
+        "task of maybe Text",
+    );
+}
+
+#[test]
+fn a_task_handle_may_cross_into_a_task() {
+    assert_answer("let first = start { 1 }\nlet answer = start { first.wait() }\n", "task of Int");
+}
+
+#[test]
+fn an_immutable_type_may_cross_into_a_task() {
+    assert_answer(
+        "type Account {\n\
+         \x20   owner: Text\n\
+         \x20   balance: Int = 0\n\
+         }\n\
+         let account = Account.new(owner: \"Ada\")\n\
+         let answer = start { account.balance }\n",
+        "task of Int",
+    );
+}
+
+#[test]
+fn a_choice_may_cross_into_a_task() {
+    assert_answer(
+        "choice Status {\n\
+         \x20   Ready\n\
+         \x20   Busy(since: Int)\n\
+         }\n\
+         let state = Status.Ready\n\
+         let answer = start { state }\n",
+        "task of Status",
+    );
+}
+
+#[test]
+fn a_type_that_holds_its_own_kind_is_still_sendable() {
+    assert_answer(
+        "type Node {\n\
+         \x20   label: Text\n\
+         \x20   next: maybe Node\n\
+         }\n\
+         let chain = Node.new(label: \"a\", next: nothing)\n\
+         let answer = start { chain.label }\n",
+        "task of Text",
+    );
+}
+
+#[test]
+fn a_type_holding_a_shared_may_cross_into_a_task() {
+    assert_answer(
+        "type Tally {\n\
+         \x20   total: shared Int\n\
+         }\n\
+         let tally = Tally.new(total: Shared.new(0))\n\
+         let answer = start { tally.total.value }\n",
+        "task of Int",
+    );
+}
+
+#[test]
+fn a_value_known_only_by_its_ability_may_cross_when_every_provider_can() {
+    check(
+        "ability Describable {\n\
+         \x20   to describe() returns Text\n\
+         }\n\
+         type Planet can Describable {\n\
+         \x20   name: Text\n\
+         \n\
+         \x20   to describe() returns Text = self.name\n\
+         }\n\
+         to announce(thing: Describable) {\n\
+         \x20   start { print(thing.describe()) }\n\
+         }\n",
+    );
+}
+
+#[test]
+fn a_declared_function_is_called_inside_a_task_without_being_carried_in() {
+    check("to fetch(url: Text) returns Text = url\nlet job = start { fetch(\"one\") }\n");
+}
+
+#[test]
+fn a_loop_variable_may_cross_into_a_task() {
+    check(
+        "to fetch(url: Text) returns Text = url\n\
+         together {\n\
+         \x20   for each url in [\"a\", \"b\"] {\n\
+         \x20       start { fetch(url) }\n\
+         \x20   }\n\
+         }\n",
+    );
+}
+
+#[test]
+fn a_changing_value_declared_inside_a_task_belongs_to_that_task() {
+    assert_answer(
+        "let answer = start {\n\
+         \x20   let changing total = 0\n\
+         \x20   total = total + 1\n\
+         \x20   total\n\
+         }\n",
+        "task of Int",
+    );
+}
+
+#[test]
+fn a_closure_holding_only_fixed_values_may_cross_into_a_task() {
+    assert_answer(
+        "let base = 10\n\
+         let add: to(Int) returns Int = n -> n + base\n\
+         let answer = start { add(1) }\n",
+        "task of Int",
+    );
+}
+
+#[test]
+fn a_task_records_what_it_has_to_carry_in() {
+    let checked = check(
+        "let name = \"Ada\"\n\
+         let greeting = \"hello\"\n\
+         let job = start { \"{greeting}, {name}\" }\n",
+    );
+    let task = checked.tasks.values().next().expect("one task");
+    let carried: Vec<&str> = task
+        .captures
+        .iter()
+        .filter_map(|held| checked.local(*held))
+        .map(|held| held.name.as_str())
+        .collect();
+    assert_eq!(carried, ["greeting", "name"]);
+}
+
+#[test]
+fn a_task_carries_nothing_when_it_reaches_for_nothing() {
+    let checked = check("let job = start { 1 + 2 }\n");
+    let task = checked.tasks.values().next().expect("one task");
+    assert!(task.captures.is_empty());
+}
+
+#[test]
+fn a_task_inside_a_task_carries_what_the_inner_one_needs() {
+    let checked = check("let name = \"Ada\"\nlet outer = start { start { name } }\n");
+    assert_eq!(checked.tasks.len(), 2);
+    for task in checked.tasks.values() {
+        assert_eq!(task.captures.len(), 1, "both tasks have to carry `name`");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Concurrency: shared state, `together` and `select`
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_change_that_only_works_out_a_value_is_allowed() {
+    check("let counter = Shared.new(0)\ncounter.update(n -> n + 1)\n");
+}
+
+#[test]
+fn a_shared_value_may_be_read_inside_a_task() {
+    check("let counter = Shared.new(0)\nlet job = start { print(counter.value) }\n");
+}
+
+#[test]
+fn a_shared_value_may_be_changed_inside_a_task() {
+    check("let counter = Shared.new(0)\nlet job = start { counter.update(n -> n + 1) }\n");
+}
+
+#[test]
+fn a_shared_may_hold_a_list() {
+    assert_answer("let answer = Shared.new([\"a\"])\n", "shared list of Text");
+}
+
+#[test]
+fn a_together_holding_a_start_waits_for_something() {
+    check("together {\n\x20   start { 1 }\n}\n");
+}
+
+#[test]
+fn a_together_whose_body_only_calls_is_allowed_to_start_tasks_in_there() {
+    check(
+        "to spread_the_work() {\n\
+         \x20   start { 1 }\n\
+         }\n\
+         together {\n\
+         \x20   spread_the_work()\n\
+         }\n",
+    );
+}
+
+#[test]
+fn every_unit_of_time_a_timeout_may_be_written_in_is_accepted() {
+    for unit in [
+        "millisecond",
+        "milliseconds",
+        "second",
+        "seconds",
+        "minute",
+        "minutes",
+        "hour",
+        "hours",
+    ] {
+        check(&format!(
+            "let inbox = Channel.new(of: Int, size: 1)\n\
+             select {{\n\
+             \x20   when timeout after 2 {unit} {{ print(\"quiet\") }}\n\
+             }}\n"
+        ));
+    }
+}

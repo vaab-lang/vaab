@@ -1,0 +1,15 @@
+---
+source: crates/vaab-vm/tests/errors.rs
+expression: stops(source)
+---
+[not-yet] Error: `shared` state arrives in phase 4
+   ╭─[ example.vaab:1:13 ]
+   │
+ 1 │ let total = Shared.new(0)
+   │             ──────┬──────  
+   │                   ╰──────── this is not built yet
+   │ 
+   │ Help: phase 4 builds the scheduler that tasks and channels run on
+   │ 
+   │ Note: it type-checks today, so the program is ready for the phase that runs it
+───╯

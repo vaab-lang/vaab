@@ -810,9 +810,298 @@ pub fn ability_signature_mismatch(
 // ---------------------------------------------------------------------------
 
 pub fn not_a_channel(what: &str, found: &Type, span: Span) -> Diagnostic {
-    Diagnostic::error("not-a-channel", format!("`{what}` needs a channel"))
-        .at(span, format!("this is {found}"))
-        .with_help("make one with `Channel.new(of: Text, size: 4)`")
+    let diagnostic = Diagnostic::error("not-a-channel", format!("`{what}` needs a channel"))
+        .at(span, format!("this is {found}"));
+    match found {
+        // A `shared` is the other way tasks share, and mistaking one for the other
+        // is an easy thing to do, so say where its value is kept instead.
+        Type::Shared(held) => diagnostic.with_help(format!(
+            "a `shared {held}` is read with `.value` and changed with `.update(...)`, \
+             with no waiting either way"
+        )),
+        _ => diagnostic.with_help("make one with `Channel.new(of: Text, size: 4)`"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sendability: what may cross between tasks
+// ---------------------------------------------------------------------------
+
+/// The specification fixes the wording of this one, and it must not drift:
+///
+/// > `` `total` can change, so a task cannot use it. Use `Shared` instead. ``
+///
+/// The first sentence is the message and the second is the help, which is where
+/// the house style keeps the thing to type.
+pub fn changing_captured_by_task(
+    name: &str,
+    declared: &Type,
+    used_at: Span,
+    declared_at: Span,
+) -> Diagnostic {
+    Diagnostic::error(
+        "changing-captured-by-task",
+        format!("`{name}` can change, so a task cannot use it."),
+    )
+    .at(used_at, format!("this task uses `{name}`, which lives outside it"))
+    .also_at(declared_at, format!("`{name}` is declared `changing` here"))
+    .with_help(instead_of_changing(name, declared))
+    .with_note(why_changing_is_unsafe(name, declared))
+}
+
+/// The same rule broken one step away: the task uses a closure, and the closure is
+/// the one holding on to the changing variable.
+pub fn changing_captured_through(
+    name: &str,
+    holder: &str,
+    declared: &Type,
+    used_at: Span,
+    read_at: Span,
+    declared_at: Span,
+) -> Diagnostic {
+    Diagnostic::error(
+        "changing-captured-by-task",
+        format!("`{name}` can change, so a task cannot use it."),
+    )
+    .at(used_at, format!("this task uses `{holder}`, which holds on to `{name}`"))
+    .also_at(read_at, format!("`{holder}` reads `{name}` here"))
+    .also_at(declared_at, format!("`{name}` is declared `changing` here"))
+    .with_help(instead_of_changing(name, declared))
+    .with_note(format!(
+        "a closure keeps the variable it was written beside rather than a copy of it, so \
+         sending `{holder}` into a task would send `{name}` along with it"
+    ))
+}
+
+/// What to do instead of letting a task have a changing variable. A name that
+/// already holds a `shared` needs no `Shared.new`; it needs to stop being changing.
+fn instead_of_changing(name: &str, declared: &Type) -> String {
+    match declared {
+        Type::Shared(_) => format!(
+            "drop the `changing`: a `shared` is changed with `{name}.update(value -> ...)`, \
+             never by assignment"
+        ),
+        _ => format!(
+            "use `Shared` instead: `let {name} = Shared.new(...)`, and change it inside the \
+             task with `{name}.update(value -> ...)`"
+        ),
+    }
+}
+
+fn why_changing_is_unsafe(name: &str, declared: &Type) -> String {
+    match declared {
+        // Changing what is *inside* a `shared` from several tasks is the whole
+        // point of one. Changing which `shared` the name stands for is not.
+        Type::Shared(_) => format!(
+            "what a `shared` holds is safe to change from any number of tasks, but the name \
+             is not: assigning to `{name}` would leave the tasks looking at different values"
+        ),
+        _ => format!(
+            "two tasks could change `{name}` at the same moment, and then neither would see \
+             what the other did; if the task only needs the value `{name}` holds right now, \
+             copy it into a fixed name first and use that"
+        ),
+    }
+}
+
+/// A value a task reaches for whose *type* cannot cross, whoever is holding it.
+pub fn unsendable_capture(
+    name: &str,
+    found: &Type,
+    culprit: &Type,
+    reached_by: Option<&str>,
+    used_at: Span,
+    declared_at: Span,
+) -> Diagnostic {
+    Diagnostic::error("unsendable-capture", format!("a task cannot be given `{name}`"))
+        .at(used_at, format!("this task uses `{name}`, which is {}", spelled(found)))
+        .also_at(declared_at, format!("`{name}` is declared here"))
+        .with_help(pass_something_else(culprit, reached_by))
+        .with_note(in_the_way(culprit, reached_by))
+}
+
+/// `self` inside a task, where the type `self` stands for cannot cross.
+pub fn unsendable_self(
+    found: &Type,
+    culprit: &Type,
+    reached_by: Option<&str>,
+    used_at: Span,
+) -> Diagnostic {
+    Diagnostic::error("unsendable-capture", "a task cannot be given `self`")
+        .at(used_at, format!("this task uses `self`, which is {}", spelled(found)))
+        .with_help("take the parts the task needs out of `self` first, and let it use those")
+        .with_note(in_the_way(culprit, reached_by))
+}
+
+/// A task's answer travels back out to whoever waits for it.
+pub fn unsendable_task_result(
+    found: &Type,
+    culprit: &Type,
+    reached_by: Option<&str>,
+    span: Span,
+) -> Diagnostic {
+    Diagnostic::error(
+        "unsendable-value",
+        format!("a task cannot hand back {}", spelled(found)),
+    )
+    .at(
+        span,
+        format!(
+            "this task ends with {}, which travels back to whoever waits for it",
+            spelled(found)
+        ),
+    )
+    .with_help(pass_something_else(culprit, reached_by))
+    .with_note(in_the_way(culprit, reached_by))
+}
+
+pub fn unsendable_sent_value(
+    found: &Type,
+    culprit: &Type,
+    reached_by: Option<&str>,
+    span: Span,
+) -> Diagnostic {
+    Diagnostic::error("unsendable-value", format!("{} cannot be sent", spelled(found)))
+        .at(span, format!("this is {}", spelled(found)))
+        .with_help(pass_something_else(culprit, reached_by))
+        .with_note(in_the_way(culprit, reached_by))
+}
+
+pub fn unsendable_shared_value(
+    found: &Type,
+    culprit: &Type,
+    reached_by: Option<&str>,
+    span: Span,
+) -> Diagnostic {
+    Diagnostic::error(
+        "unsendable-value",
+        format!("a `shared` cannot hold {}", spelled(found)),
+    )
+    .at(span, format!("this is {}, which every task sharing it would hold", spelled(found)))
+    .with_help(pass_something_else(culprit, reached_by))
+    .with_note(in_the_way(culprit, reached_by))
+}
+
+/// `Channel.new(of: T)` where a `T` could never safely cross.
+pub fn unsendable_channel(
+    carries: &Type,
+    culprit: &Type,
+    reached_by: Option<&str>,
+    span: Span,
+) -> Diagnostic {
+    Diagnostic::error(
+        "unsendable-channel",
+        format!("a channel cannot carry {}", spelled(carries)),
+    )
+    .at(span, format!("this asks for a channel of {carries}"))
+    .with_help(pass_something_else(culprit, reached_by))
+    .with_note(in_the_way(culprit, reached_by))
+}
+
+/// A type as a noun phrase. A function type is quoted as the code it is, because
+/// "a to(Int) returns Int" is not a thing anybody would say out loud.
+fn spelled(declared: &Type) -> String {
+    match declared {
+        Type::Function(_) => format!("the function value `{declared}`"),
+        other => a(other),
+    }
+}
+
+/// What is standing in the way, as one sentence a `note` can hold.
+///
+/// A function value is the only thing that is ever really in the way: every other
+/// type is judged by what it holds, so the walk ends at a function or at nothing.
+fn in_the_way(culprit: &Type, reached_by: Option<&str>) -> String {
+    let because = match culprit {
+        Type::Function(_) => "a function value holds on to whatever was around it when it was \
+             written, which Vaab has no way to look inside",
+        _ => "that cannot be shared between tasks",
+    };
+
+    match reached_by {
+        Some(path) => format!("{path} is `{culprit}`; {because}"),
+        None => because.to_string(),
+    }
+}
+
+fn pass_something_else(culprit: &Type, reached_by: Option<&str>) -> String {
+    match (culprit, reached_by) {
+        // The value itself is the function. A function *declared* with `to` is
+        // never carried anywhere, so calling one by name always works.
+        (Type::Function(_), None) => "work the answer out first and pass that instead, or \
+             declare the work with `to` and call it by name, since a declared function is \
+             never carried across"
+            .to_string(),
+        // The function is buried in a field, so the way out is to unpack it.
+        (Type::Function(_), Some(_)) => {
+            "pass the parts of it that are needed, rather than the whole value".to_string()
+        }
+        _ => "pass a value that two tasks could not disagree about".to_string(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared state
+// ---------------------------------------------------------------------------
+
+/// `what` says what the offending line does: "waits for a value to arrive".
+pub fn update_cannot_wait(what: &str, span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "update-cannot-wait",
+        "the change given to `.update` cannot wait for anything",
+    )
+    .at(span, format!("this {what}"))
+    .with_help(
+        "work the new value out before the `.update`, and hand the finished value in: \
+         `let next = ...` and then `.update(value -> next)`",
+    )
+    .with_note(
+        "`.update` holds the shared value while the change runs, so a wait inside it would \
+         keep every other task away from the value until the wait ended — and it may be one \
+         of those tasks the wait is for",
+    )
+}
+
+// ---------------------------------------------------------------------------
+// `together` and `select`
+// ---------------------------------------------------------------------------
+
+pub fn together_waits_for_nothing(span: Span) -> Diagnostic {
+    Diagnostic::error("together-waits-for-nothing", "this `together` has nothing to wait for")
+        .at(span, "nothing in here starts a task or calls anything that could")
+        .with_help("start the work inside it, with `start { ... }`")
+        .with_note(
+            "`together` is how a group of tasks is waited for, and it cancels the rest if one \
+             of them fails; with no task to watch it does nothing at all",
+        )
+}
+
+pub fn select_with_no_arms(span: Span) -> Diagnostic {
+    Diagnostic::error("select-with-no-arms", "this `select` has nothing to wait for")
+        .at(span, "there are no `when` arms here")
+        .with_help("add an arm, as in `when receive from inbox as message { ... }`")
+        .with_note(
+            "`select` waits for whichever of its arms is ready first, so with no arms there is \
+             nothing that could ever become ready",
+        )
+}
+
+/// `known` holds both spellings of every unit, so that a near miss on either is
+/// offered; the fallback names only the plurals, because listing eight words helps
+/// nobody.
+pub fn unknown_time_unit(written: &str, span: Span, known: &[String]) -> Diagnostic {
+    Diagnostic::error(
+        "unknown-time-unit",
+        format!("`{written}` is not a unit of time Vaab knows"),
+    )
+    .at(span, "Vaab expected a unit of time here")
+    .with_help(did_you_mean(
+        written,
+        known,
+        "write `milliseconds`, `seconds`, `minutes` or `hours` — or the singular of any of \
+         them, as in `timeout after 1 second`"
+            .to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -852,6 +1141,49 @@ mod tests {
         let missing =
             missing_fields("Account.new", "Account", &["owner".to_string()], Span::new(0, 1));
         assert_eq!(missing.message, "Account.new is missing `owner`.");
+    }
+
+    #[test]
+    fn the_specifications_wording_for_a_captured_changing_value_is_word_for_word() {
+        let captured = changing_captured_by_task(
+            "total",
+            &Type::Int,
+            Span::new(0, 1),
+            Span::new(2, 3),
+        );
+        assert_eq!(captured.message, "`total` can change, so a task cannot use it.");
+        // The specification's second sentence, "Use `Shared` instead.", is the help.
+        let help = captured.help.unwrap_or_default();
+        assert!(help.contains("Shared"), "{help}");
+    }
+
+    #[test]
+    fn a_function_type_is_named_as_the_code_it_is() {
+        let function = Type::function(vec![Type::Int], Type::Int);
+        assert_eq!(spelled(&function), "the function value `to(Int) returns Int`");
+        // Everything else keeps the article it already reads best with.
+        assert_eq!(spelled(&Type::Int), "an Int");
+        assert_eq!(spelled(&Type::named("Job")), "a `Job`");
+    }
+
+    #[test]
+    fn the_way_to_an_unsendable_value_is_spelled_out_when_there_is_one() {
+        let function = Type::function(vec![Type::Int], Type::Int);
+        let direct = in_the_way(&function, None);
+        assert!(direct.starts_with("a function value holds on to"), "{direct}");
+
+        let buried = in_the_way(&function, Some("`Job`'s field `work`"));
+        assert!(buried.starts_with("`Job`'s field `work` is `to(Int) returns Int`;"), "{buried}");
+    }
+
+    #[test]
+    fn a_name_already_holding_a_shared_is_told_to_drop_the_changing_instead() {
+        let plain = instead_of_changing("total", &Type::Int);
+        assert!(plain.contains("Shared.new"), "{plain}");
+
+        let already_shared = instead_of_changing("counter", &Type::shared(Type::Int));
+        assert!(already_shared.contains("drop the `changing`"), "{already_shared}");
+        assert!(!already_shared.contains("Shared.new"), "{already_shared}");
     }
 
     #[test]

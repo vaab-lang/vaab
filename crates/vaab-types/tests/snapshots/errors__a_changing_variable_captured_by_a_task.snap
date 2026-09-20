@@ -1,0 +1,18 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: rendered
+---
+[changing-captured-by-task] Error: `total` can change, so a task cannot use it.
+   ╭─[ example.vaab:2:19 ]
+   │
+ 1 │ let changing total = 0
+   │              ──┬──  
+   │                ╰──── `total` is declared `changing` here
+ 2 │ let job = start { total + 1 }
+   │                   ──┬──  
+   │                     ╰──── this task uses `total`, which lives outside it
+   │ 
+   │ Help: use `Shared` instead: `let total = Shared.new(...)`, and change it inside the task with `total.update(value -> ...)`
+   │ 
+   │ Note: two tasks could change `total` at the same moment, and then neither would see what the other did; if the task only needs the value `total` holds right now, copy it into a fixed name first and use that
+───╯

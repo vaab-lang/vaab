@@ -1,0 +1,17 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"select {\\n\\x20   otherwise { print(\\\"nothing ready\\\") }\\n}\\n\")"
+---
+[select-with-no-arms] Error: this `select` has nothing to wait for
+   ╭─[ example.vaab:1:1 ]
+   │
+ 1 │ ╭─▶ select {
+   ┆ ┆   
+ 3 │ ├─▶ }
+   │ │       
+   │ ╰─────── there are no `when` arms here
+   │     
+   │     Help: add an arm, as in `when receive from inbox as message { ... }`
+   │     
+   │     Note: `select` waits for whichever of its arms is ready first, so with no arms there is nothing that could ever become ready
+───╯
