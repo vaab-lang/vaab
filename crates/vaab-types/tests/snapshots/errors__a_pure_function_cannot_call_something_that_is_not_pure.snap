@@ -1,0 +1,22 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"to log(message: Text) { print(message) }\\n\\\n         pure to greet(name: Text) returns Text = log(name)\\n\")"
+---
+[type-mismatch] Error: expected Text, found Nothing
+   ╭─[ example.vaab:2:42 ]
+   │
+ 2 │ pure to greet(name: Text) returns Text = log(name)
+   │                                          ────┬────  
+   │                                              ╰────── this is Nothing
+───╯
+[not-pure] Error: `greet` is declared `pure`, so it cannot call `log`
+   ╭─[ example.vaab:2:42 ]
+   │
+ 2 │ pure to greet(name: Text) returns Text = log(name)
+   │                                   ──┬─   ────┬────  
+   │                                     │        ╰────── this calls `log`, which is not declared `pure`
+   │                                     │               
+   │                                     ╰─────────────── `greet` is declared `pure` here
+   │ 
+   │ Help: declare `log` as `pure` too, or do this work before calling `greet`
+───╯

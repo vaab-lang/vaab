@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let changing total = 0\\n\\\n         pure to bump() returns Int {\\n\\\n         \\x20   total = total + 1\\n\\\n         \\x20   total\\n\\\n         }\\n\")"
+---
+[not-pure] Error: `bump` is declared `pure`, so it cannot change a value from outside itself
+   ╭─[ example.vaab:3:5 ]
+   │
+ 2 │ pure to bump() returns Int {
+   │                        ─┬─  
+   │                         ╰─── `bump` is declared `pure` here
+ 3 │     total = total + 1
+   │     ────────┬────────  
+   │             ╰────────── this changes a value declared outside this function
+   │ 
+   │ Help: pass the new value back to the caller instead, or work on a local copy
+───╯

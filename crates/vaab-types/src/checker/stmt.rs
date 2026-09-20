@@ -302,6 +302,8 @@ impl Checker {
 
         self.enter_frame(frame);
 
+        let pure_locals_begin = self.checked.locals.len();
+
         let mut parameters = Vec::new();
         for (parameter, declared) in declaration.parameters.iter().zip(&signature.parameters) {
             parameters.push(self.declare_local(
@@ -337,6 +339,8 @@ impl Checker {
 
         self.enclosing.pop();
         self.leave_frame();
+
+        self.check_pure_function(declaration, id, pure_locals_begin);
     }
 
     /// Makes sure a block-bodied function really produces what it promised.

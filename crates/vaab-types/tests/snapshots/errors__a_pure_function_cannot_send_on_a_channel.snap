@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to push(value: Int, inbox: channel of Int) {\\n\\\n         \\x20   send value to inbox\\n\\\n         }\\n\")"
+---
+[not-pure] Error: `push` is declared `pure`, so it cannot send on a channel
+   ╭─[ example.vaab:2:5 ]
+   │
+ 1 │ pure to push(value: Int, inbox: channel of Int) {
+   │         ──┬─  
+   │           ╰─── `push` is declared `pure` here
+ 2 │     send value to inbox
+   │     ─────────┬─────────  
+   │              ╰─────────── this sends on a channel
+   │ 
+   │ Help: use channels outside the `pure` function
+───╯

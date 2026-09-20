@@ -1,0 +1,22 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to later() = start { 1 }\\n\")"
+---
+[type-mismatch] Error: expected Nothing, found task of Int
+   ╭─[ example.vaab:1:19 ]
+   │
+ 1 │ pure to later() = start { 1 }
+   │                   ─────┬─────  
+   │                        ╰─────── this is task of Int
+───╯
+[not-pure] Error: `later` is declared `pure`, so it cannot start a task
+   ╭─[ example.vaab:1:19 ]
+   │
+ 1 │ pure to later() = start { 1 }
+   │         ──┬──     ─────┬─────  
+   │           │            ╰─────── this starts a task
+   │           │                    
+   │           ╰──────────────────── `later` is declared `pure` here
+   │ 
+   │ Help: start tasks and wait for them outside the `pure` function
+───╯

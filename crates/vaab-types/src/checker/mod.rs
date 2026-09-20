@@ -20,14 +20,17 @@
 //! * [`member`] — `.field`, `.method`, `Type.new`
 //! * [`pattern`] — patterns
 //! * [`exhaustive`] — whether a `match` covers everything
+//! * [`pure`] — what a `pure` function may not do
 //! * [`sendable`] — what may cross between tasks
-//! * [`walk`] — one walk over a subtree, which [`sendable`] asks its questions with
+//! * [`walk`] — one walk over a subtree, which [`sendable`] and [`pure`] ask their
+//!   questions with
 
 mod call;
 mod exhaustive;
 mod expr;
 mod member;
 mod pattern;
+mod pure;
 mod sendable;
 mod stmt;
 mod walk;

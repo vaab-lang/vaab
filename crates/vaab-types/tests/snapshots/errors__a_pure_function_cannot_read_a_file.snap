@@ -1,0 +1,26 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to load(path: Text) returns Text = try read_file(path)\\n\")"
+---
+[try-outside-fallible] Error: `try` needs a function that can fail
+   ╭─[ example.vaab:1:45 ]
+   │
+ 1 │ pure to load(path: Text) returns Text = try read_file(path)
+   │                                             ───────┬───────  
+   │                                                    ╰───────── there is nowhere for this failure to go
+   │ 
+   │ Help: declare the failure: `returns Text or fails SomeError`
+   │ 
+   │ Note: `load` returns Text, which cannot fail
+───╯
+[not-pure] Error: `load` is declared `pure`, so it cannot call `read_file`
+   ╭─[ example.vaab:1:45 ]
+   │
+ 1 │ pure to load(path: Text) returns Text = try read_file(path)
+   │                                  ──┬─       ───────┬───────  
+   │                                    │               ╰───────── this calls `read_file`
+   │                                    │                         
+   │                                    ╰───────────────────────── `load` is declared `pure` here
+   │ 
+   │ Help: read the file before calling the `pure` function, and pass the text in
+───╯

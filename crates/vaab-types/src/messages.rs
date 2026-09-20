@@ -824,6 +824,105 @@ pub fn not_a_channel(what: &str, found: &Type, span: Span) -> Diagnostic {
 }
 
 // ---------------------------------------------------------------------------
+// Pure functions
+// ---------------------------------------------------------------------------
+
+/// Why a `pure` function broke its promise. `effect` is a short phrase naming what
+/// happened, as in "calls `print`" or "starts a task".
+pub enum PureViolation {
+    Effect(&'static str),
+    Calls(String),
+    ChangesOutside,
+}
+
+/// A `pure` function did something the promise rules out.
+pub fn not_pure(
+    function: &str,
+    why: PureViolation,
+    at: Span,
+    declared_at: Span,
+) -> Diagnostic {
+    let (message, at_label, help) = match why {
+        PureViolation::Effect(effect) => (
+            format!("`{function}` is declared `pure`, so it cannot {effect}"),
+            pure_effect_label(effect),
+            pure_effect_help(effect),
+        ),
+        PureViolation::Calls(callee) => (
+            format!("`{function}` is declared `pure`, so it cannot call `{callee}`"),
+            format!("this calls `{callee}`, which is not declared `pure`"),
+            format!(
+                "declare `{callee}` as `pure` too, or do this work before calling `{function}`"
+            ),
+        ),
+        PureViolation::ChangesOutside => (
+            format!(
+                "`{function}` is declared `pure`, so it cannot change a value from outside itself"
+            ),
+            "this changes a value declared outside this function".to_string(),
+            "pass the new value back to the caller instead, or work on a local copy".to_string(),
+        ),
+    };
+
+    Diagnostic::error("not-pure", message)
+        .at(at, at_label)
+        .also_at(declared_at, format!("`{function}` is declared `pure` here"))
+        .with_help(help)
+}
+
+fn pure_effect_label(effect: &str) -> String {
+    match effect {
+        "call `print`" => "this calls `print`".to_string(),
+        "call `read_file`" => "this calls `read_file`".to_string(),
+        "call a function held in a value" => "this calls a function held in a value".to_string(),
+        "start a task" => "this starts a task".to_string(),
+        "wait for a task" => "this waits for a task".to_string(),
+        "wait for tasks" => "this waits for tasks".to_string(),
+        "send on a channel" => "this sends on a channel".to_string(),
+        "close a channel" => "this closes a channel".to_string(),
+        "wait for a value on a channel" => "this waits for a value on a channel".to_string(),
+        "wait for something to become ready" => {
+            "this waits for something to become ready".to_string()
+        }
+        "build a channel" => "this builds a channel".to_string(),
+        "build a `shared` value" => "this builds a `shared` value".to_string(),
+        "read a `shared` value" => "this reads a `shared` value".to_string(),
+        "change a `shared` value" => "this changes a `shared` value".to_string(),
+        other => format!("this {other}"),
+    }
+}
+
+fn pure_effect_help(effect: &str) -> String {
+    match effect {
+        "call `print`" => "use `print` before or after the `pure` function, not inside it",
+        "call `read_file`" => {
+            "read the file before calling the `pure` function, and pass the text in"
+        }
+        "call a function held in a value" => {
+            "call a function declared with `pure to` by name instead, since a function \
+             held in a value carries no record of whether it is `pure`"
+        }
+        "build a channel" | "build a `shared` value" => {
+            "build channels and `shared` values outside the `pure` function, and pass them in"
+        }
+        "read a `shared` value" | "change a `shared` value" => {
+            "read or change a `shared` value outside the `pure` function, and pass the value in"
+        }
+        "start a task" | "wait for a task" | "wait for tasks" => {
+            "start tasks and wait for them outside the `pure` function"
+        }
+        "send on a channel" | "close a channel" | "wait for a value on a channel" => {
+            "use channels outside the `pure` function"
+        }
+        "wait for something to become ready" => {
+            "waiting needs the clock or a channel, and neither belongs inside a `pure` function"
+        }
+        _ => "move this work outside the `pure` function",
+    }
+    .to_string()
+}
+
+// ---------------------------------------------------------------------------
 // Sendability: what may cross between tasks
 // ---------------------------------------------------------------------------
 

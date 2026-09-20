@@ -41,13 +41,15 @@ with a report saying which phase brings it.
 | 3 | Bytecode VM, standard library basics, `vaab run`, `vaab repl` | done |
 | 4 | Sendability checking | done |
 | 4b | Channels, tasks, `select`, `shared`, the scheduler | next |
-| 5 | Standard library, `pure` enforcement, `vaab new` | |
+| 5 | `pure` enforcement, `vaab new` | done |
+| 5b | Standard library — file I/O, time, json | next |
 | 6 | `serve` and `route` | |
 | 7 | Multi-threaded work-stealing scheduler | |
 
 ## Try it
 
 ```sh
+cargo run -p vaab-cli -- new demo && cargo run -p vaab-cli -- run demo/main.vaab
 cargo run -p vaab-cli -- run examples/12_running_programs.vaab
 cargo run -p vaab-cli -- check examples/05_types.vaab
 cargo run -p vaab-cli -- parse examples/01_hello.vaab

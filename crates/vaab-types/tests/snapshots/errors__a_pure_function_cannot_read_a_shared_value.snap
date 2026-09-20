@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to read(counter: shared Int) returns Int = counter.value\\n\")"
+---
+[not-pure] Error: `read` is declared `pure`, so it cannot read a `shared` value
+   ╭─[ example.vaab:1:49 ]
+   │
+ 1 │ pure to read(counter: shared Int) returns Int = counter.value
+   │                                           ─┬─   ──────┬──────  
+   │                                            │          ╰──────── this reads a `shared` value
+   │                                            │                   
+   │                                            ╰─────────────────── `read` is declared `pure` here
+   │ 
+   │ Help: read or change a `shared` value outside the `pure` function, and pass the value in
+───╯

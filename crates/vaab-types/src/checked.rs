@@ -233,7 +233,7 @@ pub struct Function {
     pub frame: FrameId,
     /// Its parameters, as locals of that frame, in declared order.
     pub parameters: Vec<LocalId>,
-    /// `true` when written `pure to f(...)`. Nothing enforces this until phase 5.
+    /// `true` when written `pure to f(...)`.
     pub pure: bool,
     /// The whole declaration, so the compiler can find the body and any defaults.
     /// For a free function this is the statement's own id; a method has no

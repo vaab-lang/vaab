@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to show(items: list of Text) {\\n\\\n         \\x20   items.each(item -> print(item))\\n\\\n         }\\n\")"
+---
+[not-pure] Error: `show` is declared `pure`, so it cannot call `print`
+   ╭─[ example.vaab:2:24 ]
+   │
+ 1 │ pure to show(items: list of Text) {
+   │         ──┬─  
+   │           ╰─── `show` is declared `pure` here
+ 2 │     items.each(item -> print(item))
+   │                        ─────┬─────  
+   │                             ╰─────── this calls `print`
+   │ 
+   │ Help: use `print` before or after the `pure` function, not inside it
+───╯

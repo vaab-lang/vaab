@@ -162,9 +162,14 @@ call site, and any argument may be passed by name:
 greet("Ada", greeting: "hi")
 ```
 
-`pure to f(...)` **(phase 5)** asks the compiler to guarantee that `f` has no side
-effects, no I/O, no `shared`, and no channel operations, and only calls other pure
-functions.
+`pure to f(...)` asks the compiler to guarantee that `f` has no side effects, no
+I/O, no `shared`, and no channel operations, and only calls other pure functions.
+
+The checker enforces this. A `pure` function may change `let changing` locals it
+declares itself, but not bindings from outside. It may call another function only
+when that function is also declared `pure` and is reached by name; a function held
+in a value carries no record of purity and cannot be called from inside a `pure`
+body. Closures written inside a `pure` function are held to the same rules.
 
 ### Closures
 
@@ -447,9 +452,9 @@ deadlock report listing where each task is stuck.
 
 ## Standard library
 
-The full standard library — time, file I/O and json among it — arrives in
-**phase 5**, and `pure` enforcement with it. What exists today is the handful of
-things a small program genuinely needs, and all of it runs.
+The full standard library — time, file I/O and json among it — is the rest of
+**phase 5**. `pure` enforcement is here; what exists today is the handful of things
+a small program genuinely needs, and all of it runs.
 
 ### Printing
 

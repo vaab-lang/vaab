@@ -661,6 +661,84 @@ arrive, this is the line to revisit.
 
 ---
 
+## Phase 5: `pure` and project scaffolding
+
+The first slice of phase 5: the checker holds `pure` functions to their promise, and `vaab new` writes the smallest project that runs today.
+
+## D63. What `pure` means in the checker
+
+A function declared `pure to f(...)` is checked after its body is type-checked. A
+subtree walk looks for anything the promise rules out:
+
+| Forbidden | How it is caught |
+|-----------|------------------|
+| `print`, `read_file` | `Resolution::Builtin` |
+| `send`, `close`, `together` | statement walk |
+| `receive`, `start`, `select` | expression walk |
+| `Channel.new`, `Shared.new` | `Resolution::NewChannel` / `NewShared` |
+| `.wait()`, `.update(...)`, `.value` on `shared` | `Resolution::BuiltinMethod` |
+| A call to a declared function or method that is not `pure` | `Resolution::Function` / `Method` / `UserNew` |
+| A call through a function-typed parameter or other value | callee is a `Local` holding `to(...) returns ...`, or callee type is `to(...)` with no declaration |
+| Assignment to a `changing` binding declared outside the function | `locals_begin` on the function's frame |
+
+**Allowed inside `pure`:** arithmetic, data structure work, `.map` / `.each` with
+pure closures, reading immutable fields, calling other `pure` functions by name,
+changing `let changing` bindings declared inside the function.
+
+## D64. Closures inside `pure`
+
+Closures inherit the enclosing function's rules because the walk goes into closure
+bodies. A closure passed to `.map` that calls `print` is reported on the `print`,
+with the `pure` signature as a second label.
+
+## D65. `pure` passed as values
+
+Function values carry no purity flag. A `pure` function may call another `pure`
+function **by name** only. Calling a parameter or field typed `to(...) returns ...`
+is refused with `not-pure` / "call a function held in a value".
+
+## D66. `pure` methods
+
+`pure to` on a method inside a `type` is checked the same way as a free function.
+
+## D67. Diagnostic code and wording
+
+- **Code:** `not-pure`
+- **Message shape:** `` `{name}` is declared `pure`, so it cannot {effect} ``
+- **Labels:** primary on the offending line; secondary on the `pure` signature
+  ("`name` is declared `pure` here")
+- **Variants:**
+  - effect: `` cannot call `print` ``, `` cannot start a task ``, etc.
+  - non-pure callee: `` cannot call `log` `` with "this calls `log`, which is not declared `pure`"
+  - outside assignment: `` cannot change a value from outside itself ``
+
+## D68. `vaab new <name>`
+
+Creates a single directory with one file:
+
+```
+<name>/
+  main.vaab
+```
+
+`main.vaab` contents:
+
+```vaab
+# A small Vaab program.
+# Run it with: vaab run main.vaab
+
+print("hello")
+```
+
+No package manifest, no modules, no imports — only what Vaab can run today.
+
+- Fails with exit code **2** if the directory already exists, the name is empty, or
+  the name contains a path separator.
+- Succeeds with exit code **0** and prints how to run the file.
+- Tested with a temp working directory and `vaab run` on the generated file.
+
+---
+
 ## Still open
 
 Recorded here so they are not forgotten, to be settled in the phase that needs

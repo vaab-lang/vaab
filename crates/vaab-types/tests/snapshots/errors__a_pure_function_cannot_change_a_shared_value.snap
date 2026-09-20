@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to bump(counter: shared Int) {\\n\\\n         \\x20   counter.update(n -> n + 1)\\n\\\n         }\\n\")"
+---
+[not-pure] Error: `bump` is declared `pure`, so it cannot change a `shared` value
+   ╭─[ example.vaab:2:5 ]
+   │
+ 1 │ pure to bump(counter: shared Int) {
+   │         ──┬─  
+   │           ╰─── `bump` is declared `pure` here
+ 2 │     counter.update(n -> n + 1)
+   │     ─────────────┬────────────  
+   │                  ╰────────────── this changes a `shared` value
+   │ 
+   │ Help: read or change a `shared` value outside the `pure` function, and pass the value in
+───╯

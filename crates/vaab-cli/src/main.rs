@@ -6,6 +6,7 @@
 //! the language can.
 
 mod args;
+mod new;
 mod repl;
 
 use std::path::Path;
@@ -58,12 +59,7 @@ fn run(args: Args) -> ExitCode {
             repl::start(args.color);
             exit::OK
         }
-        Command::NotYet { name, phase, summary } => {
-            eprintln!("vaab: `{name}` is not built yet.");
-            eprintln!("      {summary}");
-            eprintln!("      It arrives in phase {phase}.");
-            exit::misuse()
-        }
+        Command::New { name } => new_project(&name),
     }
 }
 
@@ -137,6 +133,24 @@ fn run_file(path: &Path, color: ColorChoice) -> ExitCode {
     }
 }
 
+/// `vaab new orchard`: write the smallest project Vaab knows how to run today.
+fn new_project(name: &str) -> ExitCode {
+    match new::create(name) {
+        Ok(directory) => {
+            println!("Created {}/", directory.display());
+            println!("  main.vaab");
+            println!();
+            println!("Run it with:");
+            println!("  vaab run {}/main.vaab", directory.display());
+            exit::OK
+        }
+        Err(message) => {
+            eprintln!("vaab: {message}");
+            exit::misuse()
+        }
+    }
+}
+
 fn read(path: &Path) -> Option<String> {
     match std::fs::read_to_string(path) {
         Ok(source) => Some(source),
@@ -177,11 +191,9 @@ Commands:
   check <file>   Read a file and check its types
   run <file>     Check a file and run it
   repl           Start an interactive session
+  new <name>     Start a new project in a new directory
   help           Show this message
   version        Show the version
-
-Coming later:
-  new <name>     Start a new project                   (phase 5)
 
 Options:
   --no-color     Never colour the output

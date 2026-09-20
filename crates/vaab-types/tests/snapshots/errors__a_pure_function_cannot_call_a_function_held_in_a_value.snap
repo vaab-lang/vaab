@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to apply(f: to(Int) returns Int, n: Int) returns Int = f(n)\\n\")"
+---
+[not-pure] Error: `apply` is declared `pure`, so it cannot call a function held in a value
+   ╭─[ example.vaab:1:61 ]
+   │
+ 1 │ pure to apply(f: to(Int) returns Int, n: Int) returns Int = f(n)
+   │                                                       ─┬─   ──┬─  
+   │                                                        │      ╰─── this calls a function held in a value
+   │                                                        │          
+   │                                                        ╰────────── `apply` is declared `pure` here
+   │ 
+   │ Help: call a function declared with `pure to` by name instead, since a function held in a value carries no record of whether it is `pure`
+───╯

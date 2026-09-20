@@ -191,6 +191,67 @@ fn the_session_ends_cleanly_when_the_input_runs_out() {
 }
 
 // ---------------------------------------------------------------------------
+// vaab new
+// ---------------------------------------------------------------------------
+
+#[test]
+fn new_writes_a_project_that_vaab_run_can_execute() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let parent = std::env::temp_dir().join(format!("vaab-cli-new-parent-{stamp}"));
+    let name = format!("demo-{stamp}");
+    let directory = parent.join(&name);
+    let _ = std::fs::remove_dir_all(&parent);
+    std::fs::create_dir_all(&parent).expect("should create the parent directory");
+
+    let previous = std::env::current_dir().expect("should know the working directory");
+    std::env::set_current_dir(&parent).expect("should move into the temp directory");
+
+    let create = vaab(&["new", &name]);
+    assert_eq!(code(&create), OK, "{}", err(&create));
+
+    let main = directory.join("main.vaab");
+    let run = vaab(&["run", &main.display().to_string()]);
+    assert_eq!(code(&run), OK, "{}", err(&run));
+    assert_eq!(out(&run), "hello\n");
+
+    std::env::set_current_dir(previous).expect("should restore the working directory");
+    std::fs::remove_dir_all(&parent).expect("should clean up");
+}
+
+#[test]
+fn new_refuses_to_overwrite_an_existing_directory() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let parent = std::env::temp_dir().join(format!("vaab-cli-new-exists-parent-{stamp}"));
+    let name = format!("taken-{stamp}");
+    let directory = parent.join(&name);
+    let _ = std::fs::remove_dir_all(&parent);
+    std::fs::create_dir_all(&directory).expect("should create the directory");
+
+    let previous = std::env::current_dir().expect("should know the working directory");
+    std::env::set_current_dir(&parent).expect("should move into the temp directory");
+
+    let output = vaab(&["new", &name]);
+    assert_eq!(code(&output), MISUSE);
+    assert!(err(&output).contains("already exists"), "{}", err(&output));
+
+    std::env::set_current_dir(previous).expect("should restore the working directory");
+    std::fs::remove_dir_all(&parent).expect("should clean up");
+}
+
+#[test]
+fn new_without_a_name_is_a_misuse() {
+    let output = vaab(&["new"]);
+    assert_eq!(code(&output), MISUSE);
+    assert!(err(&output).contains("vaab new orchard"), "{}", err(&output));
+}
+
+// ---------------------------------------------------------------------------
 // Help
 // ---------------------------------------------------------------------------
 
@@ -201,6 +262,7 @@ fn the_help_lists_the_commands_this_phase_added() {
     assert_eq!(code(&output), OK);
     assert!(out(&output).contains("run <file>"), "{}", out(&output));
     assert!(out(&output).contains("repl"), "{}", out(&output));
+    assert!(out(&output).contains("new <name>"), "{}", out(&output));
 }
 
 #[test]

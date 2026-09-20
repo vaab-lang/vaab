@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to greet() = print(\\\"hi\\\")\\n\")"
+---
+[not-pure] Error: `greet` is declared `pure`, so it cannot call `print`
+   ╭─[ example.vaab:1:19 ]
+   │
+ 1 │ pure to greet() = print("hi")
+   │         ──┬──     ─────┬─────  
+   │           │            ╰─────── this calls `print`
+   │           │                    
+   │           ╰──────────────────── `greet` is declared `pure` here
+   │ 
+   │ Help: use `print` before or after the `pure` function, not inside it
+───╯

@@ -986,6 +986,95 @@ fn receiving_from_a_shared_points_at_its_value() {
 }
 
 // ---------------------------------------------------------------------------
+// Pure functions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_pure_function_cannot_print() {
+    assert_snapshot!(errors("pure to greet() = print(\"hi\")\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_read_a_file() {
+    assert_snapshot!(errors("pure to load(path: Text) returns Text = try read_file(path)\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_call_something_that_is_not_pure() {
+    assert_snapshot!(errors(
+        "to log(message: Text) { print(message) }\n\
+         pure to greet(name: Text) returns Text = log(name)\n"
+    ));
+}
+
+#[test]
+fn a_pure_function_cannot_start_a_task() {
+    assert_snapshot!(errors("pure to later() = start { 1 }\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_send_on_a_channel() {
+    assert_snapshot!(errors(
+        "pure to push(value: Int, inbox: channel of Int) {\n\
+         \x20   send value to inbox\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn a_pure_function_cannot_build_a_channel() {
+    assert_snapshot!(errors("pure to make() returns channel of Int = Channel.new(of: Int, size: 1)\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_build_a_shared_value() {
+    assert_snapshot!(errors("pure to make() returns shared Int = Shared.new(0)\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_read_a_shared_value() {
+    assert_snapshot!(errors(
+        "pure to read(counter: shared Int) returns Int = counter.value\n"
+    ));
+}
+
+#[test]
+fn a_pure_function_cannot_change_a_shared_value() {
+    assert_snapshot!(errors(
+        "pure to bump(counter: shared Int) {\n\
+         \x20   counter.update(n -> n + 1)\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn a_pure_function_cannot_change_a_value_from_outside_itself() {
+    assert_snapshot!(errors(
+        "let changing total = 0\n\
+         pure to bump() returns Int {\n\
+         \x20   total = total + 1\n\
+         \x20   total\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn a_pure_function_cannot_call_a_function_held_in_a_value() {
+    assert_snapshot!(errors(
+        "pure to apply(f: to(Int) returns Int, n: Int) returns Int = f(n)\n"
+    ));
+}
+
+#[test]
+fn a_pure_closure_inside_a_pure_function_cannot_print() {
+    assert_snapshot!(errors(
+        "pure to show(items: list of Text) {\n\
+         \x20   items.each(item -> print(item))\n\
+         }\n"
+    ));
+}
+
+// ---------------------------------------------------------------------------
 // `together` and `select`
 // ---------------------------------------------------------------------------
 

@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to make() returns shared Int = Shared.new(0)\\n\")"
+---
+[not-pure] Error: `make` is declared `pure`, so it cannot build a `shared` value
+   ╭─[ example.vaab:1:37 ]
+   │
+ 1 │ pure to make() returns shared Int = Shared.new(0)
+   │                        ─────┬────   ──────┬──────  
+   │                             │             ╰──────── this builds a `shared` value
+   │                             │                      
+   │                             ╰────────────────────── `make` is declared `pure` here
+   │ 
+   │ Help: build channels and `shared` values outside the `pure` function, and pass them in
+───╯

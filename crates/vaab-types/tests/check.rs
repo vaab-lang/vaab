@@ -1054,3 +1054,49 @@ fn every_unit_of_time_a_timeout_may_be_written_in_is_accepted() {
         ));
     }
 }
+
+// ---------------------------------------------------------------------------
+// Pure functions
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_pure_function_may_do_arithmetic() {
+    check("pure to double(n: Int) returns Int = n * 2\n");
+}
+
+#[test]
+fn a_pure_function_may_call_another_pure_function() {
+    check(
+        "pure to square(n: Int) returns Int = n * n\n\
+         pure to sum(a: Int, b: Int) returns Int = square(a) + square(b)\n",
+    );
+}
+
+#[test]
+fn a_pure_function_may_change_its_own_changing_locals() {
+    check(
+        "pure to total(numbers: list of Int) returns Int {\n\
+         \x20   let changing sum = 0\n\
+         \x20   numbers.each(n -> { sum = sum + n })\n\
+         \x20   sum\n\
+         }\n",
+    );
+}
+
+#[test]
+fn a_pure_method_on_a_type_is_checked_like_any_other_pure_function() {
+    check(
+        "type Counter {\n\
+         \x20   value: Int\n\
+         \n\
+         \x20   pure to doubled() returns Int = self.value * 2\n\
+         }\n",
+    );
+}
+
+#[test]
+fn a_pure_closure_passed_to_map_may_transform_values() {
+    check(
+        "pure to squares(numbers: list of Int) returns list of Int = numbers.map(n -> n * n)\n",
+    );
+}

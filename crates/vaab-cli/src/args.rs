@@ -19,10 +19,9 @@ pub enum Command {
     Check { path: PathBuf },
     Run { path: PathBuf },
     Repl,
+    New { name: String },
     Help,
     Version,
-    /// A command the language will have, but does not have yet.
-    NotYet { name: String, phase: u8, summary: &'static str },
 }
 
 impl Args {
@@ -61,20 +60,13 @@ impl Args {
             Some("check") => Command::Check { path: expect_file(&mut words, "check")? },
             Some("run") => Command::Run { path: expect_file(&mut words, "run")? },
             Some("repl") => Command::Repl,
+            Some("new") => Command::New { name: expect_name(&mut words, "new")? },
             Some("help") => Command::Help,
             Some("version") => Command::Version,
-
-            Some(name @ "new") => not_yet(name, 5, "starts a new project"),
 
             Some(other) => return Err(format!("`{other}` is not a command vaab knows")),
             None => return Err("that command is not valid text".to_string()),
         };
-
-        // A command that does not exist yet is the news; whatever was passed to it
-        // is not worth complaining about.
-        if matches!(command, Command::NotYet { .. }) {
-            return Ok(Args { command, color });
-        }
 
         if let Some(extra) = words.next() {
             return Err(format!("vaab did not expect `{}`", extra.to_string_lossy()));
@@ -84,10 +76,6 @@ impl Args {
     }
 }
 
-fn not_yet(name: &str, phase: u8, summary: &'static str) -> Command {
-    Command::NotYet { name: name.to_string(), phase, summary }
-}
-
 fn expect_file(
     words: &mut impl Iterator<Item = OsString>,
     command: &str,
@@ -95,6 +83,16 @@ fn expect_file(
     match words.next() {
         Some(path) => Ok(PathBuf::from(path)),
         None => Err(format!("`{command}` needs a file, as in `vaab {command} main.vaab`")),
+    }
+}
+
+fn expect_name(
+    words: &mut impl Iterator<Item = OsString>,
+    command: &str,
+) -> Result<String, String> {
+    match words.next() {
+        Some(name) => Ok(name.to_string_lossy().into_owned()),
+        None => Err(format!("`{command}` needs a name, as in `vaab {command} orchard`")),
     }
 }
 
@@ -165,11 +163,25 @@ mod tests {
     }
 
     #[test]
-    fn later_commands_say_which_phase_brings_them() {
-        match parse(&["new", "orchard"]).map(|a| a.command) {
-            Ok(Command::NotYet { phase, .. }) => assert_eq!(phase, 5),
-            _ => panic!("expected a not-yet command"),
+    fn new_takes_a_name() {
+        let args = parse(&["new", "orchard"]).expect("should parse");
+        match args.command {
+            Command::New { name } => assert_eq!(name, "orchard"),
+            _ => panic!("expected a new command"),
         }
+    }
+
+    #[test]
+    fn new_without_a_name_is_explained() {
+        match parse(&["new"]) {
+            Err(error) => assert!(error.contains("vaab new orchard"), "{error}"),
+            Ok(_) => panic!("`vaab new` with no name should be rejected"),
+        }
+    }
+
+    #[test]
+    fn new_rejects_a_second_name() {
+        assert!(parse(&["new", "orchard", "grove"]).is_err());
     }
 
     #[test]
