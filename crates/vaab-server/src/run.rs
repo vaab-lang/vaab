@@ -47,10 +47,12 @@ pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Re
         let (stream, _) = listener.accept().await.map_err(|error| error.to_string())?;
         let io = TokioIo::new(stream);
         let state = Arc::clone(&state);
-        let service = service_fn(move |request| handle(state.clone(), request));
-        if let Err(error) = http1::Builder::new().serve_connection(io, service).await {
-            eprintln!("connection error: {error}");
-        }
+        tokio::spawn(async move {
+            let service = service_fn(move |request| handle(state.clone(), request));
+            if let Err(error) = http1::Builder::new().serve_connection(io, service).await {
+                eprintln!("connection error: {error}");
+            }
+        });
     }
 }
 
@@ -64,6 +66,10 @@ async fn handle(
     request: Request<hyper::body::Incoming>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let method = request.method().as_str().to_string();
+    if method.eq_ignore_ascii_case("OPTIONS") {
+        return Ok(cors_response(StatusCode::NO_CONTENT, Bytes::new()));
+    }
+
     let path = request.uri().path().to_string();
     let mut headers = IndexMap::new();
     for (name, value) in request.headers() {
@@ -88,14 +94,21 @@ async fn handle(
         },
     };
 
-    Ok(Response::builder()
-        .status(StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
+    Ok(cors_response(
+        StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        Bytes::from(response.body),
+    ))
+}
+
+fn cors_response(status: StatusCode, body: Bytes) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(status)
         .header("content-type", "application/json")
         .header("access-control-allow-origin", "*")
         .header("access-control-allow-headers", "authorization, content-type")
         .header("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-        .body(Full::new(Bytes::from(response.body)))
-        .expect("response body is valid"))
+        .body(Full::new(body))
+        .expect("response body is valid")
 }
 
 fn run_route(
