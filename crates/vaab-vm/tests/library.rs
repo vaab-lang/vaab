@@ -322,3 +322,61 @@ fn read_file_returns_the_contents_of_a_file() {
     );
     assert_eq!(printed(&source), "hello from disk");
 }
+
+// ---------------------------------------------------------------------------
+// Logger
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_memory_logger_keeps_info_and_above() {
+    let source = "\
+let log = Logger.memory()\n\
+log.set_level(\"info\")\n\
+log.set_format(\"text\")\n\
+log.debug(\"hidden\")\n\
+log.info(\"shown\")\n\
+print(log.lines.count)\n\
+";
+    assert_eq!(printed(source), "1");
+}
+
+#[test]
+fn a_logger_can_write_json_with_fields() {
+    let source = "\
+let log = Logger.memory()\n\
+log.set_level(\"debug\")\n\
+log.set_format(\"json\")\n\
+log.write(\"warn\", \"slow\", {\"ms\": \"42\"})\n\
+print(log.lines.first otherwise \"\")\n\
+";
+    let line = printed(source);
+    assert!(line.contains("\"level\":\"warn\""), "{line}");
+    assert!(line.contains("\"message\":\"slow\""), "{line}");
+    assert!(line.contains("\"ms\":\"42\""), "{line}");
+}
+
+#[test]
+fn a_file_logger_appends_and_multi_fans_out() {
+    let path = std::env::temp_dir().join("vaab-logger-test.log");
+    let _ = std::fs::remove_file(&path);
+    let path = path.display();
+    let source = format!(
+        "choice LogError {{ Failed(message: Text) }}\n\
+         match Logger.file(\"{path}\") {{\n\
+         when success file then {{\n\
+             let memory = Logger.memory()\n\
+             memory.set_level(\"debug\")\n\
+             file.set_level(\"debug\")\n\
+             let both = Logger.multi([memory, file])\n\
+             both.info(\"hello\")\n\
+             print(memory.lines.count)\n\
+         }}\n\
+         when failure _ then print(\"open failed\")\n\
+         }}\n"
+    );
+    assert_eq!(printed(&source), "1");
+    let contents = std::fs::read_to_string(std::env::temp_dir().join("vaab-logger-test.log"))
+        .expect("log file");
+    assert!(contents.contains("hello"), "{contents}");
+}
+

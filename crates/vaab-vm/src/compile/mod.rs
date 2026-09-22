@@ -623,6 +623,10 @@ impl<'a> Compiler<'a> {
         self.variant_layout("StoreError", "Failed")
     }
 
+    pub(crate) fn log_error_failed(&self) -> u32 {
+        self.variant_layout("LogError", "Failed")
+    }
+
     /// Terminal query methods fail with the error type baked into `Query`.
     pub(crate) fn query_error_failed(&self, target: Option<&vaab_syntax::ast::Expr>) -> u32 {
         let error = target

@@ -219,6 +219,56 @@ impl Checker {
                 }
                 Type::fallible(Type::Store, Type::named("StoreError"))
             }
+
+            Handle::LoggerStdout => {
+                self.resolve_to(callee.id, Resolution::NewLoggerStdout);
+                self.walk_arguments(arguments);
+                Type::Logger
+            }
+
+            Handle::LoggerStderr => {
+                self.resolve_to(callee.id, Resolution::NewLoggerStderr);
+                self.walk_arguments(arguments);
+                Type::Logger
+            }
+
+            Handle::LoggerFile => {
+                self.resolve_to(callee.id, Resolution::NewLoggerFile);
+                for (position, argument) in arguments.iter().enumerate() {
+                    self.expression(&argument.value, Wanted::Exactly(Type::Text));
+                    sources.push(ArgumentSource::Given(position));
+                }
+                if arguments.is_empty() {
+                    self.report(messages::missing_argument("Logger.file", "path", call.span, None));
+                }
+                Type::fallible(Type::Logger, Type::named("LogError"))
+            }
+
+            Handle::LoggerMemory => {
+                self.resolve_to(callee.id, Resolution::NewLoggerMemory);
+                self.walk_arguments(arguments);
+                Type::Logger
+            }
+
+            Handle::LoggerMulti => {
+                self.resolve_to(callee.id, Resolution::NewLoggerMulti);
+                for (position, argument) in arguments.iter().enumerate() {
+                    self.expression(
+                        &argument.value,
+                        Wanted::Exactly(Type::list(Type::Logger)),
+                    );
+                    sources.push(ArgumentSource::Given(position));
+                }
+                if arguments.is_empty() {
+                    self.report(messages::missing_argument(
+                        "Logger.multi",
+                        "loggers",
+                        call.span,
+                        None,
+                    ));
+                }
+                Type::Logger
+            }
         };
 
         self.checked.calls.insert(call.id, Call { arguments: sources });

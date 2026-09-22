@@ -958,6 +958,23 @@ and `StoreError` when it started from `store.from`. Raw `db.query` /
 **Postgres:** `postgres:` / `postgresql:` URLs select the Postgres dialect in
 `sea-query` today; live Postgres connections are still deferred (SQLite only).
 
+### D84. `Logger` is a first-class stdlib handle
+
+HTTP services and ordinary programs need a logger that behaves like one from
+other languages: destinations, levels, formats, and structured fields.
+
+* Factories: `Logger.stdout()`, `.stderr()`, `.file(path)`, `.memory()`,
+  `.multi([…])`
+* Levels: `debug` < `info` < `warn` < `error` via `.set_level`
+* Formats: `text`, `json`, `pretty` via `.set_format`
+* Writers: `.debug` / `.info` / `.warn` / `.error` / `.write(level, message, fields)`
+* `Logger.file` fails with a program-declared `LogError.Failed(message: Text)`,
+  the same shape as `StoreError` / `DbError`
+* The HTTP server logs each request (method, path, status, ms) through the same
+  implementation; `VAAB_LOG_LEVEL` / `VAAB_LOG_FORMAT` configure the process logger
+
+`print` stays for values in a REPL. Logging is for running services.
+
 ---
 
 ## Still open

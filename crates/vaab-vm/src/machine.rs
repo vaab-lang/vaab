@@ -27,6 +27,7 @@ use crate::builtin::{self, Builtin};
 use crate::bytecode::{Capture, Op, Program, SelectArm};
 use crate::concurrency::{OpResult, SelectStep, WaitSite};
 use crate::error::{Fault, Level, Operation, RuntimeError};
+use crate::log::{Level as LogLevel, Loggers};
 use crate::value::{Captured, Closure, Record, Ref, Value, Variant};
 
 /// How deep calls may go before Vaab stops and says so.
@@ -102,17 +103,19 @@ pub struct World {
     pub databases: Arc<Databases>,
     /// Embedded KV stores opened by `Store.open`, shared across request machines.
     pub stores: Arc<Stores>,
+    /// Loggers opened by `Logger.stdout` / `.file` / …, shared across machines.
+    pub loggers: Arc<Loggers>,
     /// Tier-1 Cranelift JIT for hot pure-integer bodies.
     pub jit: crate::jit::JitEngine,
 }
 
 impl World {
     pub fn new(program: Ref<Program>, output: Output) -> World {
-        Self::with_app_io(program, output, Databases::shared(), Stores::shared())
+        Self::with_app_io(program, output, Databases::shared(), Stores::shared(), Loggers::shared())
     }
 
     pub fn with_databases(program: Ref<Program>, output: Output, databases: Arc<Databases>) -> World {
-        Self::with_app_io(program, output, databases, Stores::shared())
+        Self::with_app_io(program, output, databases, Stores::shared(), Loggers::shared())
     }
 
     pub fn with_app_io(
@@ -120,6 +123,7 @@ impl World {
         output: Output,
         databases: Arc<Databases>,
         stores: Arc<Stores>,
+        loggers: Arc<Loggers>,
     ) -> World {
         let globals = vec![Value::Nothing; program.globals];
         World {
@@ -129,6 +133,7 @@ impl World {
             response: None,
             databases,
             stores,
+            loggers,
             jit: crate::jit::JitEngine::default(),
         }
     }
@@ -1117,6 +1122,166 @@ impl Machine {
                         )?;
                         self.stack.push(crate::app_io::failure_message(layout, message));
                     }
+                }
+            }
+            Op::LoggerStdout => {
+                self.stack
+                    .push(Value::Logger(world.loggers.stdout()));
+            }
+            Op::LoggerStderr => {
+                self.stack
+                    .push(Value::Logger(world.loggers.stderr()));
+            }
+            Op::LoggerFile(layout) => {
+                let path = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("Logger.file expected a path")),
+                };
+                match world.loggers.file(&path) {
+                    Ok(handle) => self.stack.push(Value::success(Value::Logger(handle))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("Logger.file named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::LoggerMemory => {
+                self.stack
+                    .push(Value::Logger(world.loggers.memory()));
+            }
+            Op::LoggerMulti => {
+                let handles = match self.pop()? {
+                    Value::List(items) => {
+                        let mut handles = Vec::with_capacity(items.len());
+                        for item in items.iter() {
+                            match item {
+                                Value::Logger(handle) => handles.push(*handle),
+                                _ => {
+                                    return Err(Fault::Confused(
+                                        "Logger.multi expected a list of loggers",
+                                    ))
+                                }
+                            }
+                        }
+                        handles
+                    }
+                    _ => return Err(Fault::Confused("Logger.multi expected a list of loggers")),
+                };
+                match world.loggers.multi(&handles) {
+                    Ok(handle) => self.stack.push(Value::Logger(handle)),
+                    Err(_) => return Err(Fault::Confused("Logger.multi could not build")),
+                }
+            }
+            Op::LoggerSetLevel => {
+                let level = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("logger.set_level expected a level")),
+                };
+                let handle = match self.pop()? {
+                    Value::Logger(handle) => handle,
+                    _ => return Err(Fault::Confused("logger.set_level expected a logger")),
+                };
+                if world.loggers.set_level(handle, &level).is_err() {
+                    return Err(Fault::Confused(
+                        "unknown log level (want debug, info, warn or error)",
+                    ));
+                }
+                self.stack.push(Value::Nothing);
+            }
+            Op::LoggerSetFormat => {
+                let format = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("logger.set_format expected a format")),
+                };
+                let handle = match self.pop()? {
+                    Value::Logger(handle) => handle,
+                    _ => return Err(Fault::Confused("logger.set_format expected a logger")),
+                };
+                if world.loggers.set_format(handle, &format).is_err() {
+                    return Err(Fault::Confused(
+                        "unknown log format (want text, json or pretty)",
+                    ));
+                }
+                self.stack.push(Value::Nothing);
+            }
+            Op::LoggerDebug | Op::LoggerInfo | Op::LoggerWarn | Op::LoggerError => {
+                let level = match op {
+                    Op::LoggerDebug => LogLevel::Debug,
+                    Op::LoggerInfo => LogLevel::Info,
+                    Op::LoggerWarn => LogLevel::Warn,
+                    _ => LogLevel::Error,
+                };
+                let message = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("logger expected a message")),
+                };
+                let handle = match self.pop()? {
+                    Value::Logger(handle) => handle,
+                    _ => return Err(Fault::Confused("logger expected a logger")),
+                };
+                let _ = world.loggers.write(handle, level, &message, &indexmap::IndexMap::new());
+                self.stack.push(Value::Nothing);
+            }
+            Op::LoggerWrite => {
+                let fields = match self.pop()? {
+                    Value::Map(entries) => {
+                        let mut fields = indexmap::IndexMap::new();
+                        for (key, value) in entries.iter() {
+                            let key = match &key.0 {
+                                Value::Text(text) => text.to_string(),
+                                _ => {
+                                    return Err(Fault::Confused(
+                                        "logger.write expected text field names",
+                                    ))
+                                }
+                            };
+                            let value = match value {
+                                Value::Text(text) => text.to_string(),
+                                _ => {
+                                    return Err(Fault::Confused(
+                                        "logger.write expected text field values",
+                                    ))
+                                }
+                            };
+                            fields.insert(key, value);
+                        }
+                        fields
+                    }
+                    _ => return Err(Fault::Confused("logger.write expected a fields map")),
+                };
+                let message = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("logger.write expected a message")),
+                };
+                let level_name = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("logger.write expected a level")),
+                };
+                let handle = match self.pop()? {
+                    Value::Logger(handle) => handle,
+                    _ => return Err(Fault::Confused("logger.write expected a logger")),
+                };
+                let Some(level) = LogLevel::parse(&level_name) else {
+                    return Err(Fault::Confused(
+                        "unknown log level (want debug, info, warn or error)",
+                    ));
+                };
+                let _ = world.loggers.write(handle, level, &message, &fields);
+                self.stack.push(Value::Nothing);
+            }
+            Op::LoggerLines => {
+                let handle = match self.pop()? {
+                    Value::Logger(handle) => handle,
+                    _ => return Err(Fault::Confused("logger.lines expected a logger")),
+                };
+                match world.loggers.lines(handle) {
+                    Ok(lines) => {
+                        self.stack
+                            .push(Value::list(lines.into_iter().map(Value::text).collect()))
+                    }
+                    Err(_) => return Err(Fault::Confused("logger.lines could not read")),
                 }
             }
             Op::QueryFromDb => {

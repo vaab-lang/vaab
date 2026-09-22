@@ -35,6 +35,11 @@ pub(super) enum Handle {
     Shared,
     Db,
     Store,
+    LoggerStdout,
+    LoggerStderr,
+    LoggerFile,
+    LoggerMemory,
+    LoggerMulti,
 }
 
 /// How a particular callable's arguments are matched up. Constructors, ordinary
@@ -177,6 +182,30 @@ impl Checker {
                 }
                 if written.text == "Store" && name.text == "open" {
                     return Member::Handle(Handle::Store);
+                }
+                if written.text == "Logger" {
+                    return match name.text.as_str() {
+                        "stdout" => Member::Handle(Handle::LoggerStdout),
+                        "stderr" => Member::Handle(Handle::LoggerStderr),
+                        "file" => Member::Handle(Handle::LoggerFile),
+                        "memory" => Member::Handle(Handle::LoggerMemory),
+                        "multi" => Member::Handle(Handle::LoggerMulti),
+                        _ => {
+                            self.report(messages::unknown_member(
+                                &Type::Logger,
+                                &name.text,
+                                name.span,
+                                &[
+                                    "stdout".into(),
+                                    "stderr".into(),
+                                    "file".into(),
+                                    "memory".into(),
+                                    "multi".into(),
+                                ],
+                            ));
+                            Member::Unknown
+                        }
+                    };
                 }
             }
         }
@@ -488,6 +517,7 @@ impl Checker {
             Type::Ability(ability) => self.ability_member(ability, &found, name),
             Type::Db => self.builtin_member(&found, name, target),
             Type::Store => self.store_member(name, target),
+            Type::Logger => self.logger_member(name),
             Type::Query { error } => self.query_member(error, name),
             _ => self.builtin_member(&found, name, target),
         }
@@ -665,6 +695,76 @@ impl Checker {
                 ];
                 self.report(messages::unknown_member(
                     &Type::Store,
+                    &name.text,
+                    name.span,
+                    &known,
+                ));
+                Member::Unknown
+            }
+        }
+    }
+
+    /// Methods on a configured `Logger`.
+    fn logger_member(&mut self, name: &Name) -> Member {
+        match name.text.as_str() {
+            "set_level" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("level", Type::Text)],
+                    Type::Nothing,
+                ),
+                resolution: Resolution::BuiltinMethod("logger_set_level"),
+                shape: CallShape::function("logger.set_level", None),
+            },
+            "set_format" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("format", Type::Text)],
+                    Type::Nothing,
+                ),
+                resolution: Resolution::BuiltinMethod("logger_set_format"),
+                shape: CallShape::function("logger.set_format", None),
+            },
+            "debug" | "info" | "warn" | "error" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("message", Type::Text)],
+                    Type::Nothing,
+                ),
+                resolution: Resolution::BuiltinMethod(match name.text.as_str() {
+                    "debug" => "logger_debug",
+                    "info" => "logger_info",
+                    "warn" => "logger_warn",
+                    _ => "logger_error",
+                }),
+                shape: CallShape::function(format!("logger.{}", name.text), None),
+            },
+            "write" => Member::Callable {
+                signature: Signature::new(
+                    vec![
+                        Parameter::new("level", Type::Text),
+                        Parameter::new("message", Type::Text),
+                        Parameter::new("fields", Type::map(Type::Text, Type::Text)),
+                    ],
+                    Type::Nothing,
+                ),
+                resolution: Resolution::BuiltinMethod("logger_write"),
+                shape: CallShape::function("logger.write", None),
+            },
+            "lines" => Member::Value {
+                declared: Type::list(Type::Text),
+                resolution: Resolution::BuiltinMethod("logger_lines"),
+            },
+            _ => {
+                let known = vec![
+                    "set_level".into(),
+                    "set_format".into(),
+                    "debug".into(),
+                    "info".into(),
+                    "warn".into(),
+                    "error".into(),
+                    "write".into(),
+                    "lines".into(),
+                ];
+                self.report(messages::unknown_member(
+                    &Type::Logger,
                     &name.text,
                     name.span,
                     &known,

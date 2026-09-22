@@ -1,0 +1,46 @@
+# Logging for HTTP services and anything else that needs a real logger.
+#
+# Run with: vaab serve examples/19_logging.vaab
+#
+# Destinations: Logger.stdout(), .stderr(), .file(path), .memory(), .multi([...])
+# Levels:      debug | info | warn | error   via set_level
+# Formats:     text  | json | pretty         via set_format
+#
+# The HTTP server itself also logs every request (method, path, status, ms)
+# to stderr. Override with VAAB_LOG_LEVEL and VAAB_LOG_FORMAT.
+
+choice LogError {
+    Failed(message: Text)
+}
+
+choice ApiError {
+    NotFound
+}
+
+let log = Logger.stderr()
+log.set_level("info")
+log.set_format("text")
+log.info("server starting")
+
+serve on port 8080 {
+    before every request {
+        log.write("info", "incoming", {
+            "method": request.method,
+            "path": request.path,
+        })
+    }
+
+    route get "/hello" {
+        log.debug("hello route")
+        reply with "hello"
+    }
+
+    route get "/boom" {
+        log.error("something went wrong on purpose")
+        reply with "boom" status 500
+    }
+
+    when anything fails with ApiError as error {
+        reply explain(error)
+    }
+}

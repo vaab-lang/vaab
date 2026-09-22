@@ -630,6 +630,43 @@ match read_file("config.txt") {
 |---|---|
 | `now()` | whole seconds since 1970-01-01 UTC |
 
+### Logging
+
+A `Logger` writes structured lines to stdout, stderr, a file, memory, or several
+of those at once. Levels and formats match what other languages call a logger.
+
+```vaab
+choice LogError {
+    Failed(message: Text)
+}
+
+let log = Logger.stderr()
+log.set_level("info")       # debug | info | warn | error
+log.set_format("json")      # text  | json | pretty
+
+log.debug("detail")
+log.info("started")
+log.warn("slow")
+log.error("failed")
+log.write("info", "request", {"method": "GET", "path": "/hello"})
+
+let file = try Logger.file("app.log")
+let both = Logger.multi([Logger.stdout(), file])
+```
+
+| | |
+|---|---|
+| `Logger.stdout()` / `.stderr()` / `.memory()` | a logger to that destination |
+| `Logger.file(path)` | append to a file, or `LogError.Failed` |
+| `Logger.multi(loggers)` | the same line to every logger in the list |
+| `.set_level(level)` / `.set_format(format)` | configure severity and layout |
+| `.debug` / `.info` / `.warn` / `.error` | write a message at that level |
+| `.write(level, message, fields)` | message plus a map of text fields |
+| `.lines` | captured lines from a memory logger |
+
+The HTTP server logs every request (method, path, status, duration) to stderr.
+Override with `VAAB_LOG_LEVEL` and `VAAB_LOG_FORMAT`.
+
 ### JSON
 
 A type that `can Json` may be passed to `to_json`, which gives back `Text`.

@@ -247,6 +247,7 @@ impl<'a> Compiler<'a> {
                     "first" => Op::Builtin(Builtin::First),
                     "keys" => Op::Builtin(Builtin::Keys),
                     "value" => Op::SharedRead,
+                    "logger_lines" => Op::LoggerLines,
                     _ => Op::Nothing,
                 };
                 if matches!(op, Op::NotYet(_)) {
@@ -394,6 +395,31 @@ impl<'a> Compiler<'a> {
                     self.emit(Op::Nothing, span);
                 }
                 self.emit(Op::StoreOpen(self.store_error_failed()), span);
+            }
+            Some(Resolution::NewLoggerStdout) => {
+                self.emit(Op::LoggerStdout, span);
+            }
+            Some(Resolution::NewLoggerStderr) => {
+                self.emit(Op::LoggerStderr, span);
+            }
+            Some(Resolution::NewLoggerFile) => {
+                if let Some(argument) = arguments.first() {
+                    self.expression(&argument.value);
+                } else {
+                    self.emit(Op::Nothing, span);
+                }
+                self.emit(Op::LoggerFile(self.log_error_failed()), span);
+            }
+            Some(Resolution::NewLoggerMemory) => {
+                self.emit(Op::LoggerMemory, span);
+            }
+            Some(Resolution::NewLoggerMulti) => {
+                if let Some(argument) = arguments.first() {
+                    self.expression(&argument.value);
+                } else {
+                    self.emit(Op::Nothing, span);
+                }
+                self.emit(Op::LoggerMulti, span);
             }
 
             // Anything else is a value that holds a function: a parameter typed
@@ -680,6 +706,41 @@ impl<'a> Compiler<'a> {
                 self.receiver(target, span);
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 return self.emit(Op::StoreKeys(self.store_error_failed()), span);
+            }
+            "logger_set_level" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::LoggerSetLevel, span);
+            }
+            "logger_set_format" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::LoggerSetFormat, span);
+            }
+            "logger_debug" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::LoggerDebug, span);
+            }
+            "logger_info" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::LoggerInfo, span);
+            }
+            "logger_warn" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::LoggerWarn, span);
+            }
+            "logger_error" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::LoggerError, span);
+            }
+            "logger_write" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::LoggerWrite, span);
             }
             _ => {}
         }

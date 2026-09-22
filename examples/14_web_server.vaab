@@ -5,8 +5,13 @@ choice ApiError {
     NotFound
 }
 
+let log = Logger.stderr()
+log.set_format("text")
+
 serve on port 8080 {
-    before every request { print("{request.method} {request.path}") }
+    before every request {
+        log.info("{request.method} {request.path}")
+    }
 
     route get "/hello" {
         reply with "hello"

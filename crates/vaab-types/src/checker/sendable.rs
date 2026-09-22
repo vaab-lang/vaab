@@ -124,7 +124,8 @@ impl Checker {
     ) -> Result<(), NotSendable> {
         match declared {
             // Nothing can change these, so two tasks holding one cannot disagree.
-            Type::Int | Type::Float | Type::Bool | Type::Text | Type::Nothing | Type::Db | Type::Store | Type::Query { .. } => {
+            Type::Int | Type::Float | Type::Bool | Type::Text | Type::Nothing | Type::Db | Type::Store
+            | Type::Logger | Type::Query { .. } => {
                 Ok(())
             }
 

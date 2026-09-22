@@ -43,6 +43,7 @@ single-threaded scheduler with cooperative preemption.
 | 5b | Standard library — file I/O, time, json | done |
 | 6 | `serve` and `route`, `vaab-server`, `vaab serve` | done |
 | 6b | First-class app I/O — `env`, `Db`, `request.who`, `http` | done |
+| 6c | `Logger` — stdout/stderr/file/memory, levels, text/json/pretty | done |
 | 7 | Multi-threaded work-stealing scheduler | done |
 
 ## Install

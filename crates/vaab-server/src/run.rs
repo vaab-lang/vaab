@@ -14,6 +14,7 @@ use vaab_types::Checked;
 use vaab_vm::app_io::{Databases, Stores};
 use vaab_vm::bytecode::Program;
 use vaab_vm::concurrency::Host;
+use vaab_vm::log::{server_logger, Loggers};
 use vaab_vm::machine::{Budget, HttpResponse, Machine, Output, Step, World};
 use vaab_vm::value::{Key, Ref, Value};
 
@@ -37,21 +38,29 @@ pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Re
         .await
         .map_err(|error| format!("could not listen on port {}: {}", serve.port, error))?;
 
-    eprintln!("listening on http://127.0.0.1:{}", serve.port);
+    let log = server_logger();
+    log.info(&format!("listening on http://127.0.0.1:{}", serve.port));
     let state = Arc::new(ServerState {
         program,
         databases: Databases::shared(),
         stores: Stores::shared(),
+        loggers: Loggers::shared(),
+        log,
     });
 
     loop {
-        let (stream, _) = listener.accept().await.map_err(|error| error.to_string())?;
+        let (stream, peer) = listener.accept().await.map_err(|error| error.to_string())?;
         let io = TokioIo::new(stream);
         let state = Arc::clone(&state);
         tokio::spawn(async move {
+            let log = state.log.clone();
             let service = service_fn(move |request| handle(state.clone(), request));
             if let Err(error) = http1::Builder::new().serve_connection(io, service).await {
-                eprintln!("connection error: {error}");
+                log.write(
+                    vaab_vm::LogLevel::Warn,
+                    "connection error",
+                    &[("peer", &peer.to_string()), ("error", &error.to_string())],
+                );
             }
         });
     }
@@ -61,12 +70,15 @@ struct ServerState {
     program: Ref<Program>,
     databases: Arc<Databases>,
     stores: Arc<Stores>,
+    loggers: Arc<Loggers>,
+    log: vaab_vm::Logger,
 }
 
 async fn handle(
     state: Arc<ServerState>,
     request: Request<hyper::body::Incoming>,
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
+    let started = std::time::Instant::now();
     let method = request.method().as_str().to_string();
     if method.eq_ignore_ascii_case("OPTIONS") {
         return Ok(cors_response(StatusCode::NO_CONTENT, "text/plain", Bytes::new()));
@@ -84,6 +96,17 @@ async fn handle(
             .and_then(|value| value.get("source").and_then(|source| source.as_str()).map(str::to_string))
             .unwrap_or_default();
         let response = playground::run(&source);
+        let elapsed_ms = started.elapsed().as_millis().to_string();
+        state.log.write(
+            vaab_vm::LogLevel::Info,
+            "request",
+            &[
+                ("method", &method),
+                ("path", &path),
+                ("status", &response.status.to_string()),
+                ("ms", &elapsed_ms),
+            ],
+        );
         return Ok(cors_response(
             StatusCode::from_u16(response.status).unwrap_or(StatusCode::OK),
             &response.content_type,
@@ -110,6 +133,18 @@ async fn handle(
         }
         None => HttpResponse::json(404, "{\"error\":\"not found\"}".to_string()),
     };
+
+    let elapsed_ms = started.elapsed().as_millis().to_string();
+    state.log.write(
+        vaab_vm::LogLevel::Info,
+        "request",
+        &[
+            ("method", &method),
+            ("path", &path),
+            ("status", &response.status.to_string()),
+            ("ms", &elapsed_ms),
+        ],
+    );
 
     Ok(cors_response(
         StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
@@ -143,6 +178,7 @@ fn run_route(
         Output::collected(),
         Arc::clone(&state.databases),
         Arc::clone(&state.stores),
+        Arc::clone(&state.loggers),
     );
     world.response = None;
 

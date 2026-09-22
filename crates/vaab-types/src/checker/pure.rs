@@ -153,6 +153,10 @@ impl ImpureFinder<'_> {
             Some(Resolution::NewShared) => Some(PureViolation::Effect("build a `shared` value")),
             Some(Resolution::NewDb) => Some(PureViolation::Effect("connect to a database")),
             Some(Resolution::NewStore) => Some(PureViolation::Effect("open a store")),
+            Some(Resolution::NewLoggerStdout | Resolution::NewLoggerStderr | Resolution::NewLoggerFile
+                | Resolution::NewLoggerMemory | Resolution::NewLoggerMulti) => {
+                Some(PureViolation::Effect("build a logger"))
+            }
             Some(Resolution::BuiltinMethod("env_get" | "env_required")) => {
                 Some(PureViolation::Effect("read the environment"))
             }
@@ -165,6 +169,10 @@ impl ImpureFinder<'_> {
             Some(Resolution::BuiltinMethod("store_get" | "store_set" | "store_remove" | "store_keys")) => {
                 Some(PureViolation::Effect("talk to a store"))
             }
+            Some(Resolution::BuiltinMethod(
+                "logger_set_level" | "logger_set_format" | "logger_debug" | "logger_info"
+                | "logger_warn" | "logger_error" | "logger_write" | "logger_lines",
+            )) => Some(PureViolation::Effect("use a logger")),
             Some(Resolution::RequestWho) => Some(PureViolation::Effect("read who the caller is")),
             Some(Resolution::Function(id)) => self.impure_declared(*id),
             Some(Resolution::Method { function, .. }) => self.impure_declared(*function),

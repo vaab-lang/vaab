@@ -15,6 +15,7 @@ use crate::app_io::{Databases, Stores};
 use crate::bytecode::Program;
 use crate::concurrency::{Host, PREEMPT_AFTER, Run, TaskLife, WaitSite};
 use crate::error::{Fault, RuntimeError};
+use crate::log::Loggers;
 use crate::machine::{Budget, Machine, Output, Step, World};
 use crate::value::{Ref, Value};
 
@@ -84,6 +85,7 @@ fn run_parallel(
         response: None,
         databases: Databases::shared(),
         stores: Stores::shared(),
+        loggers: Loggers::shared(),
         jit: crate::jit::JitEngine::default(),
     };
     let mut queues: Vec<Worker<usize>> = Vec::with_capacity(workers);

@@ -211,6 +211,16 @@ pub enum Resolution {
     NewDb,
     /// `Store.open("data/cache.kv")`.
     NewStore,
+    /// `Logger.stdout()`.
+    NewLoggerStdout,
+    /// `Logger.stderr()`.
+    NewLoggerStderr,
+    /// `Logger.file("app.log")`.
+    NewLoggerFile,
+    /// `Logger.memory()`.
+    NewLoggerMemory,
+    /// `Logger.multi([stdout, file])`.
+    NewLoggerMulti,
     RequestField(usize),
     /// `request.who`: the signed bearer user, or AuthError.
     RequestWho,

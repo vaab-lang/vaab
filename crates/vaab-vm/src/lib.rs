@@ -49,6 +49,7 @@ pub mod bytecode;
 mod compile;
 pub mod jit;
 pub mod json;
+pub mod log;
 pub mod query;
 mod static_files;
 pub mod concurrency;
@@ -64,6 +65,7 @@ pub use bytecode::{Body, Capture, Op, Program};
 pub use compile::compile;
 pub use error::{Fault, Feature, Level, Operation, RuntimeError};
 pub use concurrency::Scheduler;
+pub use log::{server_logger, Format as LogFormat, Level as LogLevel, Logger, Loggers};
 pub use machine::{Budget, HttpResponse, Machine, Output, Step, World};
 pub use value::{Closure, Record, Ref, Value, Variant};
 
