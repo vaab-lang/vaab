@@ -488,6 +488,7 @@ impl Checker {
             Type::Ability(ability) => self.ability_member(ability, &found, name),
             Type::Db => self.builtin_member(&found, name, target),
             Type::Store => self.store_member(name, target),
+            Type::Query { error } => self.query_member(error, name),
             _ => self.builtin_member(&found, name, target),
         }
     }
@@ -646,18 +647,164 @@ impl Checker {
                 resolution: Resolution::BuiltinMethod("store_keys"),
                 shape: CallShape::function("store.keys", None),
             },
+            "from" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("prefix", Type::Text)],
+                    Type::query(Type::named("StoreError")),
+                ),
+                resolution: Resolution::BuiltinMethod("store_from"),
+                shape: CallShape::function("store.from", None),
+            },
             _ => {
                 let known = vec![
                     "get".into(),
                     "set".into(),
                     "remove".into(),
                     "keys".into(),
+                    "from".into(),
                 ];
                 self.report(messages::unknown_member(
                     &Type::Store,
                     &name.text,
                     name.span,
                     &known,
+                ));
+                Member::Unknown
+            }
+        }
+    }
+
+    /// Fluent AREL-style methods on a `Query`.
+    fn query_member(&mut self, error: &Type, name: &Name) -> Member {
+        let query_type = Type::query(error.clone());
+        let row = Type::map(Type::Text, Type::Text);
+        let rows = Type::list(row.clone());
+        match name.text.as_str() {
+            "where_eq" | "where_not" | "where_gt" | "where_gte" | "where_lt" | "where_lte"
+            | "where_like" => Member::Callable {
+                signature: Signature::new(
+                    vec![
+                        Parameter::new("column", Type::Text),
+                        Parameter::new("value", Type::Text),
+                    ],
+                    query_type.clone(),
+                ),
+                resolution: Resolution::BuiltinMethod(match name.text.as_str() {
+                    "where_eq" => "query_where_eq",
+                    "where_not" => "query_where_not",
+                    "where_gt" => "query_where_gt",
+                    "where_gte" => "query_where_gte",
+                    "where_lt" => "query_where_lt",
+                    "where_lte" => "query_where_lte",
+                    _ => "query_where_like",
+                }),
+                shape: CallShape::function(format!("query.{}", name.text), None),
+            },
+            "order" | "order_desc" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("column", Type::Text)],
+                    query_type.clone(),
+                ),
+                resolution: Resolution::BuiltinMethod(if name.text == "order" {
+                    "query_order"
+                } else {
+                    "query_order_desc"
+                }),
+                shape: CallShape::function(format!("query.{}", name.text), None),
+            },
+            "limit" | "offset" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("n", Type::Int)],
+                    query_type.clone(),
+                ),
+                resolution: Resolution::BuiltinMethod(if name.text == "limit" {
+                    "query_limit"
+                } else {
+                    "query_offset"
+                }),
+                shape: CallShape::function(format!("query.{}", name.text), None),
+            },
+            "select" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("columns", Type::list(Type::Text))],
+                    query_type.clone(),
+                ),
+                resolution: Resolution::BuiltinMethod("query_select"),
+                shape: CallShape::function("query.select", None),
+            },
+            "all" => Member::Callable {
+                signature: Signature::new(
+                    Vec::new(),
+                    Type::fallible(rows, error.clone()),
+                ),
+                resolution: Resolution::BuiltinMethod("query_all"),
+                shape: CallShape::function("query.all", None),
+            },
+            "first" => Member::Callable {
+                signature: Signature::new(
+                    Vec::new(),
+                    Type::fallible(Type::maybe(row), error.clone()),
+                ),
+                resolution: Resolution::BuiltinMethod("query_first"),
+                shape: CallShape::function("query.first", None),
+            },
+            "count" => Member::Callable {
+                signature: Signature::new(
+                    Vec::new(),
+                    Type::fallible(Type::Int, error.clone()),
+                ),
+                resolution: Resolution::BuiltinMethod("query_count"),
+                shape: CallShape::function("query.count", None),
+            },
+            "insert" | "update" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new(
+                        if name.text == "insert" { "row" } else { "values" },
+                        Type::map(Type::Text, Type::Text),
+                    )],
+                    Type::fallible(Type::Int, error.clone()),
+                ),
+                resolution: Resolution::BuiltinMethod(if name.text == "insert" {
+                    "query_insert"
+                } else {
+                    "query_update"
+                }),
+                shape: CallShape::function(format!("query.{}", name.text), None),
+            },
+            "delete" => Member::Callable {
+                signature: Signature::new(
+                    Vec::new(),
+                    Type::fallible(Type::Int, error.clone()),
+                ),
+                resolution: Resolution::BuiltinMethod("query_delete"),
+                shape: CallShape::function("query.delete", None),
+            },
+            _ => {
+                let known = [
+                    "where_eq",
+                    "where_not",
+                    "where_gt",
+                    "where_gte",
+                    "where_lt",
+                    "where_lte",
+                    "where_like",
+                    "order",
+                    "order_desc",
+                    "limit",
+                    "offset",
+                    "select",
+                    "all",
+                    "first",
+                    "count",
+                    "insert",
+                    "update",
+                    "delete",
+                ];
+                self.report(messages::unknown_member(
+                    &query_type,
+                    &name.text,
+                    name.span,
+                    &known.iter().map(|name| (*name).to_string()).collect::<Vec<_>>(),
                 ));
                 Member::Unknown
             }

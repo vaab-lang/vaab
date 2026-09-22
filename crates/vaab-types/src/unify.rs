@@ -87,6 +87,7 @@ impl Variables {
             Type::Shared(item) => Type::shared(self.resolve(item)),
             Type::Map { key, value } => Type::map(self.resolve(key), self.resolve(value)),
             Type::Fallible { ok, error } => Type::fallible(self.resolve(ok), self.resolve(error)),
+            Type::Query { error } => Type::query(self.resolve(error)),
             Type::Tuple(items) => {
                 Type::Tuple(items.iter().map(|item| self.resolve(item)).collect())
             }
@@ -154,6 +155,8 @@ impl Variables {
                 Type::Fallible { ok: from_ok, error: from_error },
                 Type::Fallible { ok: to_ok, error: to_error },
             ) => self.fits(from_ok, to_ok) && self.fits(from_error, to_error),
+
+            (Type::Query { error: from }, Type::Query { error: to }) => self.fits(from, to),
 
             (Type::Tuple(from), Type::Tuple(to)) => {
                 from.len() == to.len()

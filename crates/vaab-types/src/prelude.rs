@@ -264,6 +264,15 @@ pub fn methods() -> Vec<Method> {
             ),
             property: false,
         },
+        Method {
+            name: "from",
+            receiver: Type::Db,
+            signature: Signature::new(
+                vec![Parameter::new("table", Type::Text)],
+                Type::query(Type::named("DbError")),
+            ),
+            property: false,
+        },
     ]
 }
 
@@ -290,6 +299,7 @@ pub fn same_shape(left: &Type, right: &Type) -> bool {
             | (Type::Channel(_), Type::Channel(_))
             | (Type::Db, Type::Db)
             | (Type::Store, Type::Store)
+            | (Type::Query { .. }, Type::Query { .. })
             | (Type::Maybe(_), Type::Maybe(_)) => true,
         (left, right) => left == right,
     }

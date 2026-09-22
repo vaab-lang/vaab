@@ -35,6 +35,7 @@ pub fn can_json(value: &Type, checked: &Checked) -> bool {
         | Type::Channel(_)
         | Type::Db
         | Type::Store
+        | Type::Query { .. }
         | Type::Ability(_) => false,
     }
 }

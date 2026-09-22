@@ -1119,6 +1119,212 @@ impl Machine {
                     }
                 }
             }
+            Op::QueryFromDb => {
+                let table = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("db.from expected a table name")),
+                };
+                let handle = match self.pop()? {
+                    Value::Db(handle) => handle,
+                    _ => return Err(Fault::Confused("db.from expected a database")),
+                };
+                self.stack
+                    .push(crate::query::wrap(crate::query::Query::from_db(handle, table)));
+            }
+            Op::QueryFromStore => {
+                let prefix = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("store.from expected a prefix")),
+                };
+                let handle = match self.pop()? {
+                    Value::Store(handle) => handle,
+                    _ => return Err(Fault::Confused("store.from expected a store")),
+                };
+                self.stack
+                    .push(crate::query::wrap(crate::query::Query::from_store(handle, prefix)));
+            }
+            Op::QueryWhereEq
+            | Op::QueryWhereNot
+            | Op::QueryWhereGt
+            | Op::QueryWhereGte
+            | Op::QueryWhereLt
+            | Op::QueryWhereLte
+            | Op::QueryWhereLike => {
+                let compare = match op {
+                    Op::QueryWhereEq => crate::query::Compare::Eq,
+                    Op::QueryWhereNot => crate::query::Compare::Not,
+                    Op::QueryWhereGt => crate::query::Compare::Gt,
+                    Op::QueryWhereGte => crate::query::Compare::Gte,
+                    Op::QueryWhereLt => crate::query::Compare::Lt,
+                    Op::QueryWhereLte => crate::query::Compare::Lte,
+                    Op::QueryWhereLike => crate::query::Compare::Like,
+                    _ => unreachable!(),
+                };
+                let value = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    Value::Int(number) => number.to_string(),
+                    Value::Float(number) => number.to_string(),
+                    Value::Bool(yes) => if yes { "1".into() } else { "0".into() },
+                    _ => {
+                        return Err(Fault::Confused(
+                            "query.where_* values must be text, numbers, or yes/no",
+                        ))
+                    }
+                };
+                let column = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("query.where_* expected a column name")),
+                };
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.where_* expected a Query")),
+                };
+                self.stack.push(crate::query::wrap(query.with_predicate(column, compare, value)));
+            }
+            Op::QueryOrder | Op::QueryOrderDesc => {
+                let descending = matches!(op, Op::QueryOrderDesc);
+                let column = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("query.order expected a column name")),
+                };
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.order expected a Query")),
+                };
+                self.stack
+                    .push(crate::query::wrap(query.with_order(column, descending)));
+            }
+            Op::QueryLimit | Op::QueryOffset => {
+                let n = match self.pop()? {
+                    Value::Int(number) => number,
+                    _ => return Err(Fault::Confused("query.limit/offset expected an Int")),
+                };
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.limit/offset expected a Query")),
+                };
+                let next = if matches!(op, Op::QueryLimit) {
+                    query.with_limit(n)
+                } else {
+                    query.with_offset(n)
+                };
+                self.stack.push(crate::query::wrap(next));
+            }
+            Op::QuerySelect => {
+                let columns = match self.pop()? {
+                    Value::List(items) => items
+                        .iter()
+                        .map(|item| match item {
+                            Value::Text(text) => Ok(text.to_string()),
+                            _ => Err(Fault::Confused("query.select columns must be text")),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                    _ => return Err(Fault::Confused("query.select expected a list of columns")),
+                };
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.select expected a Query")),
+                };
+                self.stack.push(crate::query::wrap(query.with_columns(columns)));
+            }
+            Op::QueryAll(layout) => {
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.all expected a Query")),
+                };
+                match crate::query::run_all(&world.databases, &world.stores, &query) {
+                    Ok(rows) => self.stack.push(Value::success(rows)),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("query.all named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::QueryFirst(layout) => {
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.first expected a Query")),
+                };
+                match crate::query::run_first(&world.databases, &world.stores, &query) {
+                    Ok(row) => self.stack.push(Value::success(row)),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("query.first named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::QueryCount(layout) => {
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.count expected a Query")),
+                };
+                match crate::query::run_count(&world.databases, &world.stores, &query) {
+                    Ok(count) => self.stack.push(Value::success(Value::Int(count))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("query.count named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::QueryInsert(layout) => {
+                let row = match self.pop()? {
+                    Value::Map(entries) => entries.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.insert expected a map")),
+                };
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.insert expected a Query")),
+                };
+                match crate::query::run_insert(&world.databases, &world.stores, &query, &row) {
+                    Ok(changed) => self.stack.push(Value::success(Value::Int(changed))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("query.insert named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::QueryUpdate(layout) => {
+                let values = match self.pop()? {
+                    Value::Map(entries) => entries.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.update expected a map")),
+                };
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.update expected a Query")),
+                };
+                match crate::query::run_update(&world.databases, &world.stores, &query, &values) {
+                    Ok(changed) => self.stack.push(Value::success(Value::Int(changed))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("query.update named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::QueryDelete(layout) => {
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.delete expected a Query")),
+                };
+                match crate::query::run_delete(&world.databases, &world.stores, &query) {
+                    Ok(changed) => self.stack.push(Value::success(Value::Int(changed))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("query.delete named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
             Op::HttpGet(layout) => {
                 let url = match self.pop()? {
                     Value::Text(text) => text.to_string(),

@@ -19,6 +19,7 @@ hmac.workspace = true
 indexmap.workspace = true
 redb.workspace = true
 rusqlite.workspace = true
+sea-query.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 target-lexicon = "0.12.16"

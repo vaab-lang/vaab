@@ -45,6 +45,10 @@ pub enum Type {
     Db,
     /// An open embedded key-value store from `Store.open`.
     Store,
+    /// A fluent AREL-style relation from `db.from` / `store.from`.
+    ///
+    /// Terminals fail with `DbError` or `StoreError` depending on the source.
+    Query { error: Box<Type> },
     /// A type parameter such as `T`, inside the signature that introduces it.
     Parameter(String),
     /// A hole, filled in by unification at a call site.
@@ -94,6 +98,10 @@ impl Type {
         Type::Shared(Box::new(item))
     }
 
+    pub fn query(error: Type) -> Type {
+        Type::Query { error: Box::new(error) }
+    }
+
     pub fn function(parameters: Vec<Type>, returns: Type) -> Type {
         Type::Function(Box::new(FunctionType { parameters, returns }))
     }
@@ -133,6 +141,7 @@ impl Type {
                 ok.collect_parameters(found);
                 error.collect_parameters(found);
             }
+            Type::Query { error } => error.collect_parameters(found),
             Type::Tuple(items) => {
                 for item in items {
                     item.collect_parameters(found);
@@ -164,6 +173,7 @@ impl Type {
             Type::Fallible { ok, error } => {
                 Type::fallible(ok.substitute(swaps), error.substitute(swaps))
             }
+            Type::Query { error } => Type::query(error.substitute(swaps)),
             Type::Tuple(items) => {
                 Type::Tuple(items.iter().map(|item| item.substitute(swaps)).collect())
             }
@@ -193,6 +203,7 @@ impl fmt::Display for Type {
             Type::Shared(item) => write!(f, "shared {item}"),
             Type::Db => f.write_str("Db"),
             Type::Store => f.write_str("Store"),
+            Type::Query { .. } => f.write_str("Query"),
             Type::Fallible { ok, error } => write!(f, "{ok} or fails {error}"),
             Type::Tuple(items) => {
                 f.write_str("(")?;

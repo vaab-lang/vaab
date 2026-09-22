@@ -561,6 +561,106 @@ impl<'a> Compiler<'a> {
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 return self.emit(Op::DbQuery(self.db_error_failed()), span);
             }
+            "from" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryFromDb, span);
+            }
+            "store_from" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryFromStore, span);
+            }
+            "query_where_eq" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryWhereEq, span);
+            }
+            "query_where_not" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryWhereNot, span);
+            }
+            "query_where_gt" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryWhereGt, span);
+            }
+            "query_where_gte" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryWhereGte, span);
+            }
+            "query_where_lt" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryWhereLt, span);
+            }
+            "query_where_lte" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryWhereLte, span);
+            }
+            "query_where_like" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryWhereLike, span);
+            }
+            "query_order" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryOrder, span);
+            }
+            "query_order_desc" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryOrderDesc, span);
+            }
+            "query_limit" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryLimit, span);
+            }
+            "query_offset" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryOffset, span);
+            }
+            "query_select" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QuerySelect, span);
+            }
+            "query_all" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryAll(self.query_error_failed(target)), span);
+            }
+            "query_first" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryFirst(self.query_error_failed(target)), span);
+            }
+            "query_count" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryCount(self.query_error_failed(target)), span);
+            }
+            "query_insert" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryInsert(self.query_error_failed(target)), span);
+            }
+            "query_update" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryUpdate(self.query_error_failed(target)), span);
+            }
+            "query_delete" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryDelete(self.query_error_failed(target)), span);
+            }
             "store_get" => {
                 self.receiver(target, span);
                 let _ = self.push_arguments(call, arguments, Defaults::None);

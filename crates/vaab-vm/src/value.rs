@@ -67,6 +67,8 @@ pub enum Value {
     Db(u32),
     /// An open embedded KV store living in [`crate::machine::World::stores`].
     Store(u32),
+    /// A fluent AREL-style relation over a Db or Store.
+    Query(Ref<crate::query::Query>),
 }
 
 /// A local that more than one frame can see.
@@ -290,6 +292,7 @@ impl Value {
             Value::Task(id) => format!("task {id}"),
             Value::Db(handle) => format!("db {handle}"),
             Value::Store(handle) => format!("store {handle}"),
+            Value::Query(_) => "query".to_string(),
         }
     }
 }
@@ -381,6 +384,7 @@ fn compare(left: &Value, right: &Value, floats: Floats) -> bool {
         (Value::Task(left), Value::Task(right)) => left == right,
         (Value::Db(left), Value::Db(right)) => left == right,
         (Value::Store(left), Value::Store(right)) => left == right,
+        (Value::Query(left), Value::Query(right)) => left.as_ref() == right.as_ref(),
         _ => false,
     }
 }
@@ -460,6 +464,10 @@ fn hash_value<H: Hasher>(value: &Value, state: &mut H) {
         Value::Task(id) => id.hash(state),
         Value::Db(id) => id.hash(state),
         Value::Store(id) => id.hash(state),
+        Value::Query(query) => {
+            // Identity by pointer is enough for map keys; queries are not keyed.
+            Ref::as_ptr(query).hash(state);
+        }
     }
 }
 

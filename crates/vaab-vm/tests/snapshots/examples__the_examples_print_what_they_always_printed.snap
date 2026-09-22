@@ -1,5 +1,6 @@
 ---
 source: crates/vaab-vm/tests/examples.rs
+assertion_line: 99
 expression: transcript
 ---
 $ vaab run examples/01_hello.vaab
@@ -111,3 +112,9 @@ $ vaab run examples/17_casts.vaab
 Ada, a collie
 2
 0
+
+$ vaab run examples/18_query.vaab
+ada has 2 tasks
+first title is ship query
+sessions: 2
+done

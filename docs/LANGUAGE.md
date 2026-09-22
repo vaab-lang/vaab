@@ -574,6 +574,40 @@ print(3.to_float() / 2.0)   # 1.5
 print(2.5.round())          # 3
 ```
 
+### Query (Db and Store)
+
+Fluent AREL-style relations are first-class. Start with `db.from(table)` or
+`store.from(prefix)`, chain filters, then finish with a terminal. SQL is built
+with `sea-query` under the hood (see D83).
+
+```vaab
+let rows = try db
+    .from("tasks")
+    .where_eq("owner", user.id)
+    .order_desc("id")
+    .limit(20)
+    .all()
+
+try db.from("tasks").insert({"id": id, "title": title, "owner": user.id})
+
+let sessions = try store
+    .from("session:")
+    .where_eq("value", "signed-in")
+    .all()
+```
+
+| | |
+|---|---|
+| `db.from(table)` / `store.from(prefix)` | start a `Query` |
+| `.where_eq` / `.where_not` / `.where_gt` / `.where_gte` / `.where_lt` / `.where_lte` / `.where_like` | filters |
+| `.order` / `.order_desc` | sort |
+| `.limit` / `.offset` / `.select` | shape |
+| `.all` / `.first` / `.count` | read |
+| `.insert` / `.update` / `.delete` | write |
+
+Raw `db.query` / `db.execute` stay available for SQL the fluent surface cannot
+express yet.
+
 ### File I/O
 
 Programs declare a `FileError` choice; `read_file` fails with it when a path is

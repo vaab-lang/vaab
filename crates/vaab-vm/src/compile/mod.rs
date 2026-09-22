@@ -623,6 +623,22 @@ impl<'a> Compiler<'a> {
         self.variant_layout("StoreError", "Failed")
     }
 
+    /// Terminal query methods fail with the error type baked into `Query`.
+    pub(crate) fn query_error_failed(&self, target: Option<&vaab_syntax::ast::Expr>) -> u32 {
+        let error = target
+            .and_then(|expr| self.checked.type_of(expr.id))
+            .and_then(|declared| match declared {
+                vaab_types::Type::Query { error } => Some(error.as_ref()),
+                _ => None,
+            });
+        match error {
+            Some(vaab_types::Type::Named(name)) if name == "StoreError" => {
+                self.store_error_failed()
+            }
+            _ => self.db_error_failed(),
+        }
+    }
+
     pub(crate) fn http_error_failed(&self) -> u32 {
         self.variant_layout("HttpError", "Failed")
     }

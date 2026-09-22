@@ -4,3 +4,9 @@
 
 # insta writes these when a snapshot changes; they should never be committed.
 **/*.snap.new
+
+# Embedded KV / local SQLite demo files
+*.vaab.kv
+*.sqlite
+examples/tasks.db
+examples/apps/tasks/data/

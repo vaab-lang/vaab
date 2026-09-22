@@ -49,6 +49,7 @@ pub mod bytecode;
 mod compile;
 pub mod jit;
 pub mod json;
+pub mod query;
 mod static_files;
 pub mod concurrency;
 pub mod error;

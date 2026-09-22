@@ -1,0 +1,72 @@
+# Fluent AREL-style Query over Db and Store.
+#
+# SQL compiles through sea-query. Store evaluates the same AST against keys
+# (and JSON object fields when the value is a JSON object).
+#
+# Run with:
+#   cargo run -p vaab-cli --bin vaab -- run examples/18_query.vaab
+
+choice DbError {
+    Failed(message: Text)
+}
+
+choice StoreError {
+    Failed(message: Text)
+}
+
+# `try` hands each failure straight back, so the happy path stays flat.
+to demo_db() returns Text or fails DbError {
+    let db = try Db.connect("sqlite::memory:")
+    let empty: list of Text = []
+    try db.execute(
+        "create table tasks (id text primary key, title text not null, owner text not null)",
+        empty,
+    )
+    try db.from("tasks").insert({"id": "1", "title": "ship query", "owner": "ada"})
+    try db.from("tasks").insert({"id": "2", "title": "rest", "owner": "ada"})
+    try db.from("tasks").insert({"id": "3", "title": "other", "owner": "grace"})
+
+    let rows = try db
+        .from("tasks")
+        .where_eq("owner", "ada")
+        .order_desc("id")
+        .all()
+    print("ada has {rows.count} tasks")
+
+    let found_row = try db.from("tasks").where_eq("id", "1").first()
+    match found_row {
+        when found row then {
+            let title = row.get("title") otherwise "?"
+            print("first title is {title}")
+        }
+        when nothing then print("missing row")
+    }
+    return success "ok"
+}
+
+to demo_store() returns Text or fails StoreError {
+    let store = try Store.open("query-demo.vaab.kv")
+    try store.from("session:").insert({"key": "session:ada", "value": "signed-in"})
+    try store.from("session:").insert({"key": "session:grace", "value": "signed-in"})
+    try store.from("other:").insert({"key": "other:x", "value": "nope"})
+
+    let rows = try store.from("session:").where_eq("value", "signed-in").all()
+    print("sessions: {rows.count}")
+    return success "ok"
+}
+
+match demo_db() {
+    when success _ then {}
+    when failure error then match error {
+        when Failed(message) then print("db failed: {message}")
+    }
+}
+
+match demo_store() {
+    when success _ then {}
+    when failure error then match error {
+        when Failed(message) then print("store failed: {message}")
+    }
+}
+
+print("done")

@@ -834,6 +834,7 @@ auth, env/secrets, and an outbound HTTP client. Those are builtins — not packa
 * `env.get` / `env.required` — process environment
 * `Db.connect` / `db.execute` / `db.query` — SQLite today (Postgres URLs later);
   `$1`-style placeholders are accepted and rewritten for SQLite
+* `db.from` / `store.from` → first-class `Query` (AREL-style; SQL via `sea-query`)
 * `request.who` — bearer token `id|email|hmac` verified with `AUTH_SECRET`; needs a
   declared `type User { id: Text, email: Text }` and `choice AuthError { Unauthorized }`
 * `http.get` / `http.post` — outbound HTTP, returning response text
@@ -912,6 +913,50 @@ Methods on the cast itself — factories, finders — are `to self.open(...)`.
 The cost: two ways to define structured objects (`type` and `cast`). The benefit:
 immutability stays the default for data; mutation is explicit and theatrically
 named.
+
+### D83. First-class AREL-style `Query` over Db and Store
+
+Vibe-coded backends need fluent filters, not only raw SQL strings. Vaab exposes
+one first-class `Query` type — the same surface for SQL and the embedded KV
+store — rather than a riff.
+
+```vaab
+let rows = try db
+    .from("tasks")
+    .where_eq("owner", user.id)
+    .order_desc("id")
+    .limit(20)
+    .all()
+
+let sessions = try store
+    .from("session:")
+    .where_eq("value", "signed-in")
+    .all()
+```
+
+**Underlying SQL package:** [`sea-query`](https://crates.io/crates/sea-query).
+It is the query-builder half of SeaORM: a dialect-aware AST that emits SQLite or
+Postgres SQL with bound parameters. Vaab does **not** pull in SeaORM / SQLx —
+those are async ORMs; the VM stays synchronous on `rusqlite` today, and
+`sea-query` compiles the fluent chain into SQL the existing `Db` layer runs.
+
+**Why not the `arel` crate / Ferroquent / Diesel?** Those are full ActiveRecord
+stacks or strongly typed DSLs aimed at Rust application code. Vaab needs a
+language-level AST that (a) works for both SQL and KV, (b) stays sync, and
+(c) does not force Rust derive macros onto Vaab programs. `sea-query` is the
+thin builder that fits.
+
+**Store semantics:** `store.from(prefix)` scopes to keys with that prefix. Each
+row is a `map` with at least `key` and `value`. When `value` is a JSON object,
+its fields are promoted onto the row so `.where_eq("status", "open")` works.
+Inserts need a `key` field (optionally relative to the prefix).
+
+**Errors:** terminals fail with `DbError` when the query started from `db.from`,
+and `StoreError` when it started from `store.from`. Raw `db.query` /
+`db.execute` remain for SQL that the fluent surface cannot express yet.
+
+**Postgres:** `postgres:` / `postgresql:` URLs select the Postgres dialect in
+`sea-query` today; live Postgres connections are still deferred (SQLite only).
 
 ---
 

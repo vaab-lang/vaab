@@ -1,4 +1,5 @@
-//! First-class app I/O: env, SQLite, embedded KV, bearer auth, and outbound HTTP.
+//! First-class app I/O: env, SQLite, embedded KV, bearer auth, outbound HTTP,
+//! and AREL-style [`crate::query::Query`] over Db/Store.
 //!
 //! These are the golden-path builtins every vibe-coded backend needs. They live
 //! in the language rather than as packages, matching the product decision that
@@ -14,6 +15,7 @@ use rusqlite::{params_from_iter, types::ValueRef, Connection};
 use sha2::Sha256;
 
 use crate::error::Fault;
+use crate::query::Dialect;
 use crate::value::{Key, Record, RecordLayout, Ref, Value, Variant, VariantLayout};
 
 type HmacSha256 = Hmac<Sha256>;
@@ -22,6 +24,7 @@ type HmacSha256 = Hmac<Sha256>;
 #[derive(Default)]
 pub struct Databases {
     connections: Mutex<Vec<Connection>>,
+    dialects: Mutex<Vec<Dialect>>,
     by_path: Mutex<HashMap<String, u32>>,
 }
 
@@ -31,6 +34,13 @@ impl Databases {
     }
 
     pub fn connect(&self, url: &str) -> Result<u32, String> {
+        let dialect = crate::query::dialect_for(url);
+        if dialect == Dialect::Postgres {
+            return Err(
+                "Postgres URLs are recognised for Query SQL, but live connections are still SQLite-only — use sqlite: for now"
+                    .into(),
+            );
+        }
         let path = url
             .strip_prefix("sqlite:")
             .or_else(|| url.strip_prefix("sqlite://"))
@@ -47,11 +57,22 @@ impl Databases {
         let index = held.len() as u32;
         held.push(connection);
         drop(held);
+        self.dialects
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?
+            .push(dialect);
         self.by_path
             .lock()
             .map_err(|_| "database lock poisoned".to_string())?
             .insert(path, index);
         Ok(index)
+    }
+
+    pub fn dialect(&self, handle: u32) -> Result<Dialect, String> {
+        let held = self.dialects.lock().map_err(|_| "database lock poisoned".to_string())?;
+        held.get(handle as usize)
+            .copied()
+            .ok_or_else(|| "that database handle is gone".to_string())
     }
 
     pub fn execute(&self, handle: u32, sql: &str, args: &[Value]) -> Result<i64, String> {
