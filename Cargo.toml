@@ -4,6 +4,7 @@ members = [
     "crates/vaab-syntax",
     "crates/vaab-types",
     "crates/vaab-vm",
+    "crates/vaab-riff",
     "crates/vaab-server",
     "crates/vaab-cli",
 ]
@@ -27,6 +28,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 hyper = "1"
 hyper-util = { version = "0.1", features = ["server", "tokio", "http1"] }
 http-body-util = "0.1"
+redb = "2.6"
 rusqlite = { version = "0.32", features = ["bundled"] }
 ureq = "2.12"
 sha2 = "0.10"
@@ -35,6 +37,7 @@ hex = "0.4"
 vaab-syntax = { path = "crates/vaab-syntax" }
 vaab-types = { path = "crates/vaab-types" }
 vaab-vm = { path = "crates/vaab-vm" }
+vaab-riff = { path = "crates/vaab-riff" }
 vaab-server = { path = "crates/vaab-server" }
 
 [profile.release]

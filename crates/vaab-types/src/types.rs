@@ -43,6 +43,8 @@ pub enum Type {
     Shared(Box<Type>),
     /// An open database connection from `Db.connect`.
     Db,
+    /// An open embedded key-value store from `Store.open`.
+    Store,
     /// A type parameter such as `T`, inside the signature that introduces it.
     Parameter(String),
     /// A hole, filled in by unification at a call site.
@@ -190,6 +192,7 @@ impl fmt::Display for Type {
             Type::Task(item) => write!(f, "task of {item}"),
             Type::Shared(item) => write!(f, "shared {item}"),
             Type::Db => f.write_str("Db"),
+            Type::Store => f.write_str("Store"),
             Type::Fallible { ok, error } => write!(f, "{ok} or fails {error}"),
             Type::Tuple(items) => {
                 f.write_str("(")?;

@@ -11,7 +11,7 @@ use std::thread::ThreadId;
 
 use crossbeam_deque::{Injector, Steal, Stealer, Worker};
 
-use crate::app_io::Databases;
+use crate::app_io::{Databases, Stores};
 use crate::bytecode::Program;
 use crate::concurrency::{Host, PREEMPT_AFTER, Run, TaskLife, WaitSite};
 use crate::error::{Fault, RuntimeError};
@@ -83,6 +83,7 @@ fn run_parallel(
         output: taken.output,
         response: None,
         databases: Databases::shared(),
+        stores: Stores::shared(),
     };
     let mut queues: Vec<Worker<usize>> = Vec::with_capacity(workers);
     let mut stealers: Vec<Stealer<usize>> = Vec::with_capacity(workers);

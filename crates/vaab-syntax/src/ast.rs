@@ -104,6 +104,30 @@ pub enum StmtKind {
     /// An expression evaluated for its effect, or, if it is last in a block, for
     /// the block's value.
     Expr(Expr),
+    /// `need json from ada` — pull in a riff. Removed before run; the linker uses it.
+    Need(NeedStmt),
+}
+
+/// `need json from ada`, `need colours from ./vendor/colours of decode`, `need json as js`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NeedStmt {
+    pub name: Name,
+    pub source: NeedSource,
+    pub imports: NeedImports,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum NeedSource {
+    Registry { owner: Name },
+    Path { path: String, span: Span },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum NeedImports {
+    Qualified,
+    Of(Vec<Name>),
+    As(Name),
 }
 
 #[derive(Clone, Debug, PartialEq)]

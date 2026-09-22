@@ -134,6 +134,9 @@ impl Printer {
                 }
             },
             StmtKind::Expr(expression) => self.expression(expression),
+            StmtKind::Need(need) => self.node("need", |printer| {
+                printer.line(&format!("name {}", need.name.text));
+            }),
         }
     }
 

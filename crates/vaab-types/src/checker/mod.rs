@@ -655,6 +655,7 @@ impl Checker {
             "Text" => return Type::Text,
             "Nothing" => return Type::Nothing,
             "Db" => return Type::Db,
+            "Store" => return Type::Store,
             _ => {}
         }
 
@@ -692,8 +693,10 @@ impl Checker {
     }
 
     fn known_type_names(&self) -> Vec<String> {
-        let mut names: Vec<String> =
-            ["Int", "Float", "Bool", "Text", "Nothing"].iter().map(|n| n.to_string()).collect();
+        let mut names: Vec<String> = ["Int", "Float", "Bool", "Text", "Nothing", "Db", "Store"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
         names.extend(self.globals.keys().cloned());
         names
     }

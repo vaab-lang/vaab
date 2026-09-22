@@ -144,6 +144,8 @@ impl Checker {
             StmtKind::Serve(serve) => self.serve(statement, serve),
             StmtKind::Reply(reply) => self.reply(reply),
 
+            StmtKind::Need(_) => {}
+
             StmtKind::Expr(expression) => {
                 self.expression(expression, Wanted::Discarded);
             }

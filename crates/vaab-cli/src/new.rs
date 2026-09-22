@@ -1,10 +1,11 @@
-//! `vaab new`: the smallest honest start for a Vaab project.
-//!
-//! Vaab has no package manager, no modules, and no imports yet, so a project is
-//! one file that `vaab run` can execute. That is all this command writes.
+//! `vaab new`: the smallest honest start for a Vaab riff project.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use vaab_riff::Manifest;
+
+use crate::riff;
 
 /// The file every new project gets.
 pub const MAIN: &str = "\
@@ -14,7 +15,7 @@ pub const MAIN: &str = "\
 print(\"hello\")
 ";
 
-/// Creates `name/` with `main.vaab` inside it.
+/// Creates `name/` with `riff`, `main.vaab`, and an empty lockfile slot.
 pub fn create(name: &str) -> Result<PathBuf, String> {
     validate_name(name)?;
     let directory = PathBuf::from(name);
@@ -24,6 +25,12 @@ pub fn create(name: &str) -> Result<PathBuf, String> {
     fs::create_dir(&directory).map_err(|error| {
         format!("could not create `{}`: {error}", directory.display())
     })?;
+
+    let manifest = riff::manifest_for_new(name);
+    fs::write(directory.join("riff"), manifest.to_string()).map_err(|error| {
+        format!("could not write riff file: {error}")
+    })?;
+
     let main = directory.join("main.vaab");
     fs::write(&main, MAIN).map_err(|error| {
         format!("could not write `{}`: {error}", main.display())
@@ -44,6 +51,8 @@ fn validate_name(name: &str) -> Result<(), String> {
     if Path::new(name).is_absolute() {
         return Err("a project name has to be a simple name, not a full path".to_string());
     }
+    Manifest::parse(&format!("riff {name} 0.1.0\n"))
+        .map_err(|error| format!("`{name}` is not a valid riff name: {error}"))?;
     Ok(())
 }
 
@@ -57,7 +66,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        format!("vaab-new-test-{prefix}-{stamp}")
+        format!("vaab_new_test_{prefix}_{stamp}")
     }
 
     #[test]
@@ -69,6 +78,7 @@ mod tests {
         let main = directory.join("main.vaab");
         assert!(main.is_file());
         assert_eq!(fs::read_to_string(&main).expect("should read main"), MAIN);
+        assert!(directory.join("riff").is_file());
         fs::remove_dir_all(&directory).expect("should clean up");
     }
 

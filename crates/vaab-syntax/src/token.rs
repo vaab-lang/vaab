@@ -57,6 +57,7 @@ pub enum TokenKind {
     Together,
     Select,
     Repeat,
+    Need,
 
     // ---- Soft keywords ------------------------------------------------------
     // Meaningful in one position; usable as a name everywhere else.
@@ -187,6 +188,7 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("together", TokenKind::Together),
     ("select", TokenKind::Select),
     ("repeat", TokenKind::Repeat),
+    ("need", TokenKind::Need),
     // Soft keywords.
     ("returns", TokenKind::Returns),
     ("fails", TokenKind::Fails),

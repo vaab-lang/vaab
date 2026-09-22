@@ -12,6 +12,7 @@ crossbeam-deque.workspace = true
 hex.workspace = true
 hmac.workspace = true
 indexmap.workspace = true
+redb.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

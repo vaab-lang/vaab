@@ -2,8 +2,8 @@
 
 use crate::ast::{
     AbilityDecl, AssignStmt, ChoiceDecl, Expr, ExprKind, Field, ForEachStmt, FunctionBody,
-    FunctionDecl, LetStmt, Name, Parameter, RepeatStmt, SendStmt, Stmt, StmtKind, TypeDecl,
-    Variant, VariantField, WhileStmt,
+    FunctionDecl, LetStmt, Name, NeedImports, NeedSource, NeedStmt, Parameter, RepeatStmt,
+    SendStmt, Stmt, StmtKind, TypeDecl, Variant, VariantField, WhileStmt,
 };
 use crate::diagnostic::Diagnostic;
 use crate::span::Span;
@@ -42,6 +42,7 @@ impl<'src> Parser<'src> {
             Ability => StmtKind::Ability(Box::new(self.ability_declaration()?)),
             Serve => StmtKind::Serve(Box::new(self.serve_declaration()?)),
             Reply => StmtKind::Reply(self.reply_statement()?),
+            Need => StmtKind::Need(self.need_statement()?),
 
             // `to` at the start of a statement always defines a function. Elsewhere
             // it is the connector in `send ... to ...` and in `map of K to V`.
@@ -468,6 +469,62 @@ impl<'src> Parser<'src> {
         })?;
 
         Ok(AbilityDecl { name, functions, span: start.to(end) })
+    }
+
+    /// `need json from ada`, `need colours from ./vendor/colours of decode, Error`.
+    fn need_statement(&mut self) -> Parse<NeedStmt> {
+        let start = self.expect(TokenKind::Need, "the word `need`")?.span;
+        let name = self.name("the name of the riff to need")?;
+        self.expect(TokenKind::From, "the word `from`")?;
+        let source = self.need_source()?;
+
+        let imports = if self.eat(TokenKind::Of) {
+            let mut names = Vec::new();
+            loop {
+                names.push(self.name("a name to import from the riff")?);
+                if !self.eat(TokenKind::Comma) {
+                    break;
+                }
+            }
+            NeedImports::Of(names)
+        } else if self.eat(TokenKind::As) {
+            NeedImports::As(self.name("an alias for the riff")?)
+        } else {
+            NeedImports::Qualified
+        };
+
+        let end = self.previous_span();
+        Ok(NeedStmt { name, source, imports, span: start.to(end) })
+    }
+
+    fn need_source(&mut self) -> Parse<NeedSource> {
+        use TokenKind::*;
+        if self.check(Text) {
+            let token = self.advance();
+            return Ok(NeedSource::Path {
+                path: token.text(self.source).trim_matches('"').to_string(),
+                span: token.span,
+            });
+        }
+        if self.check(Dot) || self.check(DotDot) {
+            let start = self.current().span;
+            let path = self.path_literal()?;
+            return Ok(NeedSource::Path { path, span: start });
+        }
+        let owner = self.name("an owner, as in `need json from ada`")?;
+        Ok(NeedSource::Registry { owner })
+    }
+
+    fn path_literal(&mut self) -> Parse<String> {
+        use TokenKind::*;
+        let mut path = String::new();
+        while matches!(self.peek(), Dot | DotDot | Slash | Identifier) {
+            path.push_str(self.advance().text(self.source));
+        }
+        if path.is_empty() {
+            return Err(Failed);
+        }
+        Ok(path)
     }
 }
 

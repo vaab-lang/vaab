@@ -152,14 +152,18 @@ impl ImpureFinder<'_> {
             Some(Resolution::NewChannel) => Some(PureViolation::Effect("build a channel")),
             Some(Resolution::NewShared) => Some(PureViolation::Effect("build a `shared` value")),
             Some(Resolution::NewDb) => Some(PureViolation::Effect("connect to a database")),
+            Some(Resolution::NewStore) => Some(PureViolation::Effect("open a store")),
             Some(Resolution::BuiltinMethod("env_get" | "env_required")) => {
                 Some(PureViolation::Effect("read the environment"))
             }
-            Some(Resolution::BuiltinMethod("http_get" | "http_post")) => {
+            Some(Resolution::BuiltinMethod("http_get" | "http_post" | "http_send")) => {
                 Some(PureViolation::Effect("make an HTTP request"))
             }
             Some(Resolution::BuiltinMethod("execute" | "query")) => {
                 Some(PureViolation::Effect("talk to a database"))
+            }
+            Some(Resolution::BuiltinMethod("store_get" | "store_set" | "store_remove" | "store_keys")) => {
+                Some(PureViolation::Effect("talk to a store"))
             }
             Some(Resolution::RequestWho) => Some(PureViolation::Effect("read who the caller is")),
             Some(Resolution::Function(id)) => self.impure_declared(*id),

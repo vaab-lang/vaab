@@ -113,6 +113,7 @@ pub(super) fn statement(node: &Stmt, visitor: &mut impl Visit) {
             vaab_syntax::ast::ReplyKind::Explain(value) => expression(value, visitor),
         },
         StmtKind::Expr(inner) => expression(inner, visitor),
+        StmtKind::Need(_) => {}
     }
 }
 

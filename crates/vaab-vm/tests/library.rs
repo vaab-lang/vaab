@@ -173,6 +173,58 @@ fn to_json_turns_a_map_into_text() {
 }
 
 #[test]
+fn store_round_trips_text_by_key() {
+    let path = std::env::temp_dir().join("vaab-store-test.kv");
+    let _ = std::fs::remove_file(&path);
+    let path = path.display();
+    let source = format!(
+        "choice StoreError {{ Failed(message: Text) }}\n\
+         match Store.open(\"{path}\") {{\n\
+         when success store then {{\n\
+             match store.set(\"greeting\", \"hello\") {{\n\
+             when success _ then match store.get(\"greeting\") {{\n\
+                 when found value then print(value)\n\
+                 when nothing then print(\"missing\")\n\
+             }}\n\
+             when failure _ then print(\"set failed\")\n\
+             }}\n\
+         }}\n\
+         when failure _ then print(\"open failed\")\n\
+         }}\n"
+    );
+    assert_eq!(printed(&source), "hello");
+}
+
+#[test]
+fn store_keys_lists_every_key_with_a_prefix() {
+    let path = std::env::temp_dir().join("vaab-store-keys-test.kv");
+    let _ = std::fs::remove_file(&path);
+    let path = path.display();
+    let source = format!(
+        "choice StoreError {{ Failed(message: Text) }}\n\
+         match Store.open(\"{path}\") {{\n\
+         when success store then {{\n\
+             match store.set(\"a:1\", \"one\") {{\n\
+             when success _ then match store.set(\"a:2\", \"two\") {{\n\
+             when success _ then match store.set(\"b:1\", \"three\") {{\n\
+             when success _ then match store.keys(\"a:\") {{\n\
+                 when success keys then print(keys.join(\",\"))\n\
+                 when failure _ then print(\"keys failed\")\n\
+             }}\n\
+             when failure _ then print(\"set failed\")\n\
+             }}\n\
+             when failure _ then print(\"set failed\")\n\
+             }}\n\
+             when failure _ then print(\"set failed\")\n\
+             }}\n\
+         }}\n\
+         when failure _ then print(\"open failed\")\n\
+         }}\n"
+    );
+    assert_eq!(printed(&source), "a:1,a:2");
+}
+
+#[test]
 fn read_file_returns_the_contents_of_a_file() {
     let path = std::env::temp_dir().join("vaab-read-file-test.txt");
     std::fs::write(&path, "hello from disk").expect("write temp file");

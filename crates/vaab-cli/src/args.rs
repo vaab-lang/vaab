@@ -21,6 +21,8 @@ pub enum Command {
     Serve { path: PathBuf },
     Repl,
     New { name: String },
+    Gather { path: Option<PathBuf> },
+    Need { words: Vec<String> },
     Help,
     Version,
 }
@@ -63,6 +65,13 @@ impl Args {
             Some("serve") => Command::Serve { path: expect_file(&mut words, "serve")? },
             Some("repl") => Command::Repl,
             Some("new") => Command::New { name: expect_name(&mut words, "new")? },
+            Some("gather") => Command::Gather {
+                path: words.next().map(PathBuf::from),
+            },
+            Some("need") => {
+                let rest: Vec<String> = words.map(|word| word.to_string_lossy().into_owned()).collect();
+                return Ok(Args { command: Command::Need { words: rest }, color });
+            }
             Some("help") => Command::Help,
             Some("version") => Command::Version,
 

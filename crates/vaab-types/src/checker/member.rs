@@ -33,6 +33,7 @@ pub(super) enum Handle {
     Channel,
     Shared,
     Db,
+    Store,
 }
 
 /// How a particular callable's arguments are matched up. Constructors, ordinary
@@ -172,6 +173,9 @@ impl Checker {
                 if written.text == "Db" && name.text == "connect" {
                     return Member::Handle(Handle::Db);
                 }
+                if written.text == "Store" && name.text == "open" {
+                    return Member::Handle(Handle::Store);
+                }
             }
         }
 
@@ -223,12 +227,25 @@ impl Checker {
                         resolution: Resolution::BuiltinMethod("http_post"),
                         shape: CallShape::function("http.post", None),
                     },
+                    "send" => Member::Callable {
+                        signature: Signature::new(
+                            vec![
+                                Parameter::new("method", Type::Text),
+                                Parameter::new("url", Type::Text),
+                                Parameter::new("body", Type::Text),
+                                Parameter::new("headers", Type::map(Type::Text, Type::Text)),
+                            ],
+                            Type::fallible(Type::Text, Type::named("HttpError")),
+                        ),
+                        resolution: Resolution::BuiltinMethod("http_send"),
+                        shape: CallShape::function("http.send", None),
+                    },
                     _ => {
                         self.report(messages::unknown_member(
                             &Type::named("Http"),
                             &name.text,
                             name.span,
-                            &["get".into(), "post".into()],
+                            &["get".into(), "post".into(), "send".into()],
                         ));
                         Member::Unknown
                     }
@@ -371,6 +388,7 @@ impl Checker {
             Type::Named(owner) => self.named_member(owner, &found, name),
             Type::Ability(ability) => self.ability_member(ability, &found, name),
             Type::Db => self.builtin_member(&found, name, target),
+            Type::Store => self.store_member(name, target),
             _ => self.builtin_member(&found, name, target),
         }
     }
@@ -452,6 +470,63 @@ impl Checker {
             signature: required.signature.clone(),
             resolution: Resolution::AbilityMethod { ability: id, function: slot },
             shape: CallShape::function(format!("{ability}.{}", name.text), Some(at)),
+        }
+    }
+
+    /// Methods on an open `Store`. These use their own resolution names so they
+    /// never collide with `.get` on a map.
+    fn store_member(&mut self, name: &Name, _target: Span) -> Member {
+        match name.text.as_str() {
+            "get" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("key", Type::Text)],
+                    Type::maybe(Type::Text),
+                ),
+                resolution: Resolution::BuiltinMethod("store_get"),
+                shape: CallShape::function("store.get", None),
+            },
+            "set" => Member::Callable {
+                signature: Signature::new(
+                    vec![
+                        Parameter::new("key", Type::Text),
+                        Parameter::new("value", Type::Text),
+                    ],
+                    Type::fallible(Type::Int, Type::named("StoreError")),
+                ),
+                resolution: Resolution::BuiltinMethod("store_set"),
+                shape: CallShape::function("store.set", None),
+            },
+            "remove" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("key", Type::Text)],
+                    Type::fallible(Type::Int, Type::named("StoreError")),
+                ),
+                resolution: Resolution::BuiltinMethod("store_remove"),
+                shape: CallShape::function("store.remove", None),
+            },
+            "keys" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("prefix", Type::Text)],
+                    Type::fallible(Type::list(Type::Text), Type::named("StoreError")),
+                ),
+                resolution: Resolution::BuiltinMethod("store_keys"),
+                shape: CallShape::function("store.keys", None),
+            },
+            _ => {
+                let known = vec![
+                    "get".into(),
+                    "set".into(),
+                    "remove".into(),
+                    "keys".into(),
+                ];
+                self.report(messages::unknown_member(
+                    &Type::Store,
+                    &name.text,
+                    name.span,
+                    &known,
+                ));
+                Member::Unknown
+            }
         }
     }
 

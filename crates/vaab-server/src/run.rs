@@ -11,7 +11,7 @@ use indexmap::IndexMap;
 use tokio::net::TcpListener;
 use vaab_syntax::Module;
 use vaab_types::Checked;
-use vaab_vm::app_io::Databases;
+use vaab_vm::app_io::{Databases, Stores};
 use vaab_vm::bytecode::Program;
 use vaab_vm::concurrency::Host;
 use vaab_vm::machine::{Budget, HttpResponse, Machine, Output, Step, World};
@@ -41,6 +41,7 @@ pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Re
     let state = Arc::new(ServerState {
         program,
         databases: Databases::shared(),
+        stores: Stores::shared(),
     });
 
     loop {
@@ -59,6 +60,7 @@ pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Re
 struct ServerState {
     program: Ref<Program>,
     databases: Arc<Databases>,
+    stores: Arc<Stores>,
 }
 
 async fn handle(
@@ -120,10 +122,11 @@ fn run_route(
     headers: IndexMap<Key, Value>,
     params: Vec<String>,
 ) -> HttpResponse {
-    let mut world = World::with_databases(
+    let mut world = World::with_app_io(
         Ref::clone(&state.program),
         Output::collected(),
         Arc::clone(&state.databases),
+        Arc::clone(&state.stores),
     );
     world.response = None;
 

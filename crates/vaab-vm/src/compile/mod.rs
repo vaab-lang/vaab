@@ -553,6 +553,10 @@ impl<'a> Compiler<'a> {
         self.variant_layout("DbError", "Failed")
     }
 
+    pub(crate) fn store_error_failed(&self) -> u32 {
+        self.variant_layout("StoreError", "Failed")
+    }
+
     pub(crate) fn http_error_failed(&self) -> u32 {
         self.variant_layout("HttpError", "Failed")
     }

@@ -373,6 +373,14 @@ impl<'a> Compiler<'a> {
                 }
                 self.emit(Op::DbConnect(self.db_error_failed()), span);
             }
+            Some(Resolution::NewStore) => {
+                if let Some(argument) = arguments.first() {
+                    self.expression(&argument.value);
+                } else {
+                    self.emit(Op::Nothing, span);
+                }
+                self.emit(Op::StoreOpen(self.store_error_failed()), span);
+            }
 
             // Anything else is a value that holds a function: a parameter typed
             // `to(Int) returns Int`, a field, a local given a closure.
@@ -525,6 +533,10 @@ impl<'a> Compiler<'a> {
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 return self.emit(Op::HttpPost(self.http_error_failed()), span);
             }
+            "http_send" => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::HttpSend(self.http_error_failed()), span);
+            }
             "execute" => {
                 self.receiver(target, span);
                 let _ = self.push_arguments(call, arguments, Defaults::None);
@@ -534,6 +546,26 @@ impl<'a> Compiler<'a> {
                 self.receiver(target, span);
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 return self.emit(Op::DbQuery(self.db_error_failed()), span);
+            }
+            "store_get" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::StoreGet, span);
+            }
+            "store_set" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::StoreSet(self.store_error_failed()), span);
+            }
+            "store_remove" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::StoreRemove(self.store_error_failed()), span);
+            }
+            "store_keys" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::StoreKeys(self.store_error_failed()), span);
             }
             _ => {}
         }

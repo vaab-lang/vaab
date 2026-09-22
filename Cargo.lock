@@ -700,6 +700,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "redb"
+version = "2.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eca1e9d98d5a7e9002d0013e18d5a9b000aee942eb134883a82f06ebffb6c01"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1059,10 +1068,19 @@ name = "vaab-cli"
 version = "0.1.0"
 dependencies = [
  "tokio",
+ "vaab-riff",
  "vaab-server",
  "vaab-syntax",
  "vaab-types",
  "vaab-vm",
+]
+
+[[package]]
+name = "vaab-riff"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "vaab-syntax",
 ]
 
 [[package]]
@@ -1106,6 +1124,7 @@ dependencies = [
  "hmac",
  "indexmap",
  "insta",
+ "redb",
  "rusqlite",
  "serde_json",
  "sha2",

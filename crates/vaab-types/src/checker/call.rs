@@ -207,6 +207,18 @@ impl Checker {
                 }
                 Type::fallible(Type::Db, Type::named("DbError"))
             }
+
+            Handle::Store => {
+                self.resolve_to(callee.id, Resolution::NewStore);
+                for (position, argument) in arguments.iter().enumerate() {
+                    self.expression(&argument.value, Wanted::Exactly(Type::Text));
+                    sources.push(ArgumentSource::Given(position));
+                }
+                if arguments.is_empty() {
+                    self.report(messages::missing_argument("Store.open", "path", call.span, None));
+                }
+                Type::fallible(Type::Store, Type::named("StoreError"))
+            }
         };
 
         self.checked.calls.insert(call.id, Call { arguments: sources });

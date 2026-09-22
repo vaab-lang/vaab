@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use vaab_syntax::span::Span;
 
-use crate::app_io::Databases;
+use crate::app_io::{Databases, Stores};
 use crate::builtin::{self, Builtin};
 use crate::bytecode::{Capture, Op, Program, SelectArm};
 use crate::concurrency::{OpResult, SelectStep, WaitSite};
@@ -89,22 +89,27 @@ pub struct World {
     pub response: Option<HttpResponse>,
     /// SQLite connections opened by `Db.connect`, shared across request machines.
     pub databases: Arc<Databases>,
+    /// Embedded KV stores opened by `Store.open`, shared across request machines.
+    pub stores: Arc<Stores>,
 }
 
 impl World {
     pub fn new(program: Ref<Program>, output: Output) -> World {
-        Self::with_databases(program, output, Databases::shared())
+        Self::with_app_io(program, output, Databases::shared(), Stores::shared())
     }
 
     pub fn with_databases(program: Ref<Program>, output: Output, databases: Arc<Databases>) -> World {
+        Self::with_app_io(program, output, databases, Stores::shared())
+    }
+
+    pub fn with_app_io(
+        program: Ref<Program>,
+        output: Output,
+        databases: Arc<Databases>,
+        stores: Arc<Stores>,
+    ) -> World {
         let globals = vec![Value::Nothing; program.globals];
-        World {
-            program,
-            globals,
-            output,
-            response: None,
-            databases,
-        }
+        World { program, globals, output, response: None, databases, stores }
     }
 
     /// Takes a freshly compiled program, keeping the values the session already
@@ -961,6 +966,103 @@ impl Machine {
                     }
                 }
             }
+            Op::StoreOpen(layout) => {
+                let path = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("Store.open expected a path")),
+                };
+                match world.stores.open(&path) {
+                    Ok(handle) => self.stack.push(Value::success(Value::Store(handle))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("Store.open named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::StoreGet => {
+                let key = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("store.get expected a key")),
+                };
+                let handle = match self.pop()? {
+                    Value::Store(handle) => handle,
+                    _ => return Err(Fault::Confused("store.get expected a store")),
+                };
+                match world.stores.get(handle, &key) {
+                    Ok(value) => self.stack.push(value),
+                    Err(_) => return Err(Fault::Confused("store.get could not read")),
+                }
+            }
+            Op::StoreSet(layout) => {
+                let value = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("store.set expected a value")),
+                };
+                let key = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("store.set expected a key")),
+                };
+                let handle = match self.pop()? {
+                    Value::Store(handle) => handle,
+                    _ => return Err(Fault::Confused("store.set expected a store")),
+                };
+                match world.stores.set(handle, &key, &value) {
+                    Ok(()) => self.stack.push(Value::success(Value::Int(1))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("store.set named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::StoreRemove(layout) => {
+                let key = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("store.remove expected a key")),
+                };
+                let handle = match self.pop()? {
+                    Value::Store(handle) => handle,
+                    _ => return Err(Fault::Confused("store.remove expected a store")),
+                };
+                match world.stores.remove(handle, &key) {
+                    Ok(removed) => {
+                        let count = if removed { 1 } else { 0 };
+                        self.stack.push(Value::success(Value::Int(count)));
+                    }
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("store.remove named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::StoreKeys(layout) => {
+                let prefix = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("store.keys expected a prefix")),
+                };
+                let handle = match self.pop()? {
+                    Value::Store(handle) => handle,
+                    _ => return Err(Fault::Confused("store.keys expected a store")),
+                };
+                match world.stores.keys(handle, &prefix) {
+                    Ok(keys) => {
+                        self.stack.push(Value::success(Value::list(
+                            keys.into_iter().map(Value::text).collect(),
+                        )))
+                    }
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("store.keys named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
             Op::HttpGet(layout) => {
                 let url = match self.pop()? {
                     Value::Text(text) => text.to_string(),
@@ -990,6 +1092,31 @@ impl Machine {
                     Err(message) => {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("http.post named a variant that is not there"),
+                        )?;
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::HttpSend(layout) => {
+                let headers_value = self.pop()?;
+                let headers = crate::app_io::headers_from_value(&headers_value)?;
+                let body = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("http.send expected a body")),
+                };
+                let url = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("http.send expected a url")),
+                };
+                let method = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("http.send expected a method")),
+                };
+                match crate::app_io::http_send(&method, &url, &body, &headers) {
+                    Ok(response) => self.stack.push(Value::success(Value::text(response))),
+                    Err(message) => {
+                        let layout = program.variants.get(layout as usize).cloned().ok_or(
+                            Fault::Confused("http.send named a variant that is not there"),
                         )?;
                         self.stack.push(crate::app_io::failure_message(layout, message));
                     }

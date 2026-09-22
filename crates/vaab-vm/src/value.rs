@@ -65,6 +65,8 @@ pub enum Value {
     Task(usize),
     /// An open SQLite connection living in [`crate::machine::World::databases`].
     Db(u32),
+    /// An open embedded KV store living in [`crate::machine::World::stores`].
+    Store(u32),
 }
 
 /// A local that more than one frame can see.
@@ -257,6 +259,7 @@ impl Value {
             Value::Shared(held) => format!("shared {}", held.get().quoted()),
             Value::Task(id) => format!("task {id}"),
             Value::Db(handle) => format!("db {handle}"),
+            Value::Store(handle) => format!("store {handle}"),
         }
     }
 }
@@ -347,6 +350,7 @@ fn compare(left: &Value, right: &Value, floats: Floats) -> bool {
         (Value::Shared(left), Value::Shared(right)) => Ref::ptr_eq(left, right),
         (Value::Task(left), Value::Task(right)) => left == right,
         (Value::Db(left), Value::Db(right)) => left == right,
+        (Value::Store(left), Value::Store(right)) => left == right,
         _ => false,
     }
 }
@@ -423,6 +427,7 @@ fn hash_value<H: Hasher>(value: &Value, state: &mut H) {
         Value::Shared(held) => hash_value(&held.get(), state),
         Value::Task(id) => id.hash(state),
         Value::Db(id) => id.hash(state),
+        Value::Store(id) => id.hash(state),
     }
 }
 

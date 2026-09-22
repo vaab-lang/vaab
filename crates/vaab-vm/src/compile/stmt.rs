@@ -87,6 +87,8 @@ impl<'a> Compiler<'a> {
                 self.expression(expression);
                 self.emit(Op::Pop, span);
             }
+
+            StmtKind::Need(_) => {}
         }
     }
 

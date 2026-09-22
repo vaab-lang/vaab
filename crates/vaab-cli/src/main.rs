@@ -8,11 +8,12 @@
 mod args;
 mod new;
 mod repl;
+mod riff;
 
 use std::path::Path;
 use std::process::ExitCode;
 
-use vaab_syntax::{diagnostic, ColorChoice};
+use vaab_syntax::{diagnostic, ast::StmtKind, ColorChoice};
 use vaab_vm::{error, Output};
 
 use args::{Args, Command};
@@ -61,6 +62,8 @@ fn run(args: Args) -> ExitCode {
             exit::OK
         }
         Command::New { name } => new_project(&name),
+        Command::Gather { path } => gather_project(path.as_deref()),
+        Command::Need { words } => add_need(&words),
     }
 }
 
@@ -88,13 +91,12 @@ fn check_file(path: &Path, color: ColorChoice) -> ExitCode {
     let Some(source) = read(path) else { return exit::misuse() };
 
     let name = path.display().to_string();
-    let parsed = vaab_syntax::parse(&source);
+    let module = match load_module(path, &source, &name, color) {
+        Ok(module) => module,
+        Err(code) => return code,
+    };
 
-    if parsed.has_errors() {
-        return report(&parsed.diagnostics, &name, &source, color);
-    }
-
-    match vaab_types::check(&parsed.module) {
+    match vaab_types::check(&module) {
         Ok(_) => {
             println!("{name} checks out.");
             exit::OK
@@ -108,19 +110,18 @@ fn serve_file(path: &Path, color: ColorChoice) -> ExitCode {
     let Some(source) = read(path) else { return exit::misuse() };
 
     let name = path.display().to_string();
-    let parsed = vaab_syntax::parse(&source);
+    let module = match load_module(path, &source, &name, color) {
+        Ok(module) => module,
+        Err(code) => return code,
+    };
 
-    if parsed.has_errors() {
-        return report(&parsed.diagnostics, &name, &source, color);
-    }
-
-    let checked = match vaab_types::check(&parsed.module) {
+    let checked = match vaab_types::check(&module) {
         Ok(checked) => checked,
         Err(problems) => return report(&problems, &name, &source, color),
     };
 
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
-    match runtime.block_on(vaab_server::serve_file(&source, &parsed.module, &checked)) {
+    match runtime.block_on(vaab_server::serve_file(&source, &module, &checked)) {
         Ok(()) => exit::OK,
         Err(message) => {
             eprintln!("vaab: {message}");
@@ -138,18 +139,17 @@ fn run_file(path: &Path, color: ColorChoice) -> ExitCode {
     let Some(source) = read(path) else { return exit::misuse() };
 
     let name = path.display().to_string();
-    let parsed = vaab_syntax::parse(&source);
+    let module = match load_module(path, &source, &name, color) {
+        Ok(module) => module,
+        Err(code) => return code,
+    };
 
-    if parsed.has_errors() {
-        return report(&parsed.diagnostics, &name, &source, color);
-    }
-
-    let checked = match vaab_types::check(&parsed.module) {
+    let checked = match vaab_types::check(&module) {
         Ok(checked) => checked,
         Err(problems) => return report(&problems, &name, &source, color),
     };
 
-    let mut world = vaab_vm::prepare(&parsed.module, &checked, Output::Terminal);
+    let mut world = vaab_vm::prepare(&module, &checked, Output::Terminal);
     match vaab_vm::run(&mut world) {
         Ok(_) => exit::OK,
         Err(problem) => {
@@ -165,16 +165,68 @@ fn new_project(name: &str) -> ExitCode {
     match new::create(name) {
         Ok(directory) => {
             println!("Created {}/", directory.display());
+            println!("  riff");
             println!("  main.vaab");
             println!();
             println!("Run it with:");
             println!("  vaab run {}/main.vaab", directory.display());
+            println!();
+            println!("Add a riff with:");
+            println!("  cd {} && vaab need json from ada", directory.display());
             exit::OK
         }
         Err(message) => {
             eprintln!("vaab: {message}");
             exit::misuse()
         }
+    }
+}
+
+fn gather_project(path: Option<&Path>) -> ExitCode {
+    match riff::gather_project(path) {
+        Ok(()) => exit::OK,
+        Err(message) => {
+            eprintln!("vaab: {message}");
+            exit::misuse()
+        }
+    }
+}
+
+fn add_need(words: &[String]) -> ExitCode {
+    match riff::add_need(words) {
+        Ok(()) => exit::OK,
+        Err(message) => {
+            eprintln!("vaab: {message}");
+            exit::misuse()
+        }
+    }
+}
+
+fn load_module(
+    path: &Path,
+    source: &str,
+    name: &str,
+    color: ColorChoice,
+) -> Result<vaab_syntax::ast::Module, ExitCode> {
+    let parsed = vaab_syntax::parse(source);
+    if parsed.has_errors() {
+        return Err(report(&parsed.diagnostics, name, source, color));
+    }
+    if parsed
+        .module
+        .statements
+        .iter()
+        .any(|statement| matches!(statement.kind, StmtKind::Need(_)))
+    {
+        match vaab_riff::link(path) {
+            Ok(linked) => Ok(linked.module),
+            Err(message) => {
+                eprintln!("vaab: {message}");
+                Err(exit::misuse())
+            }
+        }
+    } else {
+        Ok(parsed.module)
     }
 }
 
@@ -220,6 +272,8 @@ Commands:
   serve <file>   Check a file and start its HTTP server
   repl           Start an interactive session
   new <name>     Start a new project in a new directory
+  gather         Resolve riff dependencies into needed.lock
+  need ...       Add a riff dependency, as in `vaab need json from ada`
   help           Show this message
   version        Show the version
 

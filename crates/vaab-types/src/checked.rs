@@ -186,6 +186,8 @@ pub enum Resolution {
     NewShared,
     /// `Db.connect("sqlite:tasks.db")`.
     NewDb,
+    /// `Store.open("data/cache.kv")`.
+    NewStore,
     RequestField(usize),
     /// `request.who`: the signed bearer user, or AuthError.
     RequestWho,

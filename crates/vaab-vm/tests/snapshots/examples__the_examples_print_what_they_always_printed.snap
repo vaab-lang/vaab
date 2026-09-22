@@ -102,3 +102,7 @@ missing file is expected
 $ vaab run examples/14_web_server.vaab
 
 $ vaab run examples/15_first_class_app.vaab
+
+$ vaab run examples/16_store.vaab
+open failed: Database already open. Cannot acquire lock.
+done

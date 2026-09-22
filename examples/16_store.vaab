@@ -1,0 +1,99 @@
+# Embedded key-value store: Store.open, get, set, remove, keys.
+#
+# Run with:
+#   cargo run -p vaab-cli -- run examples/16_store.vaab
+
+choice StoreError {
+    Failed(message: Text)
+}
+
+to open_store() returns Store or fails StoreError {
+    match Store.open("cache.vaab.kv") {
+        when success store then { return success store }
+        when failure error then match error {
+            when Failed(message) then { return failure StoreError.Failed(message) }
+        }
+    }
+}
+
+to remember(store: Store, key: Text, value: Text) returns Int or fails StoreError {
+    match store.set(key, value) {
+        when success count then { return success count }
+        when failure error then match error {
+            when Failed(message) then { return failure StoreError.Failed(message) }
+        }
+    }
+}
+
+to forget(store: Store, key: Text) returns Int or fails StoreError {
+    match store.remove(key) {
+        when success count then { return success count }
+        when failure error then match error {
+            when Failed(message) then { return failure StoreError.Failed(message) }
+        }
+    }
+}
+
+to list_keys(store: Store, prefix: Text) returns list of Text or fails StoreError {
+    match store.keys(prefix) {
+        when success keys then { return success keys }
+        when failure error then match error {
+            when Failed(message) then { return failure StoreError.Failed(message) }
+        }
+    }
+}
+
+to demo() {
+    match open_store() {
+        when success store then {
+            match remember(store, "session:ada", "signed-in") {
+                when success _ then match remember(store, "session:grace", "signed-in") {
+                    when success _ then match remember(store, "counter", "2") {
+                        when success _ then {
+                            match store.get("session:ada") {
+                                when found value then print("ada is {value}")
+                                when nothing     then print("ada is unknown")
+                            }
+
+                            match store.get("missing") {
+                                when found value then print("unexpected {value}")
+                                when nothing     then print("missing is absent")
+                            }
+
+                            match list_keys(store, "session:") {
+                                when success keys then {
+                                    let joined = keys.join(", ")
+                                    print("sessions: {joined}")
+                                    match forget(store, "session:grace") {
+                                        when success removed then print("removed {removed}")
+                                        when failure error then match error {
+                                            when Failed(message) then print("remove failed: {message}")
+                                        }
+                                    }
+                                }
+                                when failure error then match error {
+                                    when Failed(message) then print("keys failed: {message}")
+                                }
+                            }
+                        }
+                        when failure error then match error {
+                            when Failed(message) then print("set failed: {message}")
+                        }
+                    }
+                    when failure error then match error {
+                        when Failed(message) then print("set failed: {message}")
+                    }
+                }
+                when failure error then match error {
+                    when Failed(message) then print("set failed: {message}")
+                }
+            }
+        }
+        when failure error then match error {
+            when Failed(message) then print("open failed: {message}")
+        }
+    }
+}
+
+demo()
+print("done")

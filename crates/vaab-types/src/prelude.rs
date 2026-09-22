@@ -289,6 +289,7 @@ pub fn same_shape(left: &Type, right: &Type) -> bool {
             | (Type::Shared(_), Type::Shared(_))
             | (Type::Channel(_), Type::Channel(_))
             | (Type::Db, Type::Db)
+            | (Type::Store, Type::Store)
             | (Type::Maybe(_), Type::Maybe(_)) => true,
         (left, right) => left == right,
     }
