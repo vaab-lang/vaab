@@ -38,6 +38,10 @@ fn match_path(pattern: &[RouteSegment], path: &str) -> Option<Vec<String>> {
                 params.push(rest[..end].to_string());
                 rest = &rest[end..];
             }
+            RouteSegment::CatchAll(_) => {
+                params.push(rest.trim_start_matches('/').to_string());
+                rest = "";
+            }
         }
     }
     if rest.is_empty() || rest == "/" {

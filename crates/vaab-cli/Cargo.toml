@@ -11,6 +11,10 @@ repository.workspace = true
 name = "vaab"
 path = "src/main.rs"
 
+[[bin]]
+name = "riff"
+path = "src/bin/riff.rs"
+
 [dependencies]
 vaab-syntax.workspace = true
 vaab-types.workspace = true

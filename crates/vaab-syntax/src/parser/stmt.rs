@@ -471,12 +471,15 @@ impl<'src> Parser<'src> {
         Ok(AbilityDecl { name, functions, span: start.to(end) })
     }
 
-    /// `need json from ada`, `need colours from ./vendor/colours of decode, Error`.
+    /// `need supabase`, `need json from ada`, `need colours from ./vendor/colours of decode`.
     fn need_statement(&mut self) -> Parse<NeedStmt> {
         let start = self.expect(TokenKind::Need, "the word `need`")?.span;
         let name = self.name("the name of the riff to need")?;
-        self.expect(TokenKind::From, "the word `from`")?;
-        let source = self.need_source()?;
+        let source = if self.eat(TokenKind::From) {
+            self.need_source()?
+        } else {
+            NeedSource::Installed
+        };
 
         let imports = if self.eat(TokenKind::Of) {
             let mut names = Vec::new();

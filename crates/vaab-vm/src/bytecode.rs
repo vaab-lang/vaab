@@ -166,6 +166,8 @@ pub enum Op {
     RequestWho { user: u32, unauthorized: u32 },
 
     ReplyWith(bool),
+    ReplyFile(bool),
+    ReplyText(bool),
     ReplyExplain,
 
     // -- Stopping ----------------------------------------------------------

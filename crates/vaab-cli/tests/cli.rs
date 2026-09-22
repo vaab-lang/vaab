@@ -206,7 +206,7 @@ fn new_writes_a_project_that_vaab_run_can_execute() {
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
     let parent = std::env::temp_dir().join(format!("vaab-cli-new-parent-{stamp}"));
-    let name = format!("demo-{stamp}");
+    let name = format!("demo_{stamp}");
     let directory = parent.join(&name);
     let _ = std::fs::remove_dir_all(&parent);
     std::fs::create_dir_all(&parent).expect("should create the parent directory");
@@ -234,7 +234,7 @@ fn new_refuses_to_overwrite_an_existing_directory() {
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
     let parent = std::env::temp_dir().join(format!("vaab-cli-new-exists-parent-{stamp}"));
-    let name = format!("taken-{stamp}");
+    let name = format!("taken_{stamp}");
     let directory = parent.join(&name);
     let _ = std::fs::remove_dir_all(&parent);
     std::fs::create_dir_all(&directory).expect("should create the directory");

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use vaab_syntax::ast::{Module, Name, NeedImports, NeedSource, NeedStmt, Stmt, StmtKind};
 use vaab_syntax::{parse, Span};
 
+use crate::install::installed_path;
 use crate::lock::Lockfile;
 use crate::manifest::Manifest;
 use crate::merge;
@@ -142,6 +143,7 @@ fn resolve_need_path(
         }
     }
     match &need.source {
+        NeedSource::Installed => installed_path(&name),
         NeedSource::Path { path, .. } => Ok(project_root.join(path)),
         NeedSource::Registry { owner } => Err(format!(
             "run `vaab gather` first — `{name}` from `{}` is not in needed.lock yet",

@@ -302,6 +302,29 @@ impl<'a> Compiler<'a> {
                     self.emit(Op::ReplyWith(false), span);
                 }
             }
+            ReplyKind::File { path, status } => {
+                self.expression(path);
+                if let Some(status) = status {
+                    self.expression(status);
+                    self.emit(Op::ReplyFile(true), span);
+                } else {
+                    self.emit(Op::ReplyFile(false), span);
+                }
+            }
+            ReplyKind::Text {
+                body,
+                content_type,
+                status,
+            } => {
+                self.expression(body);
+                self.expression(content_type);
+                if let Some(status) = status {
+                    self.expression(status);
+                    self.emit(Op::ReplyText(true), span);
+                } else {
+                    self.emit(Op::ReplyText(false), span);
+                }
+            }
             ReplyKind::Explain(value) => {
                 self.expression(value);
                 self.emit(Op::ReplyExplain, span);

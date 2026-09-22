@@ -14,9 +14,11 @@ pub struct Manifest {
     pub dependencies: Vec<Dependency>,
 }
 
-/// One line in the manifest: `need json from ada at 1` or `need colours from ./vendor/colours`.
+/// One line in the manifest: `need supabase`, `need json from ada at 1`, or `need colours from ./vendor/colours`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Dependency {
+    /// Installed with `riff install` into `~/.vaab/riffs`.
+    Installed { name: String },
     Registry { name: String, owner: String, range: Option<String> },
     Path { name: String, path: PathBuf },
 }
@@ -92,12 +94,15 @@ impl Manifest {
 impl Dependency {
     pub fn name(&self) -> &str {
         match self {
-            Dependency::Registry { name, .. } | Dependency::Path { name, .. } => name,
+            Dependency::Installed { name }
+            | Dependency::Registry { name, .. }
+            | Dependency::Path { name, .. } => name,
         }
     }
 
     fn to_string(&self) -> String {
         match self {
+            Dependency::Installed { name } => format!("need {name}"),
             Dependency::Registry { name, owner, range } => match range {
                 Some(range) => format!("need {name} from {owner} at {range}"),
                 None => format!("need {name} from {owner}"),
@@ -134,11 +139,15 @@ fn parse_need_line(rest: &str) -> Result<Dependency, String> {
     let mut words = rest.split_whitespace();
     let name = words
         .next()
-        .ok_or("a need line looks like `need json from ada`")?
+        .ok_or("a need line looks like `need supabase` or `need json from ada`")?
         .to_string();
-    let from = words.next().ok_or("a need line needs the word `from`")?;
+    let Some(from) = words.next() else {
+        return Ok(Dependency::Installed { name });
+    };
     if from != "from" {
-        return Err(format!("a need line needs the word `from`, not `{from}`"));
+        return Err(format!(
+            "a need line looks like `need {name}` or `need {name} from ada`, not `need {name} {from}`"
+        ));
     }
     let source = words
         .next()
@@ -203,12 +212,22 @@ description a demo
 by ada
 licence MIT
 needs vaab at 0.1
+need supabase
 need json from ada at 1
 need colours from ./vendor/colours
 ";
         let manifest = Manifest::parse(source).expect("should parse");
         assert_eq!(manifest.description.as_deref(), Some("a demo"));
-        assert_eq!(manifest.dependencies.len(), 2);
+        assert_eq!(manifest.dependencies.len(), 3);
         assert_eq!(manifest.to_string(), source);
+    }
+
+    #[test]
+    fn a_bare_need_line_means_installed() {
+        let manifest = Manifest::parse("riff app 0.1.0\nneed supabase\n").expect("should parse");
+        assert!(matches!(
+            manifest.dependencies.first(),
+            Some(Dependency::Installed { name }) if name == "supabase"
+        ));
     }
 }

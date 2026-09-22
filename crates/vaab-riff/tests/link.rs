@@ -1,9 +1,16 @@
 use std::path::PathBuf;
 
-use vaab_riff::{exports_of, gather, link};
+use vaab_riff::{exports_of, gather, install_from_path, link};
 
 #[test]
-fn path_riff_links_and_prefixes_exports() {
+fn installed_riff_links_and_prefixes_exports() {
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../vaab-riffs/supabase");
+    if !source.join("lib.vaab").is_file() {
+        return;
+    }
+
+    install_from_path("supabase", &source).expect("install should succeed");
+
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/riff_demo");
     gather(&root).expect("gather should succeed");
 

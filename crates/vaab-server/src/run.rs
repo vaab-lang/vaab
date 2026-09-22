@@ -17,7 +17,7 @@ use vaab_vm::concurrency::Host;
 use vaab_vm::machine::{Budget, HttpResponse, Machine, Output, Step, World};
 use vaab_vm::value::{Key, Ref, Value};
 
-use crate::router;
+use crate::{playground, router};
 
 pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Result<(), String> {
     let serve = checked
@@ -69,10 +69,28 @@ async fn handle(
 ) -> Result<Response<Full<Bytes>>, hyper::Error> {
     let method = request.method().as_str().to_string();
     if method.eq_ignore_ascii_case("OPTIONS") {
-        return Ok(cors_response(StatusCode::NO_CONTENT, Bytes::new()));
+        return Ok(cors_response(StatusCode::NO_CONTENT, "text/plain", Bytes::new()));
     }
 
     let path = request.uri().path().to_string();
+
+    if method.eq_ignore_ascii_case("POST") && path == "/api/run" {
+        let body_bytes = http_body_util::BodyExt::collect(request.into_body())
+            .await
+            .map(|collected| collected.to_bytes())
+            .unwrap_or_default();
+        let source = serde_json::from_slice::<serde_json::Value>(&body_bytes)
+            .ok()
+            .and_then(|value| value.get("source").and_then(|source| source.as_str()).map(str::to_string))
+            .unwrap_or_default();
+        let response = playground::run(&source);
+        return Ok(cors_response(
+            StatusCode::from_u16(response.status).unwrap_or(StatusCode::OK),
+            &response.content_type,
+            Bytes::from(response.body),
+        ));
+    }
+
     let mut headers = IndexMap::new();
     for (name, value) in request.headers() {
         if let Ok(text) = value.to_str() {
@@ -90,22 +108,20 @@ async fn handle(
             let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
             run_route(&state, route, &method, &path, body_text, headers, matched.params)
         }
-        None => HttpResponse {
-            status: 404,
-            body: "{\"error\":\"not found\"}".to_string(),
-        },
+        None => HttpResponse::json(404, "{\"error\":\"not found\"}".to_string()),
     };
 
     Ok(cors_response(
         StatusCode::from_u16(response.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+        &response.content_type,
         Bytes::from(response.body),
     ))
 }
 
-fn cors_response(status: StatusCode, body: Bytes) -> Response<Full<Bytes>> {
+fn cors_response(status: StatusCode, content_type: &str, body: Bytes) -> Response<Full<Bytes>> {
     Response::builder()
         .status(status)
-        .header("content-type", "application/json")
+        .header("content-type", content_type)
         .header("access-control-allow-origin", "*")
         .header("access-control-allow-headers", "authorization, content-type")
         .header("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
@@ -153,10 +169,7 @@ fn run_route(
             Some(layout) => match vaab_vm::json::decode_record(&body, layout) {
                 Ok(record) => record,
                 Err(_) => {
-                    return HttpResponse {
-                        status: 400,
-                        body: "{\"error\":\"invalid body\"}".to_string(),
-                    };
+                    return HttpResponse::json(400, "{\"error\":\"invalid body\"}".to_string());
                 }
             },
             None => Value::Text(Ref::from(body.as_str())),
@@ -170,7 +183,7 @@ fn run_route(
             if world.response.is_none() {
                 if let Value::Failure(held) = &value {
                     if let Ok(body) = vaab_vm::json::encode(held) {
-                        world.response = Some(HttpResponse { status: 400, body });
+                        world.response = Some(HttpResponse::json(400, body));
                     }
                 }
             }
@@ -179,8 +192,8 @@ fn run_route(
         Step::Failed(_) => {}
     }
 
-    world.response.unwrap_or(HttpResponse {
-        status: 500,
-        body: "{\"error\":\"route failed\"}".to_string(),
-    })
+    world.response.unwrap_or(HttpResponse::json(
+        500,
+        "{\"error\":\"route failed\"}".to_string(),
+    ))
 }

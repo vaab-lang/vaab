@@ -65,6 +65,23 @@ impl Checker {
                     self.expression(status, Wanted::Exactly(Type::Int));
                 }
             }
+            ReplyKind::File { path, status } => {
+                self.expression(path, Wanted::Exactly(Type::Text));
+                if let Some(status) = status {
+                    self.expression(status, Wanted::Exactly(Type::Int));
+                }
+            }
+            ReplyKind::Text {
+                body,
+                content_type,
+                status,
+            } => {
+                self.expression(body, Wanted::Exactly(Type::Text));
+                self.expression(content_type, Wanted::Exactly(Type::Text));
+                if let Some(status) = status {
+                    self.expression(status, Wanted::Exactly(Type::Int));
+                }
+            }
             ReplyKind::Explain(value) => {
                 self.expression(value, Wanted::Anything);
             }
@@ -104,6 +121,10 @@ impl Checker {
                         None => Type::Text,
                     };
                     path_params.push((name.text.clone(), param_type));
+                }
+                AstRouteSegment::CatchAll { name } => {
+                    path.push(RouteSegment::CatchAll(name.text.clone()));
+                    path_params.push((name.text.clone(), Type::Text));
                 }
             }
         }

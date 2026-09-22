@@ -48,6 +48,7 @@ pub mod builtin;
 pub mod bytecode;
 mod compile;
 pub mod json;
+mod static_files;
 pub mod concurrency;
 pub mod error;
 pub mod machine;

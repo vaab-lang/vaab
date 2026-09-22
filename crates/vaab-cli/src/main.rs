@@ -120,6 +120,17 @@ fn serve_file(path: &Path, color: ColorChoice) -> ExitCode {
         Err(problems) => return report(&problems, &name, &source, color),
     };
 
+    let entry = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if let Ok(project_root) = vaab_riff::find_project_root(&entry) {
+        if let Err(error) = std::env::set_current_dir(&project_root) {
+            eprintln!(
+                "vaab: could not use project directory `{}`: {error}",
+                project_root.display()
+            );
+            return exit::PROBLEMS;
+        }
+    }
+
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     match runtime.block_on(vaab_server::serve_file(&source, &module, &checked)) {
         Ok(()) => exit::OK,
@@ -172,7 +183,7 @@ fn new_project(name: &str) -> ExitCode {
             println!("  vaab run {}/main.vaab", directory.display());
             println!();
             println!("Add a riff with:");
-            println!("  cd {} && vaab need json from ada", directory.display());
+            println!("  riff install supabase && cd {} && vaab need supabase", directory.display());
             exit::OK
         }
         Err(message) => {
@@ -273,7 +284,7 @@ Commands:
   repl           Start an interactive session
   new <name>     Start a new project in a new directory
   gather         Resolve riff dependencies into needed.lock
-  need ...       Add a riff dependency, as in `vaab need json from ada`
+  need ...       Add a riff, as in `vaab need supabase`
   help           Show this message
   version        Show the version
 

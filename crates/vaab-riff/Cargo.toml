@@ -9,6 +9,8 @@ repository.workspace = true
 
 [dependencies]
 vaab-syntax = { path = "../vaab-syntax" }
+ureq.workspace = true
+directories = "5"
 
 [dev-dependencies]
 insta.workspace = true

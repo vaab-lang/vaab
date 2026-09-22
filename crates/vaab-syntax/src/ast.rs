@@ -119,6 +119,8 @@ pub struct NeedStmt {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NeedSource {
+    /// `need supabase` — resolved from `riff install` / `needed.lock`.
+    Installed,
     Registry { owner: Name },
     Path { path: String, span: Span },
 }
@@ -159,6 +161,8 @@ pub struct RouteDecl {
 pub enum RouteSegment {
     Literal(String),
     Param { name: Name, declared: Option<TypeExpr> },
+    /// `{*path}` — matches the rest of the path, including slashes.
+    CatchAll { name: Name },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -176,6 +180,14 @@ pub struct ReplyStmt {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReplyKind {
     With { value: Expr, status: Option<Expr> },
+    /// `reply file path` — serve a file from disk with a guessed content type.
+    File { path: Expr, status: Option<Expr> },
+    /// `reply text body as "text/html"` — raw body with an explicit content type.
+    Text {
+        body: Expr,
+        content_type: Expr,
+        status: Option<Expr>,
+    },
     Explain(Expr),
 }
 

@@ -3,11 +3,11 @@
 use std::collections::HashSet;
 
 use vaab_syntax::ast::{
-    AbilityDecl, ArmBody, Argument, AssignStmt, Block, ChoiceDecl, ElseBranch, Expr, ExprKind,
-    Field, ForEachStmt, FunctionBody, FunctionDecl, IfExpr, LetStmt, MapEntry, MatchArm, MatchExpr,
-    Module, Name, Parameter, Pattern, PatternKind, RepeatStmt, ReplyKind, ReplyStmt, SelectArm,
-    SelectExpr, SendStmt, Stmt, StmtKind, TextPart, TypeDecl, TypeExpr, TypeKind, Variant,
-    VariantField, WhileStmt,
+    AbilityDecl, ArmBody, Argument, AssignStmt, Block, ChoiceDecl, ElseBranch, ExpectingDecl, Expr,
+    ExprKind, Field, ForEachStmt, FunctionBody, FunctionDecl, IfExpr, LetStmt, MapEntry, MatchArm,
+    MatchExpr, Module, Name, Parameter, Pattern, PatternKind, RepeatStmt, ReplyKind, ReplyStmt,
+    RouteDecl, SelectArm, SelectExpr, SendStmt, ServeDecl, ServeErrorHandler, Stmt, StmtKind,
+    TextPart, TypeDecl, TypeExpr, TypeKind, Variant, VariantField, WhileStmt,
 };
 
 use crate::link::{exports_of, LoadedRiff};
@@ -120,10 +120,47 @@ fn map_stmt_kind(kind: StmtKind, mode: &Mode) -> StmtKind {
         StmtKind::Ability(declaration) => {
             StmtKind::Ability(Box::new(map_ability(*declaration, mode)))
         }
-        StmtKind::Serve(serve) => StmtKind::Serve(serve),
+        StmtKind::Serve(serve) => StmtKind::Serve(Box::new(map_serve(*serve, mode))),
         StmtKind::Reply(reply) => StmtKind::Reply(map_reply(reply, mode)),
         StmtKind::Expr(expression) => StmtKind::Expr(map_expr(expression, mode)),
         StmtKind::Need(_) => kind,
+    }
+}
+
+fn map_serve(serve: ServeDecl, mode: &Mode) -> ServeDecl {
+    ServeDecl {
+        port: map_expr(serve.port, mode),
+        before: serve.before.map(|block| map_block(block, mode)),
+        routes: serve
+            .routes
+            .into_iter()
+            .map(|route| map_route(route, mode))
+            .collect(),
+        error_handler: serve
+            .error_handler
+            .map(|handler| map_serve_error_handler(handler, mode)),
+        span: serve.span,
+    }
+}
+
+fn map_route(route: RouteDecl, mode: &Mode) -> RouteDecl {
+    RouteDecl {
+        method: route.method,
+        path: route.path,
+        expecting: route.expecting.map(|expecting| ExpectingDecl {
+            declared: map_type_expr(expecting.declared, mode),
+            binding: expecting.binding,
+        }),
+        body: map_block(route.body, mode),
+        span: route.span,
+    }
+}
+
+fn map_serve_error_handler(handler: ServeErrorHandler, mode: &Mode) -> ServeErrorHandler {
+    ServeErrorHandler {
+        error_type: map_type_expr(handler.error_type, mode),
+        binding: handler.binding,
+        body: map_block(handler.body, mode),
     }
 }
 
@@ -132,6 +169,19 @@ fn map_reply(reply: ReplyStmt, mode: &Mode) -> ReplyStmt {
         kind: match reply.kind {
             ReplyKind::With { value, status } => ReplyKind::With {
                 value: map_expr(value, mode),
+                status: status.map(|expression| map_expr(expression, mode)),
+            },
+            ReplyKind::File { path, status } => ReplyKind::File {
+                path: map_expr(path, mode),
+                status: status.map(|expression| map_expr(expression, mode)),
+            },
+            ReplyKind::Text {
+                body,
+                content_type,
+                status,
+            } => ReplyKind::Text {
+                body: map_expr(body, mode),
+                content_type: map_expr(content_type, mode),
                 status: status.map(|expression| map_expr(expression, mode)),
             },
             ReplyKind::Explain(value) => ReplyKind::Explain(map_expr(value, mode)),

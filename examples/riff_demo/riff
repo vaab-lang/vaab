@@ -1,4 +1,4 @@
 riff riff_demo 0.1.0
-description demo of path riffs
+description demo of installed riffs
 needs vaab at 0.1
-need supabase from "../../../vaab-riffs/supabase"
+need supabase

@@ -13,6 +13,7 @@ hyper-util = { workspace = true, features = ["server", "tokio", "http1"] }
 http-body-util.workspace = true
 indexmap.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
+serde_json.workspace = true
 vaab-syntax.workspace = true
 vaab-types.workspace = true
 vaab-vm.workspace = true

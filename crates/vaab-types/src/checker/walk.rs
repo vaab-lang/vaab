@@ -110,6 +110,23 @@ pub(super) fn statement(node: &Stmt, visitor: &mut impl Visit) {
                     expression(status, visitor);
                 }
             }
+            vaab_syntax::ast::ReplyKind::File { path, status } => {
+                expression(path, visitor);
+                if let Some(status) = status {
+                    expression(status, visitor);
+                }
+            }
+            vaab_syntax::ast::ReplyKind::Text {
+                body,
+                content_type,
+                status,
+            } => {
+                expression(body, visitor);
+                expression(content_type, visitor);
+                if let Some(status) = status {
+                    expression(status, visitor);
+                }
+            }
             vaab_syntax::ast::ReplyKind::Explain(value) => expression(value, visitor),
         },
         StmtKind::Expr(inner) => expression(inner, visitor),

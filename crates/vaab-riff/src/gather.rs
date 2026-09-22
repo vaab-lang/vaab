@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::install::installed_path;
 use crate::lock::{LockEntry, Lockfile};
 use crate::manifest::{Dependency, Manifest};
 
@@ -29,6 +30,10 @@ pub fn gather(project_root: &Path) -> Result<Lockfile, String> {
 
 fn resolve_dependency(project_root: &Path, dependency: &Dependency) -> Result<LockEntry, String> {
     match dependency {
+        Dependency::Installed { name } => {
+            let path = installed_path(name)?;
+            Ok(LockEntry::Path { name: name.clone(), path })
+        }
         Dependency::Path { name, path } => {
             let absolute = project_root.join(path);
             if !absolute.join("riff").is_file() {

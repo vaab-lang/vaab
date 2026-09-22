@@ -132,10 +132,34 @@ impl<'src> Parser<'src> {
                 None
             };
             ReplyKind::With { value, status }
+        } else if self.eat_identifier("file") {
+            let path = self.expression()?;
+            let status = if self.eat(TokenKind::Status) {
+                Some(self.expression()?)
+            } else {
+                None
+            };
+            ReplyKind::File { path, status }
+        } else if self.eat_identifier("text") {
+            let body = self.expression()?;
+            self.expect(TokenKind::As, "the word `as` after `reply text`")?;
+            let content_type = self.expression()?;
+            let status = if self.eat(TokenKind::Status) {
+                Some(self.expression()?)
+            } else {
+                None
+            };
+            ReplyKind::Text {
+                body,
+                content_type,
+                status,
+            }
         } else if self.eat(TokenKind::Explain) {
             ReplyKind::Explain(self.expression()?)
         } else {
-            return Err(self.unexpected("`reply with value` or `reply explain error`"));
+            return Err(self.unexpected(
+                "`reply with value`, `reply file path`, `reply text body as type`, or `reply explain error`",
+            ));
         };
         Ok(ReplyStmt { kind, span: start.to(self.previous_span()) })
     }
@@ -159,18 +183,24 @@ fn parse_route_path(text: &str, span: Span) -> Vec<RouteSegment> {
         if rest.starts_with('{') {
             let end = rest.find('}').map_or(rest.len(), |index| index);
             let inside = &rest[1..end];
-            let (name, declared) = if let Some((name, type_text)) = inside.split_once(':') {
-                (
-                    Name::new(name.trim(), span),
-                    Some(TypeExpr {
-                        kind: TypeKind::Named(Name::new(type_text.trim(), span)),
-                        span,
-                    }),
-                )
+            if let Some(star_name) = inside.strip_prefix('*') {
+                segments.push(RouteSegment::CatchAll {
+                    name: Name::new(star_name.trim(), span),
+                });
             } else {
-                (Name::new(inside.trim(), span), None)
-            };
-            segments.push(RouteSegment::Param { name, declared });
+                let (name, declared) = if let Some((name, type_text)) = inside.split_once(':') {
+                    (
+                        Name::new(name.trim(), span),
+                        Some(TypeExpr {
+                            kind: TypeKind::Named(Name::new(type_text.trim(), span)),
+                            span,
+                        }),
+                    )
+                } else {
+                    (Name::new(inside.trim(), span), None)
+                };
+                segments.push(RouteSegment::Param { name, declared });
+            }
             rest = &rest[end.saturating_add(1)..];
         } else {
             let end = rest.find('{').map_or(rest.len(), |index| index);
@@ -179,4 +209,16 @@ fn parse_route_path(text: &str, span: Span) -> Vec<RouteSegment> {
         }
     }
     segments
+}
+
+impl<'src> Parser<'src> {
+    fn eat_identifier(&mut self, word: &str) -> bool {
+        let token = self.current();
+        if token.kind == TokenKind::Identifier && token.text(self.source()) == word {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
 }

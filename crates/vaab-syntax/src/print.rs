@@ -129,6 +129,23 @@ impl Printer {
                         printer.node("status", |printer| printer.expression(status));
                     }
                 }),
+                ReplyKind::File { path, status } => self.node("reply file", |printer| {
+                    printer.expression(path);
+                    if let Some(status) = status {
+                        printer.node("status", |printer| printer.expression(status));
+                    }
+                }),
+                ReplyKind::Text {
+                    body,
+                    content_type,
+                    status,
+                } => self.node("reply text", |printer| {
+                    printer.expression(body);
+                    printer.node("as", |printer| printer.expression(content_type));
+                    if let Some(status) = status {
+                        printer.node("status", |printer| printer.expression(status));
+                    }
+                }),
                 ReplyKind::Explain(value) => {
                     self.node("reply explain", |printer| printer.expression(value))
                 }
@@ -136,6 +153,15 @@ impl Printer {
             StmtKind::Expr(expression) => self.expression(expression),
             StmtKind::Need(need) => self.node("need", |printer| {
                 printer.line(&format!("name {}", need.name.text));
+                match &need.source {
+                    crate::ast::NeedSource::Installed => printer.line("installed"),
+                    crate::ast::NeedSource::Registry { owner } => {
+                        printer.line(&format!("from {}", owner.text));
+                    }
+                    crate::ast::NeedSource::Path { path, .. } => {
+                        printer.line(&format!("from {path}"));
+                    }
+                }
             }),
         }
     }

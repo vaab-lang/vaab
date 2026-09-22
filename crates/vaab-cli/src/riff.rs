@@ -1,9 +1,11 @@
-//! `vaab gather` and `vaab need`.
+//! `vaab gather`, `vaab need`, and project riff helpers.
 
 use std::path::{Path, PathBuf};
 
-use vaab_riff::{add_dependency, gather, Dependency, Manifest, ProjectKind, default_project_manifest};
-use vaab_riff::find_project_root;
+use vaab_riff::{
+    add_dependency, ensure, gather, Dependency, Manifest, ProjectKind, default_project_manifest,
+    find_project_root,
+};
 
 pub fn gather_project(path: Option<&Path>) -> Result<(), String> {
     let root = project_root(path)?;
@@ -12,42 +14,56 @@ pub fn gather_project(path: Option<&Path>) -> Result<(), String> {
     Ok(())
 }
 
+/// `vaab need supabase` or `vaab need json from ada`.
 pub fn add_need(words: &[String]) -> Result<(), String> {
-    if words.len() < 4 {
+    if words.is_empty() {
         return Err(
-            "a need line looks like `vaab need json from ada` or `vaab need colours from ./vendor/colours`"
-                .to_string(),
+            "a need line looks like `vaab need supabase` or `vaab need json from ada`".to_string(),
         );
     }
-    let name = words[0].clone();
-    if words[1] != "from" {
-        return Err(format!("`vaab need {name}` needs the word `from` next"));
-    }
-    let source = words[2].clone();
-    let range = if words.get(3) == Some(&"at".to_string()) {
-        words.get(4).cloned()
-    } else {
-        None
-    };
 
     let root = project_root(None)?;
-    let dependency = if source.starts_with("./") || source.starts_with("../") || source.starts_with('/') {
-        Dependency::Path {
-            name,
-            path: PathBuf::from(source),
-        }
+    let dependency = if words.len() == 1 {
+        let name = words[0].clone();
+        ensure(&name)?;
+        Dependency::Installed { name }
     } else {
-        Dependency::Registry {
-            name,
-            owner: source,
-            range,
-        }
+        parse_explicit_need(words)?
     };
 
     add_dependency(&root, dependency)?;
     gather(&root)?;
     println!("Updated {}/riff and {}/needed.lock", root.display(), root.display());
     Ok(())
+}
+
+fn parse_explicit_need(words: &[String]) -> Result<Dependency, String> {
+    let name = words[0].clone();
+    if words.get(1).map(String::as_str) != Some("from") {
+        return Err(format!("`vaab need {name}` needs the word `from`, or omit it to use an installed riff"));
+    }
+    let source = words
+        .get(2)
+        .ok_or_else(|| format!("`vaab need {name} from ...` needs something after `from`"))?
+        .clone();
+    let range = if words.get(3) == Some(&"at".to_string()) {
+        words.get(4).cloned()
+    } else {
+        None
+    };
+
+    if source.starts_with("./") || source.starts_with("../") || source.starts_with('/') {
+        Ok(Dependency::Path {
+            name,
+            path: PathBuf::from(source),
+        })
+    } else {
+        Ok(Dependency::Registry {
+            name,
+            owner: source,
+            range,
+        })
+    }
 }
 
 fn project_root(path: Option<&Path>) -> Result<PathBuf, String> {

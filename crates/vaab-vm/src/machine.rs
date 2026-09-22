@@ -79,6 +79,17 @@ impl Output {
 pub struct HttpResponse {
     pub status: u16,
     pub body: String,
+    pub content_type: String,
+}
+
+impl HttpResponse {
+    pub fn json(status: u16, body: String) -> HttpResponse {
+        HttpResponse {
+            status,
+            body,
+            content_type: "application/json".to_string(),
+        }
+    }
 }
 
 pub struct World {
@@ -1157,12 +1168,54 @@ impl Machine {
                 };
                 let value = self.pop()?;
                 let body = crate::json::encode(&value)?;
-                world.response = Some(HttpResponse { status, body });
+                world.response = Some(HttpResponse::json(status, body));
+            }
+            Op::ReplyFile(has_status) => {
+                let status = if has_status {
+                    match self.pop()? {
+                        Value::Int(number) if number > 0 && number <= u16::MAX as i64 => {
+                            number as u16
+                        }
+                        _ => return Err(Fault::Confused("reply status must be a whole number")),
+                    }
+                } else {
+                    200
+                };
+                let path = match self.pop()? {
+                    Value::Text(path) => path.to_string(),
+                    _ => return Err(Fault::Confused("reply file expected a path")),
+                };
+                world.response = Some(crate::static_files::read_response(&path, status));
+            }
+            Op::ReplyText(has_status) => {
+                let status = if has_status {
+                    match self.pop()? {
+                        Value::Int(number) if number > 0 && number <= u16::MAX as i64 => {
+                            number as u16
+                        }
+                        _ => return Err(Fault::Confused("reply status must be a whole number")),
+                    }
+                } else {
+                    200
+                };
+                let content_type = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("reply text expected a content type")),
+                };
+                let body = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("reply text expected a body")),
+                };
+                world.response = Some(HttpResponse {
+                    status,
+                    body,
+                    content_type,
+                });
             }
             Op::ReplyExplain => {
                 let value = self.pop()?;
                 let body = crate::json::encode(&value)?;
-                world.response = Some(HttpResponse { status: 400, body });
+                world.response = Some(HttpResponse::json(400, body));
             }
 
             // -- Stopping --------------------------------------------------

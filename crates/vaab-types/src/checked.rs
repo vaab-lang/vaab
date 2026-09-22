@@ -91,6 +91,7 @@ pub struct Checked {
 pub enum RouteSegment {
     Literal(String),
     Param(String),
+    CatchAll(String),
 }
 
 #[derive(Clone, Debug)]

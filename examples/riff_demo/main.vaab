@@ -1,8 +1,15 @@
+# Demo: installed riffs.
+#
+#   riff install supabase
+#   cd examples/riff_demo
+#   vaab need supabase
+#   vaab run main.vaab
+
 choice HttpError {
     Failed(message: Text)
 }
 
-need supabase from "../../../vaab-riffs/supabase"
+need supabase
 
 to main() {
     let client = supabase.connect_with("https://example.supabase.co", "demo-key")
