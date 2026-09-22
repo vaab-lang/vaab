@@ -467,6 +467,20 @@ impl Loggers {
         Ok(self.get(handle)?.lines())
     }
 
+    /// Process-default logger: stderr, text, info, honouring `VAAB_LOG_*`.
+    pub fn process(&self) -> u32 {
+        static PROCESS: std::sync::OnceLock<std::sync::Mutex<Option<u32>>> =
+            std::sync::OnceLock::new();
+        let slot = PROCESS.get_or_init(|| std::sync::Mutex::new(None));
+        let mut guard = slot.lock().expect("process logger lock");
+        if let Some(handle) = *guard {
+            return handle;
+        }
+        let handle = self.push(server_logger());
+        *guard = Some(handle);
+        handle
+    }
+
     fn push(&self, logger: Logger) -> u32 {
         let mut loggers = self.loggers.lock().expect("loggers lock");
         let handle = loggers.len() as u32;

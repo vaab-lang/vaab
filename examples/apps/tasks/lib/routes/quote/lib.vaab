@@ -1,5 +1,5 @@
 cast QuoteRoute {
-    to self.pick(tick: Int) returns Text {
+    factory pick(tick: Int) returns Text {
         let n = tick % 8
         if n == 0 { return "Ship the serve block." }
         if n == 1 { return "Auth is request.who — not a package." }
@@ -11,10 +11,10 @@ cast QuoteRoute {
         return "Casts entertain routes — this is the product."
     }
 
-    to self.handle(who: User or fails AuthError) returns Quote or fails ApiError {
+    factory handle(who: User or fails AuthError) returns Quote or fails ApiError {
         let user = try Auth.require_user(who)
         let started = now()
         let text = QuoteRoute.pick(started)
-        return success Quote.new(text: text, source: "pool for {user.id}", ms: now() - started)
+        return Quote.new(text: text, source: "pool for {user.id}", ms: now() - started)
     }
 }

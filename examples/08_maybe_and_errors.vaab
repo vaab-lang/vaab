@@ -2,24 +2,22 @@
 #
 # A value that might be absent is `maybe T`, which is `found x` or `nothing`.
 # A result that might fail is `T or fails E`, which is `success x` or `failure e`.
-
-choice FileError {
-    NotFound(path: Text)
-}
+# `FileError` is built-in — no need to declare it.
 
 type Config {
     name: Text
 }
 
-to first_of(items: list of T) returns maybe T {
+first_of(items: [T]) returns maybe T {
     if items.is_empty { return nothing }
     return found items[0]
 }
 
 # `try` hands the failure straight back to the caller, so the happy path stays flat.
-to read_config(path: Text) returns Config or fails FileError {
-    let text = try read_file(path)
-    return success Config.new(name: text)
+# In a fallible function, `return x` means success; `fail e` means failure.
+read_config(path: Text) returns Config or fails FileError {
+    let text = try File.read(path)
+    return Config.new(name: text)
 }
 
 let ages = {"Ada": 36, "Alan": 41}

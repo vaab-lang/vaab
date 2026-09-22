@@ -103,6 +103,6 @@ fn an_ability_is_looked_up_on_the_value_rather_than_decided_in_advance() {
 #[test]
 fn read_file_compiles_to_a_read_instruction() {
     assert_snapshot!(listing(
-        "choice FileError { NotFound(path: Text) }\nprint(read_file(\"notes.txt\"))\n"
+        "print(read_file(\"notes.txt\"))\n"
     ));
 }

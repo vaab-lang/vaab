@@ -1,28 +1,28 @@
-type User can Json {
+type User {
     id: Text
     email: Text
 }
 
-type Task can Json {
+type Task {
     id: Text
     title: Text
     owner: Text
 }
 
-type OkResponse can Json {
+type OkResponse {
     ok: Bool
 }
 
-type HealthStatus can Json {
+type HealthStatus {
     status: Text
     database: Text
 }
 
-type NewTask can Json {
+type NewTask {
     title: Text
 }
 
-type Quote can Json {
+type Quote {
     text: Text
     source: Text
     ms: Int

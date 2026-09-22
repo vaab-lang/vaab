@@ -1,18 +1,5 @@
-choice EnvError {
-    Missing(name: Text)
-}
-
-choice DbError {
-    Failed(message: Text)
-}
-
-choice AuthError {
-    Unauthorized
-}
-
-choice HttpError {
-    Failed(message: Text)
-}
+# App-level errors. Stdlib errors (EnvError, DbError, AuthError, HttpError)
+# are built-in — only declare what is yours.
 
 choice ApiError {
     Unauthorized

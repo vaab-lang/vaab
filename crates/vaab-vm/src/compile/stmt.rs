@@ -7,10 +7,35 @@ use crate::value::Ref;
 
 use super::Builder;
 use vaab_syntax::span::Span;
-use vaab_types::Type;
+use vaab_types::{FrameKind, Type};
 
 use super::Compiler;
 use crate::bytecode::Op;
+
+impl<'a> Compiler<'a> {
+    /// In a fallible function, bare `return x` is success when `x` is the ok type.
+    pub(super) fn should_wrap_return_success(&self, value: &Expr) -> bool {
+        let Some(frame) = self.current_frame() else {
+            return false;
+        };
+        let Some(info) = self.checked.frame(frame) else {
+            return false;
+        };
+        let FrameKind::Function(id) = info.kind else {
+            return false;
+        };
+        let Some(function) = self.checked.function(id) else {
+            return false;
+        };
+        let Type::Fallible { .. } = &function.signature.returns else {
+            return false;
+        };
+        let Some(found) = self.checked.type_of(value.id) else {
+            return false;
+        };
+        !matches!(found, Type::Fallible { .. })
+    }
+}
 
 impl<'a> Compiler<'a> {
     pub(super) fn statement(&mut self, statement: &'a Stmt) {
@@ -42,9 +67,20 @@ impl<'a> Compiler<'a> {
 
             StmtKind::Return(value) => {
                 match value {
-                    Some(value) => self.expression(value),
+                    Some(value) => {
+                        self.expression(value);
+                        if self.should_wrap_return_success(value) {
+                            self.emit(Op::Success, span);
+                        }
+                    }
                     None => self.emit(Op::Nothing, span),
                 }
+                self.emit(Op::Return, span);
+            }
+
+            StmtKind::Fail(value) => {
+                self.expression(value);
+                self.emit(Op::Failure, span);
                 self.emit(Op::Return, span);
             }
 

@@ -2,8 +2,8 @@
 #
 #     vaab run examples/20_casts_in_practice.vaab
 #
-# `type` is immutable data. `cast` is a role with changing state.
-# Inheritance is `entertains`. Factories are `to self.method`.
+# Prefer `cast` for roles with changing state. `type` is frozen data.
+# Inheritance is `entertains`. Class methods are `factory name(...)`.
 
 # ---------------------------------------------------------------------------
 # Cart — mutable aggregate (qty by name)
@@ -18,27 +18,27 @@ cast Cart {
     changing count: Int = 0
     changing last: Text = ""
 
-    to add(name: Text) {
+    add(name: Text) {
         self.count = self.count + 1
         self.last = name
     }
 
-    to take_last() returns Text or fails CartError {
+    take_last() returns Text or fails CartError {
         if self.count <= 0 {
-            return failure CartError.Empty
+            fail CartError.Empty
         }
         self.count = self.count - 1
         let name = self.last
         self.last = ""
-        return success name
+        return name
     }
 
-    to clear() {
+    clear() {
         self.count = 0
         self.last = ""
     }
 
-    to self.empty() returns Cart {
+    factory empty() returns Cart {
         return Cart.new()
     }
 }
@@ -56,25 +56,25 @@ cast Session {
     changing user: Text = ""
     changing signed_in: Bool = no
 
-    to sign_in(name: Text) returns Session or fails SessionError {
+    sign_in(name: Text) returns Session or fails SessionError {
         if self.signed_in {
-            return failure SessionError.AlreadySignedIn
+            fail SessionError.AlreadySignedIn
         }
         self.user = name
         self.signed_in = yes
-        return success self
+        return self
     }
 
-    to sign_out() returns Session or fails SessionError {
+    sign_out() returns Session or fails SessionError {
         if not self.signed_in {
-            return failure SessionError.NotSignedIn
+            fail SessionError.NotSignedIn
         }
         self.user = ""
         self.signed_in = no
-        return success self
+        return self
     }
 
-    to who() returns Text {
+    who() returns Text {
         if self.signed_in {
             return self.user
         }
@@ -87,15 +87,15 @@ cast Session {
 # ---------------------------------------------------------------------------
 
 ability Drawable {
-    to label() returns Text
+    label() returns Text
 }
 
 cast Shape can Drawable {
     changing colour: Text = "black"
 
-    to label() returns Text = "shape in {self.colour}"
+    label() returns Text = "shape in {self.colour}"
 
-    to paint(colour: Text) {
+    paint(colour: Text) {
         self.colour = colour
     }
 }
@@ -103,9 +103,9 @@ cast Shape can Drawable {
 cast Circle entertains Shape {
     changing radius: Int
 
-    to label() returns Text = "circle r={self.radius} in {self.colour}"
+    label() returns Text = "circle r={self.radius} in {self.colour}"
 
-    to grow(by: Int) {
+    grow(by: Int) {
         self.radius = self.radius + by
     }
 }
@@ -113,7 +113,7 @@ cast Circle entertains Shape {
 cast Square entertains Shape {
     changing side: Int
 
-    to label() returns Text = "square {self.side}x{self.side} in {self.colour}"
+    label() returns Text = "square {self.side}x{self.side} in {self.colour}"
 }
 
 # ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ cast RateLimiter {
     changing remaining: Int
     changing window: Int
 
-    to allow() returns Bool {
+    allow() returns Bool {
         if self.remaining <= 0 {
             return no
         }
@@ -132,11 +132,11 @@ cast RateLimiter {
         return yes
     }
 
-    to reset() {
+    reset() {
         self.remaining = self.window
     }
 
-    to self.per_minute(limit: Int) returns RateLimiter {
+    factory per_minute(limit: Int) returns RateLimiter {
         return RateLimiter.new(remaining: limit, window: limit)
     }
 }

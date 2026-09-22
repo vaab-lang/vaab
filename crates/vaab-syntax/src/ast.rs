@@ -77,6 +77,8 @@ pub enum StmtKind {
     Assign(AssignStmt),
     /// `return`, or `return value`.
     Return(Option<Expr>),
+    /// `fail Error.Variant` — return a failure from a fallible function.
+    Fail(Expr),
     /// `for each item in items { ... }`
     ForEach(ForEachStmt),
     /// `while condition { ... }`
@@ -248,12 +250,12 @@ pub struct Block {
 // Declarations
 // ---------------------------------------------------------------------------
 
-/// `to name(params) returns T { ... }`.
+/// `name(params) returns T { ... }` (or the older `to name(...)` form).
 ///
 /// Also used for the signatures inside an `ability`, which have no body.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FunctionDecl {
-    /// `true` when written as `pure to f(...)`.
+    /// `true` when written as `pure name(...)`.
     pub pure: bool,
     pub name: Name,
     pub parameters: Vec<Parameter>,
@@ -262,7 +264,7 @@ pub struct FunctionDecl {
     pub returns: Option<TypeExpr>,
     /// `None` for an ability's required signature, which has no implementation.
     pub body: Option<FunctionBody>,
-    /// `true` for `to self.factory(...)`, a method on the cast itself.
+    /// `true` for `factory name(...)` (or the older `to self.name(...)`).
     pub class_method: bool,
     pub span: Span,
 }

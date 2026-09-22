@@ -214,6 +214,7 @@ impl Checker {
 
     fn check_module(&mut self, module: &Module) {
         self.register_builtin_abilities();
+        self.register_builtin_choices();
         self.collect_declarations(&module.statements);
         self.check_ability_promises(&module.statements);
 
@@ -290,6 +291,70 @@ impl Checker {
             span: Span::default(),
         });
         self.globals.insert(name.to_string(), Global::Ability(id));
+    }
+
+    /// Built-in error choices used by the stdlib (`Db.connect`, `read_file`, …).
+    ///
+    /// Programs may still declare their own errors; redeclaring one of these names
+    /// is a duplicate, same as two user choices with the same name.
+    fn register_builtin_choices(&mut self) {
+        self.register_builtin_choice(
+            "FileError",
+            &[("NotFound", &[("path", Type::Text)])],
+        );
+        self.register_builtin_choice(
+            "EnvError",
+            &[("Missing", &[("name", Type::Text)])],
+        );
+        self.register_builtin_choice(
+            "DbError",
+            &[("Failed", &[("message", Type::Text)])],
+        );
+        self.register_builtin_choice(
+            "StoreError",
+            &[("Failed", &[("message", Type::Text)])],
+        );
+        self.register_builtin_choice(
+            "LogError",
+            &[("Failed", &[("message", Type::Text)])],
+        );
+        self.register_builtin_choice(
+            "HttpError",
+            &[("Failed", &[("message", Type::Text)])],
+        );
+        self.register_builtin_choice("AuthError", &[("Unauthorized", &[])]);
+    }
+
+    fn register_builtin_choice(
+        &mut self,
+        name: &str,
+        variants: &[(&str, &[(&str, Type)])],
+    ) {
+        let id = ChoiceId(self.checked.choices.len() as u32);
+        let variants = variants
+            .iter()
+            .map(|(variant, fields)| Variant {
+                name: (*variant).to_string(),
+                fields: fields
+                    .iter()
+                    .map(|(field, declared)| Field {
+                        name: (*field).to_string(),
+                        declared: declared.clone(),
+                        has_default: false,
+                        span: Span::default(),
+                    })
+                    .collect(),
+                span: Span::default(),
+            })
+            .collect();
+        self.checked.choices.push(Choice {
+            name: name.to_string(),
+            variants,
+            declaration: NodeId(0),
+            span: Span::default(),
+        });
+        self.globals.insert(name.to_string(), Global::Choice(id));
+        self.global_spans.insert(name.to_string(), Span::default());
     }
 
     // -----------------------------------------------------------------------

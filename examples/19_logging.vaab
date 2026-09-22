@@ -2,32 +2,20 @@
 #
 # Run with: vaab serve examples/19_logging.vaab
 #
-# Destinations: Logger.stdout(), .stderr(), .file(path), .memory(), .multi([...])
-# Levels:      debug | info | warn | error   via set_level
-# Formats:     text  | json | pretty         via set_format
+# No setup needed: `log.info(...)` uses the process default (stderr, info, text).
+# Override with VAAB_LOG_LEVEL and VAAB_LOG_FORMAT.
 #
-# The HTTP server itself also logs every request (method, path, status, ms)
-# to stderr. Override with VAAB_LOG_LEVEL and VAAB_LOG_FORMAT.
-
-choice LogError {
-    Failed(message: Text)
-}
+# Destinations when you care: Logger.stdout(), .stderr(), .file(path), .memory(), .multi([...])
 
 choice ApiError {
     NotFound
 }
 
-let log = Logger.stderr()
-log.set_level("info")
-log.set_format("text")
 log.info("server starting")
 
 serve on port 8080 {
     before every request {
-        log.write("info", "incoming", {
-            "method": request.method,
-            "path": request.path,
-        })
+        log.info("incoming {request.method} {request.path}")
     }
 
     route get "/hello" {
@@ -38,9 +26,5 @@ serve on port 8080 {
     route get "/boom" {
         log.error("something went wrong on purpose")
         reply with "boom" status 500
-    }
-
-    when anything fails with ApiError as error {
-        reply explain(error)
     }
 }

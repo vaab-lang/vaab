@@ -25,6 +25,10 @@ impl<'src> Parser<'src> {
                     if self.at_statement_end() { None } else { Some(self.expression()?) };
                 StmtKind::Return(value)
             }
+            Fail => {
+                self.advance();
+                StmtKind::Fail(self.expression()?)
+            }
             For => StmtKind::ForEach(self.for_each_statement()?),
             While => StmtKind::While(self.while_statement()?),
             Repeat => StmtKind::Repeat(self.repeat_statement()?),
@@ -45,10 +49,8 @@ impl<'src> Parser<'src> {
             Reply => StmtKind::Reply(self.reply_statement()?),
             Need => StmtKind::Need(self.need_statement()?),
 
-            // `to` at the start of a statement always defines a function. Elsewhere
-            // it is the connector in `send ... to ...` and in `map of K to V`.
-            To => StmtKind::Function(Box::new(self.function_declaration(true)?)),
-            Pure if self.peek_at(1) == To => {
+            // A function: bare `name(...)`, optional legacy `to`, `pure`, or `factory`.
+            _ if self.looks_like_function_declaration() => {
                 StmtKind::Function(Box::new(self.function_declaration(true)?))
             }
 
@@ -159,19 +161,23 @@ impl<'src> Parser<'src> {
     // Declarations
     // -----------------------------------------------------------------------
 
-    /// `pure to name(a: Int, b: Text = "x") returns T or fails E { ... }`
+    /// `name(a: Int) returns T { ... }`, optional legacy `to`, `pure`, or `factory`.
     ///
     /// `with_body` is false inside an `ability`, where only the signature is given.
     pub(crate) fn function_declaration(&mut self, with_body: bool) -> Parse<FunctionDecl> {
         let start = self.current().span;
         let pure = self.eat(TokenKind::Pure);
-        self.expect(TokenKind::To, "the word `to` to define a function")?;
+        // Legacy `to` is accepted but no longer required.
+        let _ = self.eat(TokenKind::To);
 
-        let class_method = if self.eat(TokenKind::SelfValue) {
+        let class_method = if self.eat(TokenKind::Factory) {
+            true
+        } else if self.eat(TokenKind::SelfValue) {
+            // Legacy `to self.name(...)`.
             if !self.eat(TokenKind::Dot) {
                 self.report(Diagnostic::error(
                     "class-method-needs-dot",
-                    "a class method is written `to self.name(...)`",
+                    "a class method is written `factory name(...)` (or legacy `to self.name(...)`)",
                 )
                 .at(self.current().span, "Vaab expected `.` after `self`"));
                 return Err(Failed);
@@ -219,7 +225,6 @@ impl<'src> Parser<'src> {
             });
         }
 
-        // The one-line form, `to double(n: Int) returns Int = n * 2`.
         let body = if self.eat(TokenKind::Equals) {
             FunctionBody::Expr(self.expression()?)
         } else {
@@ -239,6 +244,69 @@ impl<'src> Parser<'src> {
             class_method,
             span: start.to(end),
         })
+    }
+
+    /// Top-level or member: is this a function definition rather than a call/field?
+    fn looks_like_function_declaration(&self) -> bool {
+        use TokenKind::*;
+        match self.peek() {
+            Pure | To | Factory => true,
+            kind if kind.is_name_like() || kind == Identifier => {
+                let mut i = 0;
+                if self.peek_at(i) == Factory {
+                    return true;
+                }
+                // Legacy `self.name`
+                if self.peek_at(i) == SelfValue && self.peek_at(i + 1) == Dot {
+                    i += 2;
+                }
+                let name = self.peek_at(i);
+                if !(name.is_name_like() || name == Identifier) {
+                    return false;
+                }
+                i += 1;
+                if self.peek_at(i) != OpenParen {
+                    return false;
+                }
+                i = self.skip_balanced_parens(i);
+                self.signature_marker_after(i)
+            }
+            _ => false,
+        }
+    }
+
+    fn skip_balanced_parens(&self, start: usize) -> usize {
+        if self.peek_at(start) != TokenKind::OpenParen {
+            return start;
+        }
+        let mut depth = 0usize;
+        let mut i = start;
+        loop {
+            match self.peek_at(i) {
+                TokenKind::EndOfFile => return i,
+                TokenKind::OpenParen => {
+                    depth += 1;
+                    i += 1;
+                }
+                TokenKind::CloseParen => {
+                    depth = depth.saturating_sub(1);
+                    i += 1;
+                    if depth == 0 {
+                        return i;
+                    }
+                }
+                _ => i += 1,
+            }
+        }
+    }
+
+    /// After `name(...)`, a definition has `returns`, `=`, or `{` (skipping newlines).
+    fn signature_marker_after(&self, mut i: usize) -> bool {
+        use TokenKind::*;
+        while self.peek_at(i) == Newline {
+            i += 1;
+        }
+        matches!(self.peek_at(i), Returns | Equals | OpenBrace)
     }
 
     fn parameter_list(&mut self) -> Parse<Vec<Parameter>> {
@@ -410,8 +478,12 @@ impl<'src> Parser<'src> {
 
     /// Whether the member about to be read is a function rather than a field.
     fn starts_function(&self) -> bool {
-        self.check(TokenKind::To)
-            || (self.check(TokenKind::Pure) && self.peek_at(1) == TokenKind::To)
+        use TokenKind::*;
+        self.check(To)
+            || self.check(Factory)
+            || self.check(Pure)
+            || ((self.check(Identifier) || self.peek().is_name_like())
+                && self.peek_at(1) == OpenParen)
     }
 
     fn field(&mut self) -> Parse<Field> {

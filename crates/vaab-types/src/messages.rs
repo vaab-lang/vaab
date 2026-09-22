@@ -768,8 +768,8 @@ pub fn wrong_variant_parts(
 pub fn not_json(found: &Type, span: Span) -> Diagnostic {
     Diagnostic::error("not-json", format!("{} cannot be turned into JSON", a(found)))
         .at(span, format!("this is {found}"))
-        .with_help("only types that `can Json` may be passed to `to_json`")
-        .with_note("a type `can Json` when every field, variant and item it holds can Json too")
+        .with_help("only JSON-encodable values may be passed to `to_json`")
+        .with_note("numbers, text, yes/no, lists, text-keyed maps, and plain types/casts encode; channels and functions do not")
 }
 
 pub fn undefined_ability(name: &str, span: Span, known: &[String]) -> Diagnostic {

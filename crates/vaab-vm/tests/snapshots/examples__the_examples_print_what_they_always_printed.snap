@@ -1,6 +1,6 @@
 ---
 source: crates/vaab-vm/tests/examples.rs
-assertion_line: 99
+assertion_line: 104
 expression: transcript
 ---
 $ vaab run examples/01_hello.vaab
@@ -105,8 +105,8 @@ $ vaab run examples/14_web_server.vaab
 $ vaab run examples/15_first_class_app.vaab
 
 $ vaab run examples/16_store.vaab
-open failed: Database already open. Cannot acquire lock.
-done
+wrote greeting
+got: hello
 
 $ vaab run examples/17_casts.vaab
 Ada, a collie
@@ -118,3 +118,17 @@ ada has 2 tasks
 first title is ship query
 sessions: 2
 done
+
+$ vaab run examples/19_logging.vaab
+
+$ vaab run examples/20_casts_in_practice.vaab
+cart holds 2, last was biscuit
+took biscuit, 1 left
+guest
+signed in as Ada
+circle r=5 in emerald
+square 4x4 in ink
+yes
+yes
+no
+yes

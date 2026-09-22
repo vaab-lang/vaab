@@ -178,7 +178,7 @@ fn a_machine_that_cannot_explain_itself() {
 
 #[test]
 fn reading_a_missing_file_fails_with_file_error() {
-    let source = "choice FileError { NotFound(path: Text) }\n\
+    let source = "\
         match read_file(\"missing.vaab\") {\n\
         when success _ then print(\"found\")\n\
         when failure _ then print(\"missing\")\n\

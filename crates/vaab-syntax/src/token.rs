@@ -92,6 +92,10 @@ pub enum TokenKind {
     Before,
     Every,
     Anything,
+    /// `factory zero()` — a method on the cast itself (class method).
+    Factory,
+    /// `fail Error.Variant` — return a failure from a fallible function.
+    Fail,
 
     // ---- Symbols ------------------------------------------------------------
     /// `->`
@@ -223,6 +227,8 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("before", TokenKind::Before),
     ("every", TokenKind::Every),
     ("anything", TokenKind::Anything),
+    ("factory", TokenKind::Factory),
+    ("fail", TokenKind::Fail),
 ];
 
 impl TokenKind {
@@ -274,6 +280,8 @@ impl TokenKind {
                 | Before
                 | Every
                 | Anything
+                | Factory
+                | Fail
         )
     }
 

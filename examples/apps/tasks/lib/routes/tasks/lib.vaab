@@ -1,20 +1,20 @@
 cast TasksRoute {
-    to self.list(who: User or fails AuthError) returns list of map of Text to Text or fails ApiError {
+    factory list(who: User or fails AuthError) returns [{Text: Text}] or fails ApiError {
         let user = try Auth.require_user(who)
         let db = try Database.open()
         try Database.ensure_schema(db)
         return Database.tasks_for(db, user.id)
     }
 
-    to self.create(who: User or fails AuthError, body: NewTask) returns Task or fails ApiError {
+    factory create(who: User or fails AuthError, body: NewTask) returns Task or fails ApiError {
         let user = try Auth.require_user(who)
         if body.title.is_empty {
-            return failure ApiError.BadRequest("title is required")
+            fail ApiError.BadRequest("title is required")
         }
         let db = try Database.open()
         try Database.ensure_schema(db)
         let id = "{now()}"
         try Database.insert_task(db, id, body.title, user.id)
-        return success Task.new(id: id, title: body.title, owner: user.id)
+        return Task.new(id: id, title: body.title, owner: user.id)
     }
 }

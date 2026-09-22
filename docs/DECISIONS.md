@@ -999,3 +999,53 @@ them.
   than with something about `T` not being a number. Abilities are the obvious way
   to bound a parameter; nothing in the specification asks for it yet.
 
+---
+
+## Readability round (A B C E G H I K L M)
+
+### D78. Drop required `to`; prefer bare functions and `(T) returns U`
+
+Function and method declarations are the name itself: `greet(name: Text) returns Text`.
+Legacy `to greet(...)` still parses. Function types are `(Int) returns Text`;
+`to(Int) returns Text` remains as a legacy spelling.
+
+### D79. `factory` for class methods
+
+`factory zero()` replaces `to self.zero()` on casts and types. Legacy `to self.`
+still parses.
+
+### D80. Prelude error choices
+
+`FileError`, `EnvError`, `DbError`, `StoreError`, `LogError`, `HttpError`, and
+`AuthError` are built into every module. Programs declare only app-specific errors
+(e.g. `ApiError`). Redeclaring a prelude name is a duplicate.
+
+### D81. Implicit success and `fail`
+
+In a function returning `T or fails E`, `return x` (with `x: T`) means success.
+`fail e` returns failure. Explicit `success` / `failure` / `return failure` remain.
+
+### D82. Collection type sugar
+
+`[Text]` means `list of Text`; `{Text: Int}` means `map of Text to Int`. Word forms stay.
+
+### D83. Cast-first examples
+
+Docs and examples lead with `cast` for mutable roles; `type` is frozen data / DTOs.
+
+### D84. Stdlib as messages + process log defaults
+
+`File.read(path)` is preferred over `read_file` (alias kept). `log.info(...)` and
+`Logger.info(...)` use a process-default logger (stderr, info, text; `VAAB_LOG_*`)
+with no setup. Constructed `Logger.stdout` / `.file` / … remain for custom sinks.
+
+### D85. Auto JSON
+
+Plain types, casts, and choices encode with `to_json` / `reply with` when their
+structure is JSON-safe. Claiming `can Json` is optional documentation, not required.
+
+### D86. Query English aliases
+
+`.equals` / `.differs` / `.above` / … alias `.where_eq` / …. Prefer
+`.where("owner").is("ada")` for column-then-comparison fluency.
+

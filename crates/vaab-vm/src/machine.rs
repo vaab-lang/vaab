@@ -1284,6 +1284,10 @@ impl Machine {
                     Err(_) => return Err(Fault::Confused("logger.lines could not read")),
                 }
             }
+            Op::LoggerProcess => {
+                self.stack
+                    .push(Value::Logger(world.loggers.process()));
+            }
             Op::QueryFromDb => {
                 let table = match self.pop()? {
                     Value::Text(text) => text.to_string(),
@@ -1345,6 +1349,59 @@ impl Machine {
                     _ => return Err(Fault::Confused("query.where_* expected a Query")),
                 };
                 self.stack.push(crate::query::wrap(query.with_predicate(column, compare, value)));
+            }
+            Op::QueryWhereColumn => {
+                let column = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("query.where expected a column name")),
+                };
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.where expected a Query")),
+                };
+                self.stack
+                    .push(crate::query::wrap(query.with_pending_column(column)));
+            }
+            Op::QueryIs
+            | Op::QueryIsNot
+            | Op::QueryIsAbove
+            | Op::QueryIsAtLeast
+            | Op::QueryIsBelow
+            | Op::QueryIsAtMost
+            | Op::QueryIsLike => {
+                let compare = match op {
+                    Op::QueryIs => crate::query::Compare::Eq,
+                    Op::QueryIsNot => crate::query::Compare::Not,
+                    Op::QueryIsAbove => crate::query::Compare::Gt,
+                    Op::QueryIsAtLeast => crate::query::Compare::Gte,
+                    Op::QueryIsBelow => crate::query::Compare::Lt,
+                    Op::QueryIsAtMost => crate::query::Compare::Lte,
+                    Op::QueryIsLike => crate::query::Compare::Like,
+                    _ => unreachable!(),
+                };
+                let value = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    Value::Int(number) => number.to_string(),
+                    Value::Float(number) => number.to_string(),
+                    Value::Bool(yes) => if yes { "1".into() } else { "0".into() },
+                    _ => {
+                        return Err(Fault::Confused(
+                            "query.is values must be text, numbers, or yes/no",
+                        ))
+                    }
+                };
+                let query = match self.pop()? {
+                    Value::Query(query) => query.as_ref().clone(),
+                    _ => return Err(Fault::Confused("query.is expected a Query")),
+                };
+                match query.with_pending_compare(compare, value) {
+                    Ok(next) => self.stack.push(crate::query::wrap(next)),
+                    Err(_) => {
+                        return Err(Fault::Confused(
+                            "query.is needs `.where(\"column\")` first",
+                        ))
+                    }
+                }
             }
             Op::QueryOrder | Op::QueryOrderDesc => {
                 let descending = matches!(op, Op::QueryOrderDesc);

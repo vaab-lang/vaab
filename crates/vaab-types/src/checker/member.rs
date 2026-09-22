@@ -171,6 +171,16 @@ impl Checker {
 
                 // The two built-in handles are constructed like a type even though
                 // they are not one.
+                if written.text == "File" && name.text == "read" {
+                    return Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("path", Type::Text)],
+                            Type::fallible(Type::Text, Type::named("FileError")),
+                        ),
+                        resolution: Resolution::BuiltinMethod("file_read"),
+                        shape: CallShape::function("File.read", None),
+                    };
+                }
                 if written.text == "Channel" && name.text == "new" {
                     return Member::Handle(Handle::Channel);
                 }
@@ -190,6 +200,19 @@ impl Checker {
                         "file" => Member::Handle(Handle::LoggerFile),
                         "memory" => Member::Handle(Handle::LoggerMemory),
                         "multi" => Member::Handle(Handle::LoggerMulti),
+                        "debug" | "info" | "warn" | "error" => Member::Callable {
+                            signature: Signature::new(
+                                vec![Parameter::new("message", Type::Text)],
+                                Type::Nothing,
+                            ),
+                            resolution: Resolution::BuiltinMethod(match name.text.as_str() {
+                                "debug" => "log_debug",
+                                "info" => "log_info",
+                                "warn" => "log_warn",
+                                _ => "log_error",
+                            }),
+                            shape: CallShape::function(format!("Logger.{}", name.text), None),
+                        },
                         _ => {
                             self.report(messages::unknown_member(
                                 &Type::Logger,
@@ -201,6 +224,10 @@ impl Checker {
                                     "file".into(),
                                     "memory".into(),
                                     "multi".into(),
+                                    "debug".into(),
+                                    "info".into(),
+                                    "warn".into(),
+                                    "error".into(),
                                 ],
                             ));
                             Member::Unknown
@@ -211,7 +238,7 @@ impl Checker {
         }
 
         if let ExprKind::Name(written) = &target.kind {
-            if written.text == "env" {
+            if self.lookup_local(&written.text).is_none() && written.text == "env" {
                 return match name.text.as_str() {
                     "get" => Member::Callable {
                         signature: Signature::new(
@@ -240,7 +267,56 @@ impl Checker {
                     }
                 };
             }
-            if written.text == "http" {
+            if self.lookup_local(&written.text).is_none() && written.text == "log" {
+                return match name.text.as_str() {
+                    "debug" | "info" | "warn" | "error" => Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("message", Type::Text)],
+                            Type::Nothing,
+                        ),
+                        resolution: Resolution::BuiltinMethod(match name.text.as_str() {
+                            "debug" => "log_debug",
+                            "info" => "log_info",
+                            "warn" => "log_warn",
+                            _ => "log_error",
+                        }),
+                        shape: CallShape::function(format!("log.{}", name.text), None),
+                    },
+                    "set_level" => Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("level", Type::Text)],
+                            Type::Nothing,
+                        ),
+                        resolution: Resolution::BuiltinMethod("log_set_level"),
+                        shape: CallShape::function("log.set_level", None),
+                    },
+                    "set_format" => Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("format", Type::Text)],
+                            Type::Nothing,
+                        ),
+                        resolution: Resolution::BuiltinMethod("log_set_format"),
+                        shape: CallShape::function("log.set_format", None),
+                    },
+                    _ => {
+                        self.report(messages::unknown_member(
+                            &Type::named("Log"),
+                            &name.text,
+                            name.span,
+                            &[
+                                "debug".into(),
+                                "info".into(),
+                                "warn".into(),
+                                "error".into(),
+                                "set_level".into(),
+                                "set_format".into(),
+                            ],
+                        ));
+                        Member::Unknown
+                    }
+                };
+            }
+            if self.lookup_local(&written.text).is_none() && written.text == "http" {
                 return match name.text.as_str() {
                     "get" => Member::Callable {
                         signature: Signature::new(
@@ -780,8 +856,9 @@ impl Checker {
         let row = Type::map(Type::Text, Type::Text);
         let rows = Type::list(row.clone());
         match name.text.as_str() {
-            "where_eq" | "where_not" | "where_gt" | "where_gte" | "where_lt" | "where_lte"
-            | "where_like" => Member::Callable {
+            "where_eq" | "equals" | "where_not" | "differs" | "where_gt" | "above"
+            | "where_gte" | "at_least" | "where_lt" | "below" | "where_lte" | "at_most"
+            | "where_like" | "like" => Member::Callable {
                 signature: Signature::new(
                     vec![
                         Parameter::new("column", Type::Text),
@@ -790,15 +867,42 @@ impl Checker {
                     query_type.clone(),
                 ),
                 resolution: Resolution::BuiltinMethod(match name.text.as_str() {
-                    "where_eq" => "query_where_eq",
-                    "where_not" => "query_where_not",
-                    "where_gt" => "query_where_gt",
-                    "where_gte" => "query_where_gte",
-                    "where_lt" => "query_where_lt",
-                    "where_lte" => "query_where_lte",
+                    "where_eq" | "equals" => "query_where_eq",
+                    "where_not" | "differs" => "query_where_not",
+                    "where_gt" | "above" => "query_where_gt",
+                    "where_gte" | "at_least" => "query_where_gte",
+                    "where_lt" | "below" => "query_where_lt",
+                    "where_lte" | "at_most" => "query_where_lte",
                     _ => "query_where_like",
                 }),
                 shape: CallShape::function(format!("query.{}", name.text), None),
+            },
+            // `.where("owner").is("ada")` — column first, then the comparison.
+            "where" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("column", Type::Text)],
+                    query_type.clone(),
+                ),
+                resolution: Resolution::BuiltinMethod("query_where_column"),
+                shape: CallShape::function("query.where", None),
+            },
+            "is" | "is_not" | "is_above" | "is_at_least" | "is_below" | "is_at_most" | "is_like" => {
+                Member::Callable {
+                    signature: Signature::new(
+                        vec![Parameter::new("value", Type::Text)],
+                        query_type.clone(),
+                    ),
+                    resolution: Resolution::BuiltinMethod(match name.text.as_str() {
+                        "is" => "query_is",
+                        "is_not" => "query_is_not",
+                        "is_above" => "query_is_above",
+                        "is_at_least" => "query_is_at_least",
+                        "is_below" => "query_is_below",
+                        "is_at_most" => "query_is_at_most",
+                        _ => "query_is_like",
+                    }),
+                    shape: CallShape::function(format!("query.{}", name.text), None),
+                }
             },
             "order" | "order_desc" => Member::Callable {
                 signature: Signature::new(

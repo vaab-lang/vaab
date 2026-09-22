@@ -70,6 +70,7 @@ impl Printer {
                 Some(value) => self.node("return", |printer| printer.expression(value)),
                 None => self.line("return"),
             },
+            StmtKind::Fail(value) => self.node("fail", |printer| printer.expression(value)),
             StmtKind::ForEach(loop_) => self.node("for each", |printer| {
                 printer.node("pattern", |printer| printer.pattern(&loop_.pattern));
                 printer.node("in", |printer| printer.expression(&loop_.sequence));

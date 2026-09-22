@@ -632,6 +632,73 @@ impl<'a> Compiler<'a> {
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 return self.emit(Op::QueryWhereLike, span);
             }
+            "query_where_column" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryWhereColumn, span);
+            }
+            "query_is" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryIs, span);
+            }
+            "query_is_not" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryIsNot, span);
+            }
+            "query_is_above" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryIsAbove, span);
+            }
+            "query_is_at_least" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryIsAtLeast, span);
+            }
+            "query_is_below" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryIsBelow, span);
+            }
+            "query_is_at_most" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryIsAtMost, span);
+            }
+            "query_is_like" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::QueryIsLike, span);
+            }
+            "file_read" => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::ReadFile(self.file_error_not_found()), span);
+            }
+            "log_debug" | "log_info" | "log_warn" | "log_error" => {
+                self.emit(Op::LoggerProcess, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(
+                    match name {
+                        "log_debug" => Op::LoggerDebug,
+                        "log_info" => Op::LoggerInfo,
+                        "log_warn" => Op::LoggerWarn,
+                        _ => Op::LoggerError,
+                    },
+                    span,
+                );
+            }
+            "log_set_level" => {
+                self.emit(Op::LoggerProcess, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::LoggerSetLevel, span);
+            }
+            "log_set_format" => {
+                self.emit(Op::LoggerProcess, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::LoggerSetFormat, span);
+            }
             "query_order" => {
                 self.receiver(target, span);
                 let _ = self.push_arguments(call, arguments, Defaults::None);
@@ -859,8 +926,16 @@ impl<'a> Compiler<'a> {
         }
 
         match body {
-            FunctionBody::Expr(inner) => self.expression(inner),
-            FunctionBody::Block(block) => self.block_value(block),
+            FunctionBody::Expr(inner) => {
+                self.expression(inner);
+                if self.should_wrap_return_success(inner) {
+                    self.emit(Op::Success, span);
+                }
+            }
+            FunctionBody::Block(block) => {
+                self.block_value(block);
+                self.wrap_block_result_if_needed(block, span);
+            }
         }
         self.emit(Op::Return, span);
         self.open.pop();

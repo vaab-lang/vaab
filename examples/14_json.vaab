@@ -1,14 +1,10 @@
 # File I/O, time, and JSON.
 #
-# Programs declare `FileError`; `read_file` fails with it when a path is missing.
-# Types that `can Json` may be passed to `to_json`, which gives back Text.
+# `File.read` fails with built-in `FileError` when a path is missing.
+# Plain data types encode with `to_json` — no `can Json` required.
 # `now()` is whole seconds since 1970-01-01 UTC.
 
-choice FileError {
-    NotFound(path: Text)
-}
-
-type Person can Json {
+type Person {
     name: Text
     score: Int
 }
@@ -19,7 +15,7 @@ print(to_json(person))
 # The exact second changes; only show that the clock is plausible.
 print(now() > 1_000_000_000)
 
-match read_file("this-file-is-not-here.txt") {
+match File.read("this-file-is-not-here.txt") {
     when success text then print("unexpected: {text}")
     when failure _    then print("missing file is expected")
 }

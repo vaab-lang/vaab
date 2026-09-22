@@ -6,10 +6,14 @@
 //!
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use insta::assert_snapshot;
 use vaab_syntax::{diagnostic, ColorChoice};
 use vaab_vm::{error, Output};
+
+/// Example runs share process-wide Store/Db registries; serialize them.
+static EXAMPLES: Mutex<()> = Mutex::new(());
 
 fn examples_folder() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..").join("examples")
@@ -39,6 +43,7 @@ fn sequential_examples() -> Vec<PathBuf> {
 
 /// Runs one example, giving back everything it printed.
 fn run(path: &Path) -> Result<Vec<String>, String> {
+    let _guard = EXAMPLES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let source = std::fs::read_to_string(path)
         .unwrap_or_else(|error| panic!("could not read {}: {error}", path.display()));
     let name = name_of(path);

@@ -139,16 +139,16 @@ brace.
 
 ## Functions
 
-The keyword is `to`.
+Functions are declared by name. Legacy `to greet(...)` still parses.
 
 ```vaab
-to greet(name: Text, greeting: Text = "hello") returns Text {
+greet(name: Text, greeting: Text = "hello") returns Text {
     return "{greeting}, {name}"
 }
 
-to double(n: Int) returns Int = n * 2       # one-line form
+double(n: Int) returns Int = n * 2       # one-line form
 
-to announce(message: Text) {                # no `returns` means `Nothing`
+announce(message: Text) {                # no `returns` means `Nothing`
     print(message)
 }
 ```
@@ -160,7 +160,7 @@ call site, and any argument may be passed by name:
 greet("Ada", greeting: "hi")
 ```
 
-`pure to f(...)` asks the compiler to guarantee that `f` has no side effects, no
+`pure greet(...)` asks the compiler to guarantee that `greet` has no side effects, no
 I/O, no `shared`, and no channel operations, and only calls other pure functions.
 
 The checker enforces this. A `pure` function may change `let changing` locals it
@@ -281,11 +281,11 @@ change in place.
 cast Counter {
     changing count: Int = 0
 
-    to bump() {
+    bump() {
         self.count = self.count + 1
     }
 
-    to self.zero() returns Counter {
+    factory zero() returns Counter {
         return Counter.new(count: 0)
     }
 }
@@ -307,7 +307,7 @@ A cast inherits fields and methods from what it entertains. It may also declare
 `can SomeAbility` like a type.
 
 Construction is still `.new` with named arguments. Class-level methods are
-written `to self.method(...)`.
+written `factory method(...)`.
 
 ---
 
@@ -334,10 +334,10 @@ flat. It is only legal inside a function returning `or fails E`, where the error
 types match exactly.
 
 ```vaab
-to read_config(path: Text) returns Config or fails FileError {
-    let text = try read_file(path)
+read_config(path: Text) returns Config or fails FileError {
+    let text = try File.read(path)
     let config = try parse_config(text)
-    return success config
+    return config
 }
 ```
 
@@ -599,7 +599,7 @@ let sessions = try store
 | | |
 |---|---|
 | `db.from(table)` / `store.from(prefix)` | start a `Query` |
-| `.where_eq` / `.where_not` / `.where_gt` / `.where_gte` / `.where_lt` / `.where_lte` / `.where_like` | filters |
+| `.where("col").is(value)` / `.equals` / `.differs` / `.above` / … | filters (`.where_eq` etc. still work) |
 | `.order` / `.order_desc` | sort |
 | `.limit` / `.offset` / `.select` | shape |
 | `.all` / `.first` / `.count` | read |
@@ -610,15 +610,10 @@ express yet.
 
 ### File I/O
 
-Programs declare a `FileError` choice; `read_file` fails with it when a path is
-missing. Other I/O problems stop the program with a report.
+`FileError` is built-in. Prefer `File.read`; `read_file` remains as an alias.
 
 ```vaab
-choice FileError {
-    NotFound(path: Text)
-}
-
-match read_file("config.txt") {
+match File.read("config.txt") {
     when success text then print(text)
     when failure FileError.NotFound(path) then print("no file at {path}")
 }
@@ -632,23 +627,17 @@ match read_file("config.txt") {
 
 ### Logging
 
-A `Logger` writes structured lines to stdout, stderr, a file, memory, or several
-of those at once. Levels and formats match what other languages call a logger.
+`log.info(...)` works with no setup (process default: stderr, info, text).
+Configure only when you care; honour `VAAB_LOG_LEVEL` / `VAAB_LOG_FORMAT`.
 
 ```vaab
-choice LogError {
-    Failed(message: Text)
-}
-
-let log = Logger.stderr()
-log.set_level("info")       # debug | info | warn | error
-log.set_format("json")      # text  | json | pretty
-
-log.debug("detail")
 log.info("started")
-log.warn("slow")
-log.error("failed")
-log.write("info", "request", {"method": "GET", "path": "/hello"})
+Logger.warn("also fine — same process default")
+
+let custom = Logger.stderr()
+custom.set_level("debug")
+custom.set_format("json")
+custom.write("info", "request", {"method": "GET", "path": "/hello"})
 
 let file = try Logger.file("app.log")
 let both = Logger.multi([Logger.stdout(), file])
@@ -656,6 +645,7 @@ let both = Logger.multi([Logger.stdout(), file])
 
 | | |
 |---|---|
+| `log.info` / `Logger.info` (and debug/warn/error) | process-default logger, no setup |
 | `Logger.stdout()` / `.stderr()` / `.memory()` | a logger to that destination |
 | `Logger.file(path)` | append to a file, or `LogError.Failed` |
 | `Logger.multi(loggers)` | the same line to every logger in the list |
@@ -665,14 +655,14 @@ let both = Logger.multi([Logger.stdout(), file])
 | `.lines` | captured lines from a memory logger |
 
 The HTTP server logs every request (method, path, status, duration) to stderr.
-Override with `VAAB_LOG_LEVEL` and `VAAB_LOG_FORMAT`.
 
 ### JSON
 
-A type that `can Json` may be passed to `to_json`, which gives back `Text`.
+Plain data types encode with `to_json` when their structure is JSON-safe.
+Claiming `can Json` is optional.
 
 ```vaab
-type Person can Json {
+type Person {
     name: Text
     score: Int
 }
@@ -681,7 +671,7 @@ print(to_json(Person.new(name: "Ada", score: 36)))
 ```
 
 Built-in scalars, lists, maps with `Text` keys, tuples, records, and choices whose
-parts all `can Json` may be encoded. Functions, channels, tasks and other values
+parts are JSON-safe may be encoded. Functions, channels, tasks and other values
 that cannot be written as JSON are rejected by the checker.
 
 ---
@@ -740,7 +730,7 @@ serve on port 8080 {
 }
 ```
 
-Every route body has type `Response or fails ApiError`. Types that `can Json` are
+Every route body has type `Response or fails ApiError`. JSON-encodable values are
 serialised and deserialised automatically. Each request runs as its own task.
 
 ---

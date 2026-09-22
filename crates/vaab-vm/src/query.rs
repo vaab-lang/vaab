@@ -54,6 +54,8 @@ pub struct Query {
     /// Table name for SQL, or key prefix for the store.
     pub table: String,
     pub predicates: Vec<Predicate>,
+    /// Set by `.where("column")` and consumed by `.is(...)` / `.is_not(...)` / …
+    pub pending_column: Option<String>,
     pub order: Vec<OrderBy>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
@@ -67,6 +69,7 @@ impl Query {
             source: QuerySource::Db(handle),
             table,
             predicates: Vec::new(),
+            pending_column: None,
             order: Vec::new(),
             limit: None,
             offset: None,
@@ -79,6 +82,7 @@ impl Query {
             source: QuerySource::Store(handle),
             table: prefix,
             predicates: Vec::new(),
+            pending_column: None,
             order: Vec::new(),
             limit: None,
             offset: None,
@@ -88,7 +92,20 @@ impl Query {
 
     pub fn with_predicate(mut self, column: String, compare: Compare, value: String) -> Query {
         self.predicates.push(Predicate { column, compare, value });
+        self.pending_column = None;
         self
+    }
+
+    pub fn with_pending_column(mut self, column: String) -> Query {
+        self.pending_column = Some(column);
+        self
+    }
+
+    pub fn with_pending_compare(self, compare: Compare, value: String) -> Result<Query, String> {
+        let Some(column) = self.pending_column.clone() else {
+            return Err("query.is needs `.where(\"column\")` first".into());
+        };
+        Ok(self.with_predicate(column, compare, value))
     }
 
     pub fn with_order(mut self, column: String, descending: bool) -> Query {

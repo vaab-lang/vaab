@@ -333,13 +333,34 @@ impl<'a> Compiler<'a> {
         }
 
         match &declaration.body {
-            Some(FunctionBody::Expr(expression)) => self.expression(expression),
-            Some(FunctionBody::Block(block)) => self.block_value(block),
+            Some(FunctionBody::Expr(expression)) => {
+                self.expression(expression);
+                if self.should_wrap_return_success(expression) {
+                    self.emit(Op::Success, declaration.span);
+                }
+            }
+            Some(FunctionBody::Block(block)) => {
+                self.block_value(block);
+                self.wrap_block_result_if_needed(block, declaration.span);
+            }
             // An ability's required signature has no body to compile.
             None => self.emit(Op::Nothing, declaration.span),
         }
         self.emit(Op::Return, declaration.span);
         self.open.pop();
+    }
+
+    /// When a fallible function's body ends in a bare ok-value expression, wrap it.
+    fn wrap_block_result_if_needed(&mut self, block: &vaab_syntax::ast::Block, span: Span) {
+        let Some(statement) = block.statements.last() else {
+            return;
+        };
+        let StmtKind::Expr(expression) = &statement.kind else {
+            return;
+        };
+        if self.should_wrap_return_success(expression) {
+            self.emit(Op::Success, span);
+        }
     }
 
     /// Opens a body whose builder already exists, and gives it the slots the

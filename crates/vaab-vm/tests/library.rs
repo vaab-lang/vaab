@@ -178,8 +178,7 @@ fn store_round_trips_text_by_key() {
     let _ = std::fs::remove_file(&path);
     let path = path.display();
     let source = format!(
-        "choice StoreError {{ Failed(message: Text) }}\n\
-         match Store.open(\"{path}\") {{\n\
+        "match Store.open(\"{path}\") {{\n\
          when success store then {{\n\
              match store.set(\"greeting\", \"hello\") {{\n\
              when success _ then match store.get(\"greeting\") {{\n\
@@ -201,8 +200,7 @@ fn store_keys_lists_every_key_with_a_prefix() {
     let _ = std::fs::remove_file(&path);
     let path = path.display();
     let source = format!(
-        "choice StoreError {{ Failed(message: Text) }}\n\
-         match Store.open(\"{path}\") {{\n\
+        "match Store.open(\"{path}\") {{\n\
          when success store then {{\n\
              match store.set(\"a:1\", \"one\") {{\n\
              when success _ then match store.set(\"a:2\", \"two\") {{\n\
@@ -230,8 +228,7 @@ fn query_filters_sqlite_rows_with_sea_query() {
     let _ = std::fs::remove_file(&path);
     let path = path.display();
     let source = format!(
-        "choice DbError {{ Failed(message: Text) }}\n\
-         match Db.connect(\"sqlite:{path}\") {{\n\
+        "match Db.connect(\"sqlite:{path}\") {{\n\
          when success db then {{\n\
              let empty: list of Text = []\n\
              match db.execute(\"create table items (id text primary key, kind text not null)\", empty) {{\n\
@@ -260,8 +257,7 @@ fn query_filters_store_rows_by_value() {
     let _ = std::fs::remove_file(&path);
     let path = path.display();
     let source = format!(
-        "choice StoreError {{ Failed(message: Text) }}\n\
-         match Store.open(\"{path}\") {{\n\
+        "match Store.open(\"{path}\") {{\n\
          when success store then {{\n\
              match store.from(\"k:\").insert({{\"key\": \"k:1\", \"value\": \"yes\"}}) {{\n\
              when success _ then match store.from(\"k:\").insert({{\"key\": \"k:2\", \"value\": \"no\"}}) {{\n\
@@ -288,8 +284,7 @@ fn store_delete_after_insert_does_not_deadlock() {
     let _ = std::fs::remove_file(&path);
     let path = path.display();
     let source = format!(
-        "choice StoreError {{ Failed(message: Text) }}\n\
-         match Store.open(\"{path}\") {{\n\
+        "match Store.open(\"{path}\") {{\n\
          when success store then {{\n\
              match store.from(\"t:\").insert({{\"key\": \"t:1\", \"title\": \"a\", \"done\": \"no\"}}) {{\n\
              when success _ then match store.from(\"t:\").insert({{\"key\": \"t:2\", \"title\": \"b\", \"done\": \"no\"}}) {{\n\
@@ -314,8 +309,7 @@ fn read_file_returns_the_contents_of_a_file() {
     std::fs::write(&path, "hello from disk").expect("write temp file");
     let path = path.display();
     let source = format!(
-        "choice FileError {{ NotFound(path: Text) }}\n\
-         match read_file(\"{path}\") {{\n\
+        "match read_file(\"{path}\") {{\n\
          when success text then print(text)\n\
          when failure _ then print(\"missing\")\n\
          }}\n"
@@ -361,8 +355,7 @@ fn a_file_logger_appends_and_multi_fans_out() {
     let _ = std::fs::remove_file(&path);
     let path = path.display();
     let source = format!(
-        "choice LogError {{ Failed(message: Text) }}\n\
-         match Logger.file(\"{path}\") {{\n\
+        "match Logger.file(\"{path}\") {{\n\
          when success file then {{\n\
              let memory = Logger.memory()\n\
              memory.set_level(\"debug\")\n\

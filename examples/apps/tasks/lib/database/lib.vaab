@@ -1,62 +1,62 @@
 cast Database {
-    to self.path() returns Text {
+    factory path() returns Text {
         return env.get("DATABASE_URL") otherwise "sqlite:examples/apps/tasks/data/tasks.db"
     }
 
-    to self.open() returns Db or fails ApiError {
+    factory open() returns Db or fails ApiError {
         match Db.connect(Database.path()) {
-            when success db then { return success db }
+            when success db then { return db }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }
 
-    to self.ensure_schema(db: Db) returns Int or fails ApiError {
-        let empty: list of Text = []
+    factory ensure_schema(db: Db) returns Int or fails ApiError {
+        let empty: [Text] = []
         match db.execute(
             "create table if not exists tasks (id text primary key, title text not null, owner text not null)",
             empty,
         ) {
-            when success count then { return success count }
+            when success count then { return count }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }
 
-    to self.query(db: Db, sql: Text, args: list of Text) returns list of map of Text to Text or fails ApiError {
+    factory query(db: Db, sql: Text, args: [Text]) returns [{Text: Text}] or fails ApiError {
         match db.query(sql, args) {
-            when success rows then { return success rows }
+            when success rows then { return rows }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }
 
-    to self.execute(db: Db, sql: Text, args: list of Text) returns Int or fails ApiError {
+    factory execute(db: Db, sql: Text, args: [Text]) returns Int or fails ApiError {
         match db.execute(sql, args) {
-            when success count then { return success count }
+            when success count then { return count }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }
 
-    to self.tasks_for(db: Db, owner: Text) returns list of map of Text to Text or fails ApiError {
+    factory tasks_for(db: Db, owner: Text) returns [{Text: Text}] or fails ApiError {
         match db.from("tasks").where_eq("owner", owner).order_desc("id").all() {
-            when success rows then { return success rows }
+            when success rows then { return rows }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }
 
-    to self.insert_task(db: Db, id: Text, title: Text, owner: Text) returns Int or fails ApiError {
+    factory insert_task(db: Db, id: Text, title: Text, owner: Text) returns Int or fails ApiError {
         match db.from("tasks").insert({"id": id, "title": title, "owner": owner}) {
-            when success count then { return success count }
+            when success count then { return count }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }

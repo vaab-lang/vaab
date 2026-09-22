@@ -1,25 +1,10 @@
 # First-class app I/O with casts — single-file version for CI.
 #
 # Multi-file layout with one cast per route: examples/apps/tasks/
+# Stdlib errors (EnvError, DbError, AuthError, HttpError) are built-in.
 #
 # Run with:
 #   AUTH_SECRET=dev cargo run -p vaab-cli -- serve examples/15_first_class_app.vaab
-
-choice EnvError {
-    Missing(name: Text)
-}
-
-choice DbError {
-    Failed(message: Text)
-}
-
-choice AuthError {
-    Unauthorized
-}
-
-choice HttpError {
-    Failed(message: Text)
-}
 
 choice ApiError {
     Unauthorized
@@ -27,88 +12,88 @@ choice ApiError {
     Database(message: Text)
 }
 
-type User can Json {
+type User {
     id: Text
     email: Text
 }
 
-type Task can Json {
+type Task {
     id: Text
     title: Text
     owner: Text
 }
 
-type OkResponse can Json {
+type OkResponse {
     ok: Bool
 }
 
-type NewTask can Json {
+type NewTask {
     title: Text
 }
 
 cast Database {
-    to self.path() returns Text {
+    factory path() returns Text {
         return "sqlite:examples/tasks.db"
     }
 
-    to self.open() returns Db or fails ApiError {
+    factory open() returns Db or fails ApiError {
         match Db.connect(Database.path()) {
-            when success db then { return success db }
+            when success db then { return db }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }
 
-    to self.ensure_schema(db: Db) returns Int or fails ApiError {
-        let empty: list of Text = []
+    factory ensure_schema(db: Db) returns Int or fails ApiError {
+        let empty: [Text] = []
         match db.execute(
             "create table if not exists tasks (id text primary key, title text not null, owner text not null)",
             empty,
         ) {
-            when success count then { return success count }
+            when success count then { return count }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }
 
-    to self.query(db: Db, sql: Text, args: list of Text) returns list of map of Text to Text or fails ApiError {
+    factory query(db: Db, sql: Text, args: [Text]) returns [{Text: Text}] or fails ApiError {
         match db.query(sql, args) {
-            when success rows then { return success rows }
+            when success rows then { return rows }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }
 
-    to self.execute(db: Db, sql: Text, args: list of Text) returns Int or fails ApiError {
+    factory execute(db: Db, sql: Text, args: [Text]) returns Int or fails ApiError {
         match db.execute(sql, args) {
-            when success count then { return success count }
+            when success count then { return count }
             when failure error then match error {
-                when Failed(message) then { return failure ApiError.Database(message) }
+                when Failed(message) then { fail ApiError.Database(message) }
             }
         }
     }
 }
 
 cast Auth {
-    to self.require_user(who: User or fails AuthError) returns User or fails ApiError {
+    factory require_user(who: User or fails AuthError) returns User or fails ApiError {
         match who {
-            when success user then { return success user }
-            when failure _ then { return failure ApiError.Unauthorized }
+            when success user then { return user }
+            when failure _ then { fail ApiError.Unauthorized }
         }
     }
 }
 
 cast HealthRoute {
-    to self.handle() returns OkResponse {
+    factory handle() returns OkResponse {
         return OkResponse.new(ok: yes)
     }
 }
 
 cast TasksRoute {
-    to self.list(who: User or fails AuthError) returns list of map of Text to Text or fails ApiError {
+    factory list(who: User or fails AuthError) returns [{Text: Text}] or fails ApiError {
         let user = try Auth.require_user(who)
         let db = try Database.open()
         try Database.ensure_schema(db)
@@ -119,10 +104,10 @@ cast TasksRoute {
         )
     }
 
-    to self.create(who: User or fails AuthError, body: NewTask) returns Task or fails ApiError {
+    factory create(who: User or fails AuthError, body: NewTask) returns Task or fails ApiError {
         let user = try Auth.require_user(who)
         if body.title.is_empty {
-            return failure ApiError.BadRequest("title is required")
+            fail ApiError.BadRequest("title is required")
         }
         let db = try Database.open()
         try Database.ensure_schema(db)
@@ -132,7 +117,7 @@ cast TasksRoute {
             "insert into tasks(id, title, owner) values ($1, $2, $3)",
             [id, body.title, user.id],
         )
-        return success Task.new(id: id, title: body.title, owner: user.id)
+        return Task.new(id: id, title: body.title, owner: user.id)
     }
 }
 

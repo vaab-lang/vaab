@@ -68,6 +68,7 @@ pub(super) fn statement(node: &Stmt, visitor: &mut impl Visit) {
                 expression(value, visitor);
             }
         }
+        StmtKind::Fail(value) => expression(value, visitor),
         StmtKind::ForEach(loop_) => {
             expression(&loop_.sequence, visitor);
             block(&loop_.body, visitor);

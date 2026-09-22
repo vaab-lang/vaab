@@ -6,7 +6,7 @@
 #
 # See also the single-file version: examples/15_first_class_app.vaab
 
-need errors from ./lib/errors of ApiError, AuthError, DbError, EnvError, HttpError
+need errors from ./lib/errors of ApiError
 need models from ./lib/models of User, Task, NewTask, OkResponse, HealthStatus, Quote
 need database from ./lib/database of Database
 need auth from ./lib/auth of Auth

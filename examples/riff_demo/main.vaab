@@ -4,14 +4,12 @@
 #   cd examples/riff_demo
 #   vaab need supabase
 #   vaab run main.vaab
-
-choice HttpError {
-    Failed(message: Text)
-}
+#
+# `HttpError` is built-in.
 
 need supabase
 
-to main() {
+main() {
     let client = supabase.connect_with("https://example.supabase.co", "demo-key")
     print("supabase client for {client.url}")
 }

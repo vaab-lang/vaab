@@ -94,6 +94,7 @@ fn map_stmt_kind(kind: StmtKind, mode: &Mode) -> StmtKind {
             value: map_expr(assign.value, mode),
         }),
         StmtKind::Return(value) => StmtKind::Return(value.map(|expression| map_expr(expression, mode))),
+        StmtKind::Fail(value) => StmtKind::Fail(map_expr(value, mode)),
         StmtKind::ForEach(for_each) => StmtKind::ForEach(ForEachStmt {
             pattern: map_pattern(for_each.pattern, mode),
             sequence: map_expr(for_each.sequence, mode),

@@ -51,6 +51,7 @@ impl Checker {
             StmtKind::Assign(assignment) => self.assignment(&assignment.target, &assignment.value),
 
             StmtKind::Return(value) => self.return_statement(statement.span, value.as_ref()),
+            StmtKind::Fail(value) => self.fail_statement(statement.span, value),
 
             StmtKind::ForEach(loop_) => {
                 let sequence = self.expression(&loop_.sequence, Wanted::Anything);
@@ -225,13 +226,57 @@ impl Checker {
 
         let returns = enclosing.returns.clone();
         match value {
-            Some(value) => {
-                self.expression(value, Wanted::Exactly(returns));
-            }
+            Some(value) => self.fallible_result_expression(value, &returns),
             None => {
                 if !matches!(returns, Type::Nothing | Type::Unknown) {
                     self.report(messages::mismatch(&returns, &Type::Nothing, span));
                 }
+            }
+        }
+    }
+
+    /// A returned expression or expression-bodied function: in `T or fails E`,
+    /// a bare `T` is success; an already-fallible value passes through.
+    fn fallible_result_expression(&mut self, value: &Expr, returns: &Type) {
+        match returns {
+            Type::Fallible { ok, .. } => {
+                let found = self.expression(value, Wanted::Anything);
+                let found = self.variables.resolve(&found);
+                if self.variables.fits(&found, returns) {
+                    // Already `success` / `failure` / a fallible call.
+                } else if self.variables.fits(&found, ok) {
+                    // Implicit success.
+                } else {
+                    self.expect_type(found, &Wanted::Exactly(returns.clone()), value.span);
+                }
+            }
+            _ => {
+                self.expression(value, Wanted::Exactly(returns.clone()));
+            }
+        }
+    }
+
+    fn fail_statement(&mut self, span: Span, value: &Expr) {
+        let Some(enclosing) = self.enclosing.last() else {
+            self.report(messages::return_outside_function(span));
+            self.expression(value, Wanted::Anything);
+            return;
+        };
+        let returns = enclosing.returns.clone();
+        match returns {
+            Type::Fallible { error, .. } => {
+                self.expression(value, Wanted::Exactly(*error));
+            }
+            Type::Unknown => {
+                self.expression(value, Wanted::Anything);
+            }
+            other => {
+                self.report(messages::mismatch(
+                    &Type::fallible(Type::Unknown, Type::Unknown),
+                    &other,
+                    span,
+                ));
+                self.expression(value, Wanted::Anything);
             }
         }
     }
@@ -345,7 +390,7 @@ impl Checker {
 
         match body {
             FunctionBody::Expr(expression) => {
-                self.expression(expression, Wanted::Exactly(signature.returns.clone()));
+                self.fallible_result_expression(expression, &signature.returns);
             }
             FunctionBody::Block(block) => {
                 let value = self.block_statements(block, Wanted::Anything);
@@ -379,7 +424,21 @@ impl Checker {
             // The body ends in an expression, which is the value it gives back.
             Some(span) if !matches!(value.declared, Type::Nothing) => {
                 let found = value.declared;
-                self.expect_type(found, &Wanted::Exactly(returns.clone()), span);
+                match returns {
+                    Type::Fallible { ok, .. } => {
+                        let found = self.variables.resolve(&found);
+                        if self.variables.fits(&found, returns)
+                            || self.variables.fits(&found, ok)
+                        {
+                            // Fallible result or implicit success.
+                        } else {
+                            self.expect_type(found, &Wanted::Exactly(returns.clone()), span);
+                        }
+                    }
+                    _ => {
+                        self.expect_type(found, &Wanted::Exactly(returns.clone()), span);
+                    }
+                }
             }
             _ => {
                 self.report(messages::missing_return(name, returns, block.span));
@@ -504,7 +563,7 @@ impl Checker {
 fn always_returns(statements: &[Stmt]) -> bool {
     let Some(last) = statements.last() else { return false };
     match &last.kind {
-        StmtKind::Return(_) => true,
+        StmtKind::Return(_) | StmtKind::Fail(_) => true,
         StmtKind::Expr(expression) => expression_always_returns(expression),
         _ => false,
     }
