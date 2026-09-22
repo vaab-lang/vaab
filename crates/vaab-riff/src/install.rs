@@ -1,4 +1,6 @@
-//! Install riffs from the official catalog into `~/.vaab/riffs`.
+//! Install riffs into `~/.vaab/riffs` from dedicated `vaab-lang/{name}`
+//! repos, falling back to the [vaab-riffs](https://github.com/vaab-lang/vaab-riffs)
+//! catalog monorepo.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,9 +8,15 @@ use std::path::{Path, PathBuf};
 use crate::home::riff_dir;
 use crate::manifest::Manifest;
 
-const OFFICIAL: &str = "https://raw.githubusercontent.com/vaab-lang/vaab-riffs/main";
+/// Catalog monorepo — shared riffs that do not yet have their own repo.
+const CATALOG: &str = "https://raw.githubusercontent.com/vaab-lang/vaab-riffs/main";
 
-/// Install `supabase` and friends from the official GitHub catalog.
+/// Dedicated per-riff repos live at `github.com/vaab-lang/{name}`.
+fn dedicated_base(name: &str) -> String {
+    format!("https://raw.githubusercontent.com/vaab-lang/{name}/main")
+}
+
+/// Install a riff from its dedicated repo, falling back to the catalog monorepo.
 pub fn install(name: &str) -> Result<PathBuf, String> {
     validate_name(name)?;
     let destination = riff_dir(name)?;
@@ -68,19 +76,43 @@ pub fn installed_path(name: &str) -> Result<PathBuf, String> {
 }
 
 fn fetch_official(name: &str, destination: &Path) -> Result<(), String> {
-    let base = format!("{OFFICIAL}/{name}");
+    let bases = [
+        dedicated_base(name),
+        format!("{CATALOG}/{name}"),
+    ];
+    let mut last_error = String::new();
+    for base in &bases {
+        match fetch_pair(base) {
+            Ok((riff, lib)) => {
+                Manifest::parse(&riff).map_err(|error| {
+                    format!("`{name}` from the catalog did not parse as a riff: {error}")
+                })?;
+                fs::write(destination.join("riff"), riff).map_err(|error| {
+                    format!(
+                        "could not write `{}`: {error}",
+                        destination.join("riff").display()
+                    )
+                })?;
+                fs::write(destination.join("lib.vaab"), lib).map_err(|error| {
+                    format!(
+                        "could not write `{}`: {error}",
+                        destination.join("lib.vaab").display()
+                    )
+                })?;
+                return Ok(());
+            }
+            Err(error) => last_error = error,
+        }
+    }
+    Err(format!(
+        "could not install `{name}` from vaab-lang/{name} or the catalog: {last_error}"
+    ))
+}
+
+fn fetch_pair(base: &str) -> Result<(String, String), String> {
     let riff = fetch_text(&format!("{base}/riff"))?;
     let lib = fetch_text(&format!("{base}/lib.vaab"))?;
-    Manifest::parse(&riff).map_err(|error| {
-        format!("`{name}` from the catalog did not parse as a riff: {error}")
-    })?;
-    fs::write(destination.join("riff"), riff).map_err(|error| {
-        format!("could not write `{}`: {error}", destination.join("riff").display())
-    })?;
-    fs::write(destination.join("lib.vaab"), lib).map_err(|error| {
-        format!("could not write `{}`: {error}", destination.join("lib.vaab").display())
-    })?;
-    Ok(())
+    Ok((riff, lib))
 }
 
 fn fetch_text(url: &str) -> Result<String, String> {
