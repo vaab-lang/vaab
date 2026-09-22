@@ -344,10 +344,16 @@ impl StoreState {
     }
 
     fn remove(&self, key: &str) -> Result<bool, String> {
-        let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
-        let existed = overlay.values.remove(key).is_some() || {
-            drop(overlay);
-            self.read_disk(key)?.is_some()
+        // Drop the overlay lock before any disk read — holding it across a
+        // second lock() deadlocks the request worker (Clear / delete hung).
+        let existed = {
+            let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+            if overlay.values.remove(key).is_some() {
+                true
+            } else {
+                drop(overlay);
+                self.read_disk(key)?.is_some()
+            }
         };
         let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
         overlay.removed.insert(key.to_string());

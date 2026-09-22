@@ -281,6 +281,34 @@ fn query_filters_store_rows_by_value() {
 }
 
 #[test]
+fn store_delete_after_insert_does_not_deadlock() {
+    // Regression: remove() used to hold the overlay mutex across a second lock
+    // when the key was already cached, hanging Clear / delete forever.
+    let path = std::env::temp_dir().join("vaab-store-delete-overlay-test.kv");
+    let _ = std::fs::remove_file(&path);
+    let path = path.display();
+    let source = format!(
+        "choice StoreError {{ Failed(message: Text) }}\n\
+         match Store.open(\"{path}\") {{\n\
+         when success store then {{\n\
+             match store.from(\"t:\").insert({{\"key\": \"t:1\", \"title\": \"a\", \"done\": \"no\"}}) {{\n\
+             when success _ then match store.from(\"t:\").insert({{\"key\": \"t:2\", \"title\": \"b\", \"done\": \"no\"}}) {{\n\
+             when success _ then match store.from(\"t:\").delete() {{\n\
+                 when success n then print(n)\n\
+                 when failure _ then print(\"delete failed\")\n\
+             }}\n\
+             when failure _ then print(\"insert failed\")\n\
+             }}\n\
+             when failure _ then print(\"insert failed\")\n\
+             }}\n\
+         }}\n\
+         when failure _ then print(\"open failed\")\n\
+         }}\n"
+    );
+    assert_eq!(printed(&source), "2");
+}
+
+#[test]
 fn read_file_returns_the_contents_of_a_file() {
     let path = std::env::temp_dir().join("vaab-read-file-test.txt");
     std::fs::write(&path, "hello from disk").expect("write temp file");
