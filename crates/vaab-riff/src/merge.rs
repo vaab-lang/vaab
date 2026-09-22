@@ -7,7 +7,7 @@ use vaab_syntax::ast::{
     ExprKind, Field, ForEachStmt, FunctionBody, FunctionDecl, IfExpr, LetStmt, MapEntry, MatchArm,
     MatchExpr, Module, Name, Parameter, Pattern, PatternKind, RepeatStmt, ReplyKind, ReplyStmt,
     RouteDecl, SelectArm, SelectExpr, SendStmt, ServeDecl, ServeErrorHandler, Stmt, StmtKind,
-    TextPart, TypeDecl, TypeExpr, TypeKind, Variant, VariantField, WhileStmt,
+    TextPart, CastDecl, TypeDecl, TypeExpr, TypeKind, Variant, VariantField, WhileStmt,
 };
 
 use crate::link::{exports_of, LoadedRiff};
@@ -54,6 +54,7 @@ fn export_name(statement: &Stmt) -> Option<String> {
     match &statement.kind {
         StmtKind::Function(function) => Some(function.name.text.clone()),
         StmtKind::Type(declaration) => Some(declaration.name.text.clone()),
+        StmtKind::Cast(declaration) => Some(declaration.name.text.clone()),
         StmtKind::Choice(declaration) => Some(declaration.name.text.clone()),
         StmtKind::Ability(declaration) => Some(declaration.name.text.clone()),
         _ => None,
@@ -114,6 +115,7 @@ fn map_stmt_kind(kind: StmtKind, mode: &Mode) -> StmtKind {
         StmtKind::Together(block) => StmtKind::Together(map_block(block, mode)),
         StmtKind::Function(function) => StmtKind::Function(Box::new(map_function(*function, mode))),
         StmtKind::Type(declaration) => StmtKind::Type(Box::new(map_type(*declaration, mode))),
+        StmtKind::Cast(declaration) => StmtKind::Cast(Box::new(map_cast(*declaration, mode))),
         StmtKind::Choice(declaration) => {
             StmtKind::Choice(Box::new(map_choice(*declaration, mode)))
         }
@@ -203,6 +205,7 @@ fn map_function(function: FunctionDecl, mode: &Mode) -> FunctionDecl {
             .returns
             .map(|declared| map_type_expr(declared, mode)),
         body: function.body.map(|body| map_function_body(body, mode)),
+        class_method: function.class_method,
         span: function.span,
     }
 }
@@ -219,6 +222,25 @@ fn map_parameter(parameter: Parameter, mode: &Mode) -> Parameter {
 fn map_type(declaration: TypeDecl, mode: &Mode) -> TypeDecl {
     TypeDecl {
         name: map_top_level_name(declaration.name, mode),
+        fields: declaration
+            .fields
+            .into_iter()
+            .map(|field| map_field(field, mode))
+            .collect(),
+        functions: declaration
+            .functions
+            .into_iter()
+            .map(|function| map_function(function, mode))
+            .collect(),
+        abilities: declaration.abilities,
+        span: declaration.span,
+    }
+}
+
+fn map_cast(declaration: CastDecl, mode: &Mode) -> CastDecl {
+    CastDecl {
+        name: map_top_level_name(declaration.name, mode),
+        entertains: declaration.entertains,
         fields: declaration
             .fields
             .into_iter()
@@ -251,6 +273,7 @@ fn map_field(field: Field, mode: &Mode) -> Field {
         name: field.name,
         declared_type: map_type_expr(field.declared_type, mode),
         default: field.default.map(|expression| map_expr(expression, mode)),
+        changing: field.changing,
         span: field.span,
     }
 }

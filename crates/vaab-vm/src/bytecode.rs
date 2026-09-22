@@ -90,6 +90,8 @@ pub enum Op {
 
     // -- Reaching inside ---------------------------------------------------
     Field(u32),
+    /// Stores into a `changing` field of a cast. Pops value, then record.
+    SetField(u32),
     /// `items[n]`, which reports when there is no such position.
     Index,
     /// How many items a list or a map holds, or how many characters text has.

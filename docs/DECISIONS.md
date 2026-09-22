@@ -842,6 +842,77 @@ Programs declare the error choices (`EnvError`, `DbError`, `AuthError`, `HttpErr
 the same way they declare `FileError` for `read_file`. Vendor integrations
 (Stripe, email, AI) stay as riffs.
 
+### D81. JIT before AOT — tiered Cranelift, not ahead-of-time compilation
+
+Vaab speeds up hot numeric code with a **tier-1 JIT** (Cranelift), not AOT
+compilation to native binaries.
+
+**Why JIT**
+
+* **Fast startup** — `vaab repl`, `vaab serve`, and riff-linked projects must
+  start instantly; AOT would add a compile step before the first request.
+* **Fits the VM** — channels, tasks, `select`, and I/O stay on the bytecode
+  interpreter; only pure, capture-free `Int` bodies get native code.
+* **Modern tiered model** — tier 0 (interpreter) always works; tier 1 (Cranelift)
+  kicks in after warmup. Tier 2 (recursive bodies with depth checks) is the next
+  step for things like `fib`.
+
+**Why not AOT (yet)**
+
+* Whole-program AOT fights Vaab's concurrency model and dynamic loading.
+* Steady-state speed is better with AOT, but cold start and incremental dev are
+  worse — wrong trade for v0.1.
+
+**Tier-1 scope (v0.1)**
+
+* Pure `Int` locals, arithmetic, compares, jumps, return.
+* No captures, no calls to other Vaab functions, no self-recursion.
+* No `divide` / `remainder` — the interpreter reports `DividedByZero` with a
+  proper stack trace; native `sdiv` would trap instead.
+
+The cost: recursive and multi-function hot paths (e.g. `fib`, call chains) stay
+on the interpreter until tier 2.
+
+### D82. Mutable objects are `cast`; inheritance is `entertains`
+
+Ruby-style classes are called **casts**. The word fits the language's voice
+(`riff`, `type`, `choice`, `ability`) and the theatre metaphor: a cast is a
+role with state and behaviour; each instance is someone playing it.
+
+Inheritance uses **`entertains`**, not `extends` or `from`:
+
+```vaab
+cast Animal {
+    changing name: Text
+    to speak() returns Text = self.name
+}
+
+cast Dog entertains Animal {
+    changing breed: Text
+    to speak() returns Text = "{self.name} ({self.breed})"
+}
+```
+
+**`type` stays immutable.** Casts are the mutable layer. A `type` holds data
+that changes only through `.with(...)`; a `cast` holds `changing` fields that
+methods may assign to in place.
+
+**Abilities still use `can`.** A cast may declare `can Describable` the same way
+a type does. Inheritance (`entertains`) and interface provision (`can`) are
+separate: a `cast Dog entertains Animal can Runnable` both extends and
+implements.
+
+**Construction stays `.new`.** Every cast gets `Cast.new(...)` with named
+arguments, matching types. Validated construction uses `to new` and `Cast.raw`
+inside the body, same as today.
+
+**Class methods use `to self.method`.** Instance methods are plain `to foo(...)`.
+Methods on the cast itself — factories, finders — are `to self.open(...)`.
+
+The cost: two ways to define structured objects (`type` and `cast`). The benefit:
+immutability stays the default for data; mutation is explicit and theatrically
+named.
+
 ---
 
 ## Still open

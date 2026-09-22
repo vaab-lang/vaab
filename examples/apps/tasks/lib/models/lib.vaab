@@ -1,0 +1,29 @@
+type User can Json {
+    id: Text
+    email: Text
+}
+
+type Task can Json {
+    id: Text
+    title: Text
+    owner: Text
+}
+
+type OkResponse can Json {
+    ok: Bool
+}
+
+type HealthStatus can Json {
+    status: Text
+    database: Text
+}
+
+type NewTask can Json {
+    title: Text
+}
+
+type Quote can Json {
+    text: Text
+    source: Text
+    ms: Int
+}

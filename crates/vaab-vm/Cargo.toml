@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+cranelift-codegen = "0.115.1"
+cranelift-frontend = "0.115.1"
+cranelift-jit = "0.115.1"
+cranelift-module = "0.115.1"
+cranelift-native = "0.115.1"
 crossbeam-deque.workspace = true
 hex.workspace = true
 hmac.workspace = true
@@ -16,6 +21,7 @@ redb.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+target-lexicon = "0.12.16"
 ureq.workspace = true
 vaab-syntax.workspace = true
 vaab-types.workspace = true

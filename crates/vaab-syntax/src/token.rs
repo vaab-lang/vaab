@@ -37,6 +37,7 @@ pub enum TokenKind {
     Then,
     Otherwise,
     Type,
+    Cast,
     Choice,
     Ability,
     SelfValue,
@@ -68,6 +69,7 @@ pub enum TokenKind {
     Times,
     Of,
     Can,
+    Entertains,
     Pure,
     As,
     From,
@@ -168,6 +170,7 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("then", TokenKind::Then),
     ("otherwise", TokenKind::Otherwise),
     ("type", TokenKind::Type),
+    ("cast", TokenKind::Cast),
     ("choice", TokenKind::Choice),
     ("ability", TokenKind::Ability),
     ("self", TokenKind::SelfValue),
@@ -197,6 +200,7 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("times", TokenKind::Times),
     ("of", TokenKind::Of),
     ("can", TokenKind::Can),
+    ("entertains", TokenKind::Entertains),
     ("pure", TokenKind::Pure),
     ("as", TokenKind::As),
     ("from", TokenKind::From),
@@ -247,6 +251,7 @@ impl TokenKind {
                 | Times
                 | Of
                 | Can
+                | Entertains
                 | Pure
                 | As
                 | From

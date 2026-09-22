@@ -1,0 +1,20 @@
+cast QuoteRoute {
+    to self.pick(tick: Int) returns Text {
+        let n = tick % 8
+        if n == 0 { return "Ship the serve block." }
+        if n == 1 { return "Auth is request.who — not a package." }
+        if n == 2 { return "Db.connect is first-class." }
+        if n == 3 { return "env.required keeps secrets out of source." }
+        if n == 4 { return "http.get is for the other 20% of fetch." }
+        if n == 5 { return "Riffs are for Stripe, not for login." }
+        if n == 6 { return "A vibe-coded app needs six things in the box." }
+        return "Casts entertain routes — this is the product."
+    }
+
+    to self.handle(who: User or fails AuthError) returns Quote or fails ApiError {
+        let user = try Auth.require_user(who)
+        let started = now()
+        let text = QuoteRoute.pick(started)
+        return success Quote.new(text: text, source: "pool for {user.id}", ms: now() - started)
+    }
+}

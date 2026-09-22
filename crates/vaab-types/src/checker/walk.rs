@@ -90,7 +90,7 @@ pub(super) fn statement(node: &Stmt, visitor: &mut impl Visit) {
         // A `type`, `choice` or `ability` belongs at the top level of a file, so one
         // inside a block has already been reported and its body is not worth
         // walking into.
-        StmtKind::Type(_) | StmtKind::Choice(_) | StmtKind::Ability(_) => {}
+        StmtKind::Type(_) | StmtKind::Cast(_) | StmtKind::Choice(_) | StmtKind::Ability(_) => {}
         StmtKind::Serve(serve) => {
             expression(&serve.port, visitor);
             if let Some(before) = &serve.before {

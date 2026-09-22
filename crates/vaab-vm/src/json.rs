@@ -23,7 +23,7 @@ pub fn decode_record(text: &str, layout: Ref<RecordLayout>) -> Result<Value, Fau
             .ok_or_else(|| Fault::Confused("the request body is missing a field"))?;
         fields.push(json_to_value(value)?);
     }
-    Ok(Value::Record(Ref::new(Record { layout, fields })))
+    Ok(Value::Record(Ref::new(Record { layout, fields, cells: None })))
 }
 
 fn json_to_value(value: &Json) -> Result<Value, Fault> {
@@ -74,8 +74,9 @@ fn value_to_json(value: &Value) -> Result<Json, Fault> {
         Value::Maybe(Some(held)) => value_to_json(held),
         Value::Record(record) => {
             let mut object = Map::new();
-            for (name, value) in record.layout.fields.iter().zip(&record.fields) {
-                object.insert(name.clone(), value_to_json(value)?);
+            for (index, name) in record.layout.fields.iter().enumerate() {
+                let Some(value) = record.field(index) else { continue };
+                object.insert(name.clone(), value_to_json(&value)?);
             }
             Ok(Json::Object(object))
         }

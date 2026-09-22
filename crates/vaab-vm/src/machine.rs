@@ -102,6 +102,8 @@ pub struct World {
     pub databases: Arc<Databases>,
     /// Embedded KV stores opened by `Store.open`, shared across request machines.
     pub stores: Arc<Stores>,
+    /// Tier-1 Cranelift JIT for hot pure-integer bodies.
+    pub jit: crate::jit::JitEngine,
 }
 
 impl World {
@@ -120,7 +122,15 @@ impl World {
         stores: Arc<Stores>,
     ) -> World {
         let globals = vec![Value::Nothing; program.globals];
-        World { program, globals, output, response: None, databases, stores }
+        World {
+            program,
+            globals,
+            output,
+            response: None,
+            databases,
+            stores,
+            jit: crate::jit::JitEngine::default(),
+        }
     }
 
     /// Takes a freshly compiled program, keeping the values the session already
@@ -568,12 +578,20 @@ impl Machine {
                 self.stack.push(Value::text(joined));
             }
             Op::Record { layout, fields } => {
-                let fields = self.take(fields as usize)?;
+                let values = self.take(fields as usize)?;
                 let Some(layout) = program.layouts.get(layout as usize) else {
                     return Err(Fault::Confused("a value was built from a type that is not there"));
                 };
-                self.stack
-                    .push(Value::Record(Ref::new(Record { layout: Ref::clone(layout), fields })));
+                let record = if layout.mutable {
+                    Record {
+                        layout: Ref::clone(layout),
+                        fields: Vec::new(),
+                        cells: Some(Ref::new(values.into_iter().map(Captured::new).collect())),
+                    }
+                } else {
+                    Record { layout: Ref::clone(layout), fields: values, cells: None }
+                };
+                self.stack.push(Value::Record(Ref::new(record)));
             }
             Op::Variant { layout, fields } => {
                 let fields = self.take(fields as usize)?;
@@ -590,10 +608,20 @@ impl Machine {
                 let Value::Record(record) = value else {
                     return Err(Fault::Confused("a field was read from something with none"));
                 };
-                let Some(field) = record.fields.get(index as usize) else {
+                let Some(field) = record.field(index as usize) else {
                     return Err(Fault::Confused("a field was read out of range"));
                 };
-                self.stack.push(field.clone());
+                self.stack.push(field);
+            }
+            Op::SetField(index) => {
+                let target = self.pop()?;
+                let value = self.pop()?;
+                let Value::Record(record) = target else {
+                    return Err(Fault::Confused("a field was written to something with none"));
+                };
+                if !record.set_field(index as usize, value) {
+                    return Err(Fault::Confused("a field was written out of range"));
+                }
             }
             Op::Index => {
                 let position = self.pop()?;
@@ -716,6 +744,23 @@ impl Machine {
                 match callee {
                     Value::Function(closure) => {
                         let body = closure.body as usize;
+                        let shape = program.body(body);
+                        if closure.captures.is_empty() {
+                            if let Some(shape) = shape {
+                                if let Some(result) = crate::jit::try_native_call(
+                                    &mut world.jit,
+                                    program,
+                                    body,
+                                    shape.parameters,
+                                    &self.stack,
+                                    arity as usize,
+                                ) {
+                                    self.stack.truncate(self.stack.len() - arity as usize);
+                                    self.stack.push(Value::Int(result));
+                                    return Ok(TickAction::Continue);
+                                }
+                            }
+                        }
                         self.enter(program, body, arity as usize, Value::Nothing, Some(closure))?;
                     }
                     Value::Builtin(builtin) => self.apply(builtin, arity as usize, world)?,

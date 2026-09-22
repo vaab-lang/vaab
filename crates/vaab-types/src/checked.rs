@@ -38,6 +38,10 @@ handle! {
     TypeId
 }
 handle! {
+    /// A declared `cast`.
+    CastId
+}
+handle! {
     /// A declared `choice`.
     ChoiceId
 }
@@ -76,6 +80,8 @@ pub struct Checked {
     pub functions: Vec<Function>,
     /// Declared `type`s, in source order.
     pub declared_types: Vec<DeclaredType>,
+    /// Declared `cast`s, in source order.
+    pub declared_casts: Vec<DeclaredCast>,
     /// Declared `choice`s, in source order.
     pub choices: Vec<Choice>,
     /// Declared `ability`s, in source order.
@@ -139,6 +145,10 @@ impl Checked {
         self.declared_types.get(declared.index())
     }
 
+    pub fn declared_cast(&self, cast: CastId) -> Option<&DeclaredCast> {
+        self.declared_casts.get(cast.index())
+    }
+
     pub fn choice(&self, choice: ChoiceId) -> Option<&Choice> {
         self.choices.get(choice.index())
     }
@@ -179,6 +189,18 @@ pub enum Resolution {
     Raw(TypeId),
     /// `account.with(field: value)`: copy, replacing the fields given.
     With(TypeId),
+    /// `self.count` or `counter.count` on a cast with a `changing` field.
+    CastField { cast: CastId, field: usize },
+    /// `counter.bump()` on a cast instance.
+    CastMethod { cast: CastId, function: FunctionId },
+    /// `Counter.new(...)` for a cast with no validated `to new`.
+    AutomaticCastNew(CastId),
+    /// A cast's own validated `to new`.
+    UserCastNew { cast: CastId, function: FunctionId },
+    /// `Counter.raw(...)`, legal only inside the cast's body.
+    RawCast(CastId),
+    /// `Counter.zero(...)`, a class method on the cast itself.
+    CastClassMethod { cast: CastId, function: FunctionId },
     /// `AccountError.Frozen`, whether constructed or matched against.
     Variant { choice: ChoiceId, variant: usize },
     /// `Channel.new(of: Text, size: 4)`.
@@ -255,12 +277,21 @@ pub enum ArgumentSource {
     Kept,
 }
 
+/// Whether a method belongs to a `type` or a `cast`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Owner {
+    Type(TypeId),
+    Cast(CastId),
+}
+
 /// A function, wherever it was declared.
 #[derive(Clone, Debug)]
 pub struct Function {
     pub name: String,
-    /// The type whose body declared it, for a method or a validated `to new`.
-    pub owner: Option<TypeId>,
+    /// The type or cast whose body declared it, for a method or a validated `to new`.
+    pub owner: Option<Owner>,
+    /// `true` for `to self.factory(...)`, which lives on the cast, not its instances.
+    pub class_method: bool,
     pub signature: Signature,
     /// The frame its body runs in.
     pub frame: FrameId,
@@ -326,7 +357,23 @@ impl Checked {
     pub fn method(&self, declared: TypeId, name: &str) -> Option<FunctionId> {
         let holder = self.declared_type(declared)?;
         holder.methods.iter().copied().find(|function| {
-            self.function(*function).is_some_and(|function| function.name == name)
+            self.function(*function).is_some_and(|function| function.name == name && !function.class_method)
+        })
+    }
+
+    /// The instance method named `name` on a cast.
+    pub fn cast_method(&self, cast: CastId, name: &str) -> Option<FunctionId> {
+        let holder = self.declared_cast(cast)?;
+        holder.methods.iter().copied().find(|function| {
+            self.function(*function).is_some_and(|function| function.name == name && !function.class_method)
+        })
+    }
+
+    /// The class method named `name` on a cast.
+    pub fn cast_class_method(&self, cast: CastId, name: &str) -> Option<FunctionId> {
+        let holder = self.declared_cast(cast)?;
+        holder.methods.iter().copied().find(|function| {
+            self.function(*function).is_some_and(|function| function.name == name && function.class_method)
         })
     }
 }
@@ -346,6 +393,36 @@ pub struct Field {
     pub name: String,
     pub declared: Type,
     /// Whether a default was written, so the field may be left out of `.new`.
+    pub has_default: bool,
+    pub span: Span,
+}
+
+/// A declared `cast`.
+#[derive(Clone, Debug)]
+pub struct DeclaredCast {
+    pub name: String,
+    /// Parent casts this one entertains, in source order.
+    pub entertains: Vec<CastId>,
+    pub fields: Vec<CastField>,
+    pub methods: Vec<FunctionId>,
+    pub abilities: Vec<AbilityId>,
+    pub constructor: Constructor,
+    pub declaration: NodeId,
+    pub span: Span,
+}
+
+impl DeclaredCast {
+    pub fn field(&self, name: &str) -> Option<(usize, &CastField)> {
+        self.fields.iter().enumerate().find(|(_, field)| field.name == name)
+    }
+}
+
+/// One field of a cast.
+#[derive(Clone, Debug)]
+pub struct CastField {
+    pub name: String,
+    pub declared: Type,
+    pub changing: bool,
     pub has_default: bool,
     pub span: Span,
 }

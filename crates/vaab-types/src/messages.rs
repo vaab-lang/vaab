@@ -353,6 +353,15 @@ pub fn raw_outside_type(owner: &str, span: Span) -> Diagnostic {
         ))
 }
 
+pub fn cast_entertains_type(name: &str, span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "cast-entertains-type",
+        format!("a cast can only entertain another cast, not the type `{name}`"),
+    )
+    .at(span, "`entertains` expects a cast name here")
+    .with_help(format!("declare `cast {name}` instead, or pick a cast to entertain"))
+}
+
 pub fn needs_a_type_name(span: Span) -> Diagnostic {
     Diagnostic::error("needs-a-type-name", "`Channel.new` needs the type of what it carries")
         .at(span, "Vaab expected a type here")

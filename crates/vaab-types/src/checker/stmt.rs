@@ -1,11 +1,12 @@
 //! Statements, blocks and the bodies of declarations.
 
 use vaab_syntax::ast::{
-    Block, ElseBranch, Expr, ExprKind, FunctionBody, FunctionDecl, IfExpr, Stmt, StmtKind, TypeDecl,
+    Block, CastDecl, ElseBranch, Expr, ExprKind, FunctionBody, FunctionDecl, IfExpr, Stmt,
+    StmtKind, TypeDecl,
 };
 use vaab_syntax::span::Span;
 
-use super::{Checker, Enclosing, Global, Wanted};
+use super::{Checker, Enclosing, Global, Inside, Wanted};
 use crate::checked::{FunctionId, Resolution};
 use crate::messages;
 use crate::types::Type;
@@ -121,6 +122,8 @@ impl Checker {
 
             StmtKind::Type(declaration) => self.type_body(declaration),
 
+            StmtKind::Cast(declaration) => self.cast_body(declaration),
+
             StmtKind::Choice(declaration) => {
                 if self.scopes.len() > 1 {
                     self.report(messages::nested_declaration(
@@ -177,9 +180,17 @@ impl Checker {
                 self.expression(value, Wanted::Exactly(declared));
             }
 
-            // A `type` never changes, and neither does a list, so the only honest
-            // thing to do is say where the changed copy comes from instead.
             ExprKind::Member { target: owner, name } => {
+                if let Some((cast, field, declared)) = self.assignable_cast_field(owner, name) {
+                    self.record(target, declared.clone());
+                    self.resolve_to(
+                        target.id,
+                        Resolution::CastField { cast, field },
+                    );
+                    self.expression(value, Wanted::Exactly(declared));
+                    return;
+                }
+
                 let found = self.expression(owner, Wanted::Anything);
                 let owner_name = match self.variables.resolve(&found) {
                     Type::Named(owner) => owner,
@@ -401,11 +412,87 @@ impl Checker {
         }
 
         // Inside the body, `self` is a value of this type and `raw` is available.
-        let outside = self.inside.replace(id);
+        let outside = self.inside.replace(Inside::Type(id));
         for (function, method) in declaration.functions.iter().zip(methods) {
             self.function_body(function, method);
         }
         self.inside = outside;
+    }
+
+    /// The fields' defaults and the methods of a `cast`.
+    fn cast_body(&mut self, declaration: &CastDecl) {
+        if self.scopes.len() > 1 {
+            self.report(messages::nested_declaration(
+                "cast",
+                &declaration.name.text,
+                declaration.name.span,
+            ));
+            return;
+        }
+
+        let Some(Global::Cast(id)) = self.globals.get(&declaration.name.text).copied() else {
+            return;
+        };
+        if self.checked.declared_cast(id).is_none() {
+            return;
+        }
+        for field in &declaration.fields {
+            let Some((_, declared)) = self.checked.declared_cast(id).and_then(|cast| cast.field(&field.name.text))
+            else {
+                continue;
+            };
+            if let Some(default) = &field.default {
+                self.expression(default, Wanted::Exactly(declared.declared.clone()));
+            }
+        }
+
+        let outside = self.inside.replace(Inside::Cast(id));
+        for function in &declaration.functions {
+            let method = if function.class_method {
+                self.checked.cast_class_method(id, &function.name.text)
+            } else {
+                self.checked.cast_method(id, &function.name.text)
+            };
+            if let Some(method) = method {
+                self.function_body(function, method);
+            }
+        }
+        self.inside = outside;
+    }
+
+    /// Whether `target.name` is a `changing` field of a cast value, including `self.field`.
+    fn assignable_cast_field(
+        &mut self,
+        target: &Expr,
+        name: &vaab_syntax::ast::Name,
+    ) -> Option<(crate::checked::CastId, usize, Type)> {
+        let cast_name = match &target.kind {
+            ExprKind::SelfValue => match self.inside {
+                Some(Inside::Cast(id)) => {
+                    self.checked.declared_cast(id).map(|declared| declared.name.clone())?
+                }
+                _ => return None,
+            },
+            ExprKind::Name(written) => {
+                let reference = self.lookup_local(&written.text)?;
+                let local = self.checked.local(reference.local)?;
+                match self.variables.resolve(&local.declared) {
+                    Type::Named(name) => name,
+                    _ => return None,
+                }
+            }
+            _ => return None,
+        };
+
+        let Global::Cast(id) = self.globals.get(&cast_name).copied()? else {
+            return None;
+        };
+        let (field, declared) = self.checked.declared_cast(id)?.field(&name.text)?;
+        if !declared.changing {
+            self.report(messages::not_changing(&name.text, name.span, declared.span));
+            return None;
+        }
+        Some((id, field, declared.declared.clone()))
     }
 }
 

@@ -58,9 +58,10 @@ mod unify;
 
 pub use json::can_json;
 pub use checked::{
-    Ability, AbilityId, ArgumentSource, Call, Checked, Choice, ChoiceId, Closure, Constructor,
-    DeclaredType, Field, Frame, FrameId, FrameKind, Function, FunctionId, Local, LocalId,
-    LocalRef, Required, Resolution, Route, RouteSegment, Serve, Task, TypeId, Variant,
+    Ability, AbilityId, ArgumentSource, Call, CastField, CastId, Checked, Choice, ChoiceId,
+    Closure, Constructor, DeclaredCast, DeclaredType, Field, Frame, FrameId, FrameKind, Function,
+    FunctionId, Local, LocalId, LocalRef, Owner, Required, Resolution, Route, RouteSegment, Serve,
+    Task, TypeId, Variant,
 };
 pub use checker::check;
 pub use types::{FunctionType, Parameter, Signature, Type, VariableId};

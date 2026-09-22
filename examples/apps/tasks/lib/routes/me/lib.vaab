@@ -1,0 +1,5 @@
+cast MeRoute {
+    to self.handle(who: User or fails AuthError) returns User or fails ApiError {
+        return Auth.require_user(who)
+    }
+}

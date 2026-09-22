@@ -168,18 +168,24 @@ impl ImpureFinder<'_> {
             Some(Resolution::RequestWho) => Some(PureViolation::Effect("read who the caller is")),
             Some(Resolution::Function(id)) => self.impure_declared(*id),
             Some(Resolution::Method { function, .. }) => self.impure_declared(*function),
+            Some(Resolution::CastMethod { function, .. }) => self.impure_declared(*function),
             Some(Resolution::UserNew { function, .. }) => self.impure_declared(*function),
+            Some(Resolution::UserCastNew { function, .. }) => self.impure_declared(*function),
+            Some(Resolution::CastClassMethod { function, .. }) => self.impure_declared(*function),
             // Everything else that resolves to a call is either pure by nature or
             // checked elsewhere. Only calls through a value with no declaration
             // remain suspicious.
             Some(
                 Resolution::BuiltinMethod(_)
                 | Resolution::AutomaticNew(_)
+                | Resolution::AutomaticCastNew(_)
                 | Resolution::Raw(_)
+                | Resolution::RawCast(_)
                 | Resolution::With(_)
                 | Resolution::Variant { .. }
                 | Resolution::AbilityMethod { .. }
                 | Resolution::Field { .. }
+                | Resolution::CastField { .. }
                 | Resolution::Local(_)
                 | Resolution::SelfValue
                 | Resolution::RequestField(_),

@@ -227,7 +227,7 @@ impl<'a> Compiler<'a> {
                     span,
                 );
             }
-            Some(Resolution::Field { field, .. }) => {
+            Some(Resolution::Field { field, .. }) | Some(Resolution::CastField { field, .. }) => {
                 self.expression(target);
                 self.emit(Op::Field(field as u32), span);
             }
@@ -291,7 +291,10 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::Builtin(Builtin::ToJson), span);
             }
 
-            Some(Resolution::Function(id)) | Some(Resolution::UserNew { function: id, .. }) => {
+            Some(Resolution::Function(id))
+            | Some(Resolution::UserNew { function: id, .. })
+            | Some(Resolution::UserCastNew { function: id, .. })
+            | Some(Resolution::CastClassMethod { function: id, .. }) => {
                 let body = self.body_of.get(&id).copied();
                 let frame = self.checked.function(id).map(|function| function.frame);
                 let (Some(body), Some(frame)) = (body, frame) else {
@@ -303,7 +306,8 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::Call(count), span);
             }
 
-            Some(Resolution::Method { function, .. }) => {
+            Some(Resolution::Method { function, .. })
+            | Some(Resolution::CastMethod { function, .. }) => {
                 let Some(body) = self.body_of.get(&function).copied() else {
                     return self.emit(Op::Nothing, span);
                 };
@@ -333,6 +337,16 @@ impl<'a> Compiler<'a> {
                 };
                 let fields = self.push_arguments(call, arguments, defaults);
                 self.emit(Op::Record { layout: declared.0, fields }, span);
+            }
+
+            Some(Resolution::AutomaticCastNew(cast))
+            | Some(Resolution::RawCast(cast)) => {
+                let defaults = match self.cast_fields_of(cast) {
+                    Some(fields) => Defaults::Fields(fields),
+                    None => Defaults::None,
+                };
+                let fields = self.push_arguments(call, arguments, defaults);
+                self.emit(Op::Record { layout: self.cast_layout(cast), fields }, span);
             }
 
             Some(Resolution::With(declared)) => self.with(call, target, arguments, declared, span),

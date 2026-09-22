@@ -1,0 +1,42 @@
+# Task API — one cast per route, wired in with local riffs.
+#
+#   cd examples/apps/tasks
+#   vaab gather
+#   AUTH_SECRET=dev vaab serve main.vaab
+#
+# See also the single-file version: examples/15_first_class_app.vaab
+
+need errors from ./lib/errors of ApiError, AuthError, DbError, EnvError, HttpError
+need models from ./lib/models of User, Task, NewTask, OkResponse, HealthStatus, Quote
+need database from ./lib/database of Database
+need auth from ./lib/auth of Auth
+need health from ./lib/routes/health of HealthRoute
+need me from ./lib/routes/me of MeRoute
+need tasks_route from ./lib/routes/tasks of TasksRoute
+need quote from ./lib/routes/quote of QuoteRoute
+
+serve on port 8090 {
+    route get "/health" {
+        reply with try HealthRoute.handle()
+    }
+
+    route get "/api/me" {
+        reply with try MeRoute.handle(request.who)
+    }
+
+    route get "/api/tasks" {
+        reply with try TasksRoute.list(request.who)
+    }
+
+    route post "/api/tasks" expecting NewTask as body {
+        reply with try TasksRoute.create(request.who, body) status 201
+    }
+
+    route get "/api/quote" {
+        reply with try QuoteRoute.handle(request.who)
+    }
+
+    when anything fails with ApiError as error {
+        reply explain(error)
+    }
+}

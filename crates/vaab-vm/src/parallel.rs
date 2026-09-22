@@ -84,6 +84,7 @@ fn run_parallel(
         response: None,
         databases: Databases::shared(),
         stores: Stores::shared(),
+        jit: crate::jit::JitEngine::default(),
     };
     let mut queues: Vec<Worker<usize>> = Vec::with_capacity(workers);
     let mut stealers: Vec<Stealer<usize>> = Vec::with_capacity(workers);

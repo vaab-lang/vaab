@@ -9,7 +9,8 @@ use vaab_syntax::ast::{Expr, ExprKind, Name};
 use vaab_syntax::span::Span;
 
 use super::{Checker, Global, Wanted};
-use crate::checked::{ChoiceId, Constructor, Resolution, TypeId};
+use super::Inside;
+use crate::checked::{CastId, ChoiceId, Constructor, Resolution, TypeId};
 use crate::messages;
 use crate::prelude;
 use crate::types::{Parameter, Signature, Type};
@@ -158,6 +159,7 @@ impl Checker {
             if self.lookup_local(&written.text).is_none() {
                 match self.globals.get(&written.text).copied() {
                     Some(Global::Type(id)) => return self.type_member(id, name),
+                    Some(Global::Cast(id)) => return self.cast_member(id, name),
                     Some(Global::Choice(id)) => return self.variant_member(id, name),
                     Some(Global::Ability(_)) | None => {}
                 }
@@ -304,7 +306,7 @@ impl Checker {
             },
 
             "raw" => {
-                if self.inside != Some(id) {
+                if !matches!(self.inside, Some(Inside::Type(inside)) if inside == id) {
                     self.report(messages::raw_outside_type(&owner, name.span));
                 }
                 Member::Callable {
@@ -331,6 +333,103 @@ impl Checker {
 
             _ => {
                 let known = vec!["new".to_string(), "raw".to_string()];
+                self.report(messages::unknown_member(
+                    &Type::named(&owner),
+                    &name.text,
+                    name.span,
+                    &known,
+                ));
+                Member::Unknown
+            }
+        }
+    }
+
+    /// `Counter.new`, `Counter.zero`, `Counter.raw`.
+    fn cast_member(&mut self, id: CastId, name: &Name) -> Member {
+        let Some(declared) = self.checked.declared_cast(id) else { return Member::Unknown };
+        let owner = declared.name.clone();
+        let constructor = declared.constructor;
+        let fields = declared.fields.clone();
+        let at = declared.span;
+
+        if let Some(function) = self.checked.cast_class_method(id, &name.text) {
+            let Some(method) = self.checked.function(function) else { return Member::Unknown };
+            return Member::Callable {
+                signature: method.signature.clone(),
+                resolution: Resolution::CastClassMethod { cast: id, function },
+                shape: CallShape::function(format!("{owner}.{}", name.text), Some(method.span)),
+            };
+        }
+
+        match name.text.as_str() {
+            "new" => match constructor {
+                Constructor::Automatic => Member::Callable {
+                    signature: Signature::new(
+                        fields
+                            .iter()
+                            .map(|field| Parameter {
+                                name: field.name.clone(),
+                                declared: field.declared.clone(),
+                                optional: field.has_default,
+                            })
+                            .collect(),
+                        Type::named(&owner),
+                    ),
+                    resolution: Resolution::AutomaticCastNew(id),
+                    shape: CallShape::fields(
+                        format!("{owner}.new"),
+                        owner,
+                        at,
+                        WhenMissing::NewField,
+                    ),
+                },
+                Constructor::UserDefined(function) => {
+                    let Some(found) = self.checked.function(function) else {
+                        return Member::Unknown;
+                    };
+                    Member::Callable {
+                        signature: found.signature.clone(),
+                        resolution: Resolution::UserCastNew { cast: id, function },
+                        shape: CallShape::function(format!("{owner}.new"), Some(found.span)),
+                    }
+                }
+            },
+
+            "raw" => {
+                if !matches!(self.inside, Some(Inside::Cast(inside)) if inside == id) {
+                    self.report(messages::raw_outside_type(&owner, name.span));
+                }
+                Member::Callable {
+                    signature: Signature::new(
+                        fields
+                            .iter()
+                            .map(|field| Parameter::new(field.name.clone(), field.declared.clone()))
+                            .collect(),
+                        Type::named(&owner),
+                    ),
+                    resolution: Resolution::RawCast(id),
+                    shape: CallShape::fields(
+                        format!("{owner}.raw"),
+                        owner,
+                        at,
+                        WhenMissing::NewField,
+                    ),
+                }
+            }
+
+            _ => {
+                let mut known = vec!["new".to_string(), "raw".to_string()];
+                known.extend(
+                    declared
+                        .methods
+                        .iter()
+                        .filter_map(|function| {
+                            self.checked
+                                .function(*function)
+                                .filter(|function| function.class_method)
+                                .map(|function| function.name.clone())
+                        }),
+                );
                 self.report(messages::unknown_member(
                     &Type::named(&owner),
                     &name.text,
@@ -395,6 +494,10 @@ impl Checker {
 
     /// A field, a method, or `.with`, on a value of a declared type.
     fn named_member(&mut self, owner: &str, found: &Type, name: &Name) -> Member {
+        if let Some(Global::Cast(id)) = self.globals.get(owner).copied() {
+            return self.cast_named_member(id, owner, found, name);
+        }
+
         let Some(Global::Type(id)) = self.globals.get(owner).copied() else {
             // The only other named type is a choice, and a choice's values are its
             // variants: there is nothing inside one to reach for.
@@ -447,6 +550,37 @@ impl Checker {
         }
 
         let known = self.members_of_named(id);
+        self.report(messages::unknown_member(found, &name.text, name.span, &known));
+        Member::Unknown
+    }
+
+    /// A field or an instance method on a cast value. Casts have no `.with`.
+    fn cast_named_member(
+        &mut self,
+        id: CastId,
+        owner: &str,
+        found: &Type,
+        name: &Name,
+    ) -> Member {
+        let Some(declared) = self.checked.declared_cast(id) else { return Member::Unknown };
+
+        if let Some((index, field)) = declared.field(&name.text) {
+            return Member::Value {
+                declared: field.declared.clone(),
+                resolution: Resolution::CastField { cast: id, field: index },
+            };
+        }
+
+        if let Some(function) = self.checked.cast_method(id, &name.text) {
+            let Some(method) = self.checked.function(function) else { return Member::Unknown };
+            return Member::Callable {
+                signature: method.signature.clone(),
+                resolution: Resolution::CastMethod { cast: id, function },
+                shape: CallShape::function(format!("{owner}.{}", name.text), Some(method.span)),
+            };
+        }
+
+        let known = self.members_of_cast(id);
         self.report(messages::unknown_member(found, &name.text, name.span, &known));
         Member::Unknown
     }
@@ -582,6 +716,20 @@ impl Checker {
             }
         }
         known.push("with".to_string());
+        known
+    }
+
+    fn members_of_cast(&self, id: CastId) -> Vec<String> {
+        let Some(declared) = self.checked.declared_cast(id) else { return Vec::new() };
+        let mut known: Vec<String> =
+            declared.fields.iter().map(|field| field.name.clone()).collect();
+        for method in &declared.methods {
+            if let Some(function) = self.checked.function(*method) {
+                if !function.class_method {
+                    known.push(function.name.clone());
+                }
+            }
+        }
         known
     }
 }

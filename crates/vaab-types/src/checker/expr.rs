@@ -196,8 +196,17 @@ impl Checker {
     }
 
     fn self_expression(&mut self, span: Span) -> Type {
-        match self.inside.and_then(|id| self.checked.declared_type(id)) {
-            Some(declared) => Type::named(&declared.name),
+        let name = match self.inside {
+            Some(super::Inside::Type(id)) => {
+                self.checked.declared_type(id).map(|declared| declared.name.clone())
+            }
+            Some(super::Inside::Cast(id)) => {
+                self.checked.declared_cast(id).map(|declared| declared.name.clone())
+            }
+            None => None,
+        };
+        match name {
+            Some(name) => Type::named(&name),
             None => {
                 self.report(messages::self_outside_type(span));
                 Type::Unknown

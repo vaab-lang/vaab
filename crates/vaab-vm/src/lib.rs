@@ -47,6 +47,7 @@ pub mod app_io;
 pub mod builtin;
 pub mod bytecode;
 mod compile;
+pub mod jit;
 pub mod json;
 mod static_files;
 pub mod concurrency;

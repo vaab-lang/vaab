@@ -1,0 +1,7 @@
+cast HealthRoute {
+    to self.handle() returns HealthStatus or fails ApiError {
+        let db = try Database.open()
+        try Database.ensure_schema(db)
+        return success HealthStatus.new(status: "ok", database: Database.path())
+    }
+}

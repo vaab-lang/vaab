@@ -4,7 +4,7 @@
 //! in the language rather than as packages, matching the product decision that
 //! Postgres/auth/HTTP/env are not riffs.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use hmac::{Hmac, Mac};
@@ -234,6 +234,7 @@ pub fn verify_bearer(
     Ok(Value::Record(Ref::new(Record {
         layout: user_layout,
         fields: vec![Value::text(id), Value::text(email)],
+        cells: None,
     })))
 }
 
@@ -253,11 +254,160 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 }
 
 const KV: TableDefinition<&str, &str> = TableDefinition::new("kv");
+/// Persist pending writes after this many dirty keys — one redb commit per batch.
+const STORE_FLUSH_BATCH: usize = 32;
+
+#[derive(Default)]
+struct StoreOverlay {
+    values: HashMap<String, String>,
+    removed: HashSet<String>,
+    dirty: HashSet<String>,
+}
+
+struct StoreState {
+    database: Arc<Database>,
+    overlay: Mutex<StoreOverlay>,
+}
+
+impl StoreState {
+    fn open(path: &str) -> Result<Self, String> {
+        let database = Database::create(path).map_err(|error| error.to_string())?;
+        {
+            let write = database.begin_write().map_err(|error| error.to_string())?;
+            {
+                let _ = write.open_table(KV).map_err(|error| error.to_string())?;
+            }
+            write.commit().map_err(|error| error.to_string())?;
+        }
+        Ok(Self {
+            database: Arc::new(database),
+            overlay: Mutex::new(StoreOverlay::default()),
+        })
+    }
+
+    fn get(&self, key: &str) -> Result<Value, String> {
+        let overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        if overlay.removed.contains(key) {
+            return Ok(Value::absent());
+        }
+        if let Some(value) = overlay.values.get(key) {
+            return Ok(Value::found(Value::text(value.clone())));
+        }
+        drop(overlay);
+
+        let read = self.database.begin_read().map_err(|error| error.to_string())?;
+        let table = read.open_table(KV).map_err(|error| error.to_string())?;
+        match table.get(key).map_err(|error| error.to_string())? {
+            Some(value) => {
+                let text = value.value().to_string();
+                let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+                if !overlay.removed.contains(key) {
+                    overlay.values.insert(key.to_string(), text.clone());
+                }
+                Ok(Value::found(Value::text(text)))
+            }
+            None => Ok(Value::absent()),
+        }
+    }
+
+    fn set(&self, key: &str, value: &str) -> Result<(), String> {
+        let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        overlay.removed.remove(key);
+        overlay.values.insert(key.to_string(), value.to_string());
+        overlay.dirty.insert(key.to_string());
+        let should_flush = overlay.dirty.len() >= STORE_FLUSH_BATCH;
+        if should_flush {
+            Self::flush_locked(&self.database, &mut overlay)?;
+        }
+        Ok(())
+    }
+
+    fn remove(&self, key: &str) -> Result<bool, String> {
+        let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let existed = overlay.values.remove(key).is_some() || {
+            drop(overlay);
+            self.read_disk(key)?.is_some()
+        };
+        let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        overlay.removed.insert(key.to_string());
+        overlay.values.remove(key);
+        overlay.dirty.insert(key.to_string());
+        let should_flush = overlay.dirty.len() >= STORE_FLUSH_BATCH;
+        if should_flush {
+            Self::flush_locked(&self.database, &mut overlay)?;
+        }
+        Ok(existed)
+    }
+
+    fn keys(&self, prefix: &str) -> Result<Vec<String>, String> {
+        let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        Self::flush_locked(&self.database, &mut overlay)?;
+        drop(overlay);
+
+        let mut keys: HashSet<String> = HashSet::new();
+        {
+            let overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+            for key in overlay.values.keys() {
+                if key.starts_with(prefix) {
+                    keys.insert(key.clone());
+                }
+            }
+        }
+
+        let read = self.database.begin_read().map_err(|error| error.to_string())?;
+        let table = read.open_table(KV).map_err(|error| error.to_string())?;
+        let overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        for item in table.iter().map_err(|error| error.to_string())? {
+            let (key, _) = item.map_err(|error| error.to_string())?;
+            let key = key.value();
+            if key.starts_with(prefix) && !overlay.removed.contains(key) {
+                keys.insert(key.to_string());
+            }
+        }
+
+        let mut keys: Vec<String> = keys.into_iter().collect();
+        keys.sort();
+        Ok(keys)
+    }
+
+    fn read_disk(&self, key: &str) -> Result<Option<String>, String> {
+        let read = self.database.begin_read().map_err(|error| error.to_string())?;
+        let table = read.open_table(KV).map_err(|error| error.to_string())?;
+        Ok(table
+            .get(key)
+            .map_err(|error| error.to_string())?
+            .map(|value| value.value().to_string()))
+    }
+
+    fn flush_locked(database: &Database, overlay: &mut StoreOverlay) -> Result<(), String> {
+        if overlay.dirty.is_empty() {
+            return Ok(());
+        }
+        let pending: Vec<String> = overlay.dirty.drain().collect();
+        let write = database.begin_write().map_err(|error| error.to_string())?;
+        {
+            let mut table = write.open_table(KV).map_err(|error| error.to_string())?;
+            for key in pending {
+                if overlay.removed.contains(&key) {
+                    table.remove(key.as_str()).map_err(|error| error.to_string())?;
+                } else if let Some(value) = overlay.values.get(&key) {
+                    table
+                        .insert(key.as_str(), value.as_str())
+                        .map_err(|error| error.to_string())?;
+                } else {
+                    table.remove(key.as_str()).map_err(|error| error.to_string())?;
+                }
+            }
+        }
+        write.commit().map_err(|error| error.to_string())?;
+        Ok(())
+    }
+}
 
 /// Embedded key-value stores opened by `Store.open`, shared across request machines.
 #[derive(Default)]
 pub struct Stores {
-    databases: Mutex<Vec<Arc<Database>>>,
+    stores: Mutex<Vec<Arc<StoreState>>>,
     by_path: Mutex<HashMap<String, u32>>,
 }
 
@@ -274,18 +424,10 @@ impl Stores {
                 return Ok(*handle);
             }
         }
-        let database = Database::create(path).map_err(|error| error.to_string())?;
-        {
-            let write = database.begin_write().map_err(|error| error.to_string())?;
-            {
-                let _ = write.open_table(KV).map_err(|error| error.to_string())?;
-            }
-            write.commit().map_err(|error| error.to_string())?;
-        }
-        let database = Arc::new(database);
-        let mut held = self.databases.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let store = Arc::new(StoreState::open(path)?);
+        let mut held = self.stores.lock().map_err(|_| "store lock poisoned".to_string())?;
         let index = held.len() as u32;
-        held.push(database);
+        held.push(store);
         drop(held);
         self.by_path
             .lock()
@@ -295,55 +437,23 @@ impl Stores {
     }
 
     pub fn get(&self, handle: u32, key: &str) -> Result<Value, String> {
-        let database = self.database(handle)?;
-        let read = database.begin_read().map_err(|error| error.to_string())?;
-        let table = read.open_table(KV).map_err(|error| error.to_string())?;
-        match table.get(key).map_err(|error| error.to_string())? {
-            Some(value) => Ok(Value::found(Value::text(value.value()))),
-            None => Ok(Value::absent()),
-        }
+        self.store(handle)?.get(key)
     }
 
     pub fn set(&self, handle: u32, key: &str, value: &str) -> Result<(), String> {
-        let database = self.database(handle)?;
-        let write = database.begin_write().map_err(|error| error.to_string())?;
-        {
-            let mut table = write.open_table(KV).map_err(|error| error.to_string())?;
-            table.insert(key, value).map_err(|error| error.to_string())?;
-        }
-        write.commit().map_err(|error| error.to_string())?;
-        Ok(())
+        self.store(handle)?.set(key, value)
     }
 
     pub fn remove(&self, handle: u32, key: &str) -> Result<bool, String> {
-        let database = self.database(handle)?;
-        let write = database.begin_write().map_err(|error| error.to_string())?;
-        let removed = {
-            let mut table = write.open_table(KV).map_err(|error| error.to_string())?;
-            let removed = table.remove(key).map_err(|error| error.to_string())?.is_some();
-            removed
-        };
-        write.commit().map_err(|error| error.to_string())?;
-        Ok(removed)
+        self.store(handle)?.remove(key)
     }
 
     pub fn keys(&self, handle: u32, prefix: &str) -> Result<Vec<String>, String> {
-        let database = self.database(handle)?;
-        let read = database.begin_read().map_err(|error| error.to_string())?;
-        let table = read.open_table(KV).map_err(|error| error.to_string())?;
-        let mut keys = Vec::new();
-        for item in table.iter().map_err(|error| error.to_string())? {
-            let (key, _) = item.map_err(|error| error.to_string())?;
-            let key = key.value();
-            if key.starts_with(prefix) {
-                keys.push(key.to_string());
-            }
-        }
-        Ok(keys)
+        self.store(handle)?.keys(prefix)
     }
 
-    fn database(&self, handle: u32) -> Result<Arc<Database>, String> {
-        let held = self.databases.lock().map_err(|_| "store lock poisoned".to_string())?;
+    fn store(&self, handle: u32) -> Result<Arc<StoreState>, String> {
+        let held = self.stores.lock().map_err(|_| "store lock poisoned".to_string())?;
         held.get(handle as usize)
             .cloned()
             .ok_or_else(|| format!("store {handle} is not open"))

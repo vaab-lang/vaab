@@ -1,0 +1,43 @@
+# Mutable objects with `cast`, inheritance with `entertains`, and class methods
+# with `to self.method`.
+#
+#     vaab run examples/17_casts.vaab
+
+cast Animal {
+    changing name: Text
+
+    to speak() returns Text = self.name
+}
+
+cast Dog entertains Animal {
+    changing breed: Text
+
+    to speak() returns Text = "{self.name}, a {self.breed}"
+
+    to self.stray() returns Dog {
+        return Dog.new(name: "unknown", breed: "mixed")
+    }
+}
+
+cast Counter {
+    changing count: Int = 0
+
+    to bump() {
+        self.count = self.count + 1
+    }
+
+    to self.zero() returns Counter {
+        return Counter.new(count: 0)
+    }
+}
+
+let ada = Dog.new(name: "Ada", breed: "collie")
+print(ada.speak())
+
+let tally = Counter.new()
+tally.bump()
+tally.bump()
+print(tally.count)
+
+let fresh = Counter.zero()
+print(fresh.count)

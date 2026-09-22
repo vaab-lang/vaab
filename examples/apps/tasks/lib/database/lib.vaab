@@ -1,0 +1,45 @@
+cast Database {
+    to self.path() returns Text {
+        return env.get("DATABASE_URL") otherwise "sqlite:examples/apps/tasks/data/tasks.db"
+    }
+
+    to self.open() returns Db or fails ApiError {
+        match Db.connect(Database.path()) {
+            when success db then { return success db }
+            when failure error then match error {
+                when Failed(message) then { return failure ApiError.Database(message) }
+            }
+        }
+    }
+
+    to self.ensure_schema(db: Db) returns Int or fails ApiError {
+        let empty: list of Text = []
+        match db.execute(
+            "create table if not exists tasks (id text primary key, title text not null, owner text not null)",
+            empty,
+        ) {
+            when success count then { return success count }
+            when failure error then match error {
+                when Failed(message) then { return failure ApiError.Database(message) }
+            }
+        }
+    }
+
+    to self.query(db: Db, sql: Text, args: list of Text) returns list of map of Text to Text or fails ApiError {
+        match db.query(sql, args) {
+            when success rows then { return success rows }
+            when failure error then match error {
+                when Failed(message) then { return failure ApiError.Database(message) }
+            }
+        }
+    }
+
+    to self.execute(db: Db, sql: Text, args: list of Text) returns Int or fails ApiError {
+        match db.execute(sql, args) {
+            when success count then { return success count }
+            when failure error then match error {
+                when Failed(message) then { return failure ApiError.Database(message) }
+            }
+        }
+    }
+}

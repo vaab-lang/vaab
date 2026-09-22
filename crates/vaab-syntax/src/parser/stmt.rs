@@ -1,9 +1,9 @@
 //! Statements and declarations.
 
 use crate::ast::{
-    AbilityDecl, AssignStmt, ChoiceDecl, Expr, ExprKind, Field, ForEachStmt, FunctionBody,
-    FunctionDecl, LetStmt, Name, NeedImports, NeedSource, NeedStmt, Parameter, RepeatStmt,
-    SendStmt, Stmt, StmtKind, TypeDecl, Variant, VariantField, WhileStmt,
+    AbilityDecl, AssignStmt, CastDecl, ChoiceDecl, Expr, ExprKind, Field, ForEachStmt,
+    FunctionBody, FunctionDecl, LetStmt, Name, NeedImports, NeedSource, NeedStmt, Parameter,
+    RepeatStmt, SendStmt, Stmt, StmtKind, TypeDecl, Variant, VariantField, WhileStmt,
 };
 use crate::diagnostic::Diagnostic;
 use crate::span::Span;
@@ -38,6 +38,7 @@ impl<'src> Parser<'src> {
                 StmtKind::Together(self.block()?)
             }
             Type => StmtKind::Type(Box::new(self.type_declaration()?)),
+            Cast => StmtKind::Cast(Box::new(self.cast_declaration()?)),
             Choice => StmtKind::Choice(Box::new(self.choice_declaration()?)),
             Ability => StmtKind::Ability(Box::new(self.ability_declaration()?)),
             Serve => StmtKind::Serve(Box::new(self.serve_declaration()?)),
@@ -166,6 +167,19 @@ impl<'src> Parser<'src> {
         let pure = self.eat(TokenKind::Pure);
         self.expect(TokenKind::To, "the word `to` to define a function")?;
 
+        let class_method = if self.eat(TokenKind::SelfValue) {
+            if !self.eat(TokenKind::Dot) {
+                self.report(Diagnostic::error(
+                    "class-method-needs-dot",
+                    "a class method is written `to self.name(...)`",
+                )
+                .at(self.current().span, "Vaab expected `.` after `self`"));
+                return Err(Failed);
+            }
+            true
+        } else {
+            false
+        };
         let name = self.name("a name for this function")?;
         let parameters = self.parameter_list()?;
 
@@ -200,6 +214,7 @@ impl<'src> Parser<'src> {
                 parameters,
                 returns,
                 body: None,
+                class_method,
                 span: start.to(end),
             });
         }
@@ -215,7 +230,15 @@ impl<'src> Parser<'src> {
             FunctionBody::Block(block) => block.span,
             FunctionBody::Expr(expr) => expr.span,
         };
-        Ok(FunctionDecl { pure, name, parameters, returns, body: Some(body), span: start.to(end) })
+        Ok(FunctionDecl {
+            pure,
+            name,
+            parameters,
+            returns,
+            body: Some(body),
+            class_method,
+            span: start.to(end),
+        })
     }
 
     fn parameter_list(&mut self) -> Parse<Vec<Parameter>> {
@@ -318,6 +341,73 @@ impl<'src> Parser<'src> {
         Ok(TypeDecl { name, abilities, fields, functions, span: start.to(end) })
     }
 
+    /// `cast Dog entertains Animal can Runnable { ... }`
+    fn cast_declaration(&mut self) -> Parse<CastDecl> {
+        let start = self.expect(TokenKind::Cast, "the word `cast`")?.span;
+        let name = self.name("a name for this cast")?;
+
+        let mut entertains = Vec::new();
+        if self.eat(TokenKind::Entertains) {
+            loop {
+                entertains.push(self.name("the name of a cast this one entertains")?);
+                if !self.eat(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+
+        let mut abilities = Vec::new();
+        if self.eat(TokenKind::Can) {
+            loop {
+                abilities.push(self.name("the name of an ability")?);
+                if !self.eat(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+
+        let open = self.expect(TokenKind::OpenBrace, "a `{` to start the cast's body")?;
+        let mut fields: Vec<Field> = Vec::new();
+        let mut functions = Vec::new();
+
+        let end = self.with_braces_as_literals(|parser| {
+            parser.skip_newlines();
+            while !parser.check(TokenKind::CloseBrace) {
+                if parser.at_end() {
+                    parser.report(unclosed_body(open.span, parser.current().span, "cast"));
+                    return Err(Failed);
+                }
+
+                let before = parser.position;
+                let outcome = if parser.starts_function() {
+                    parser.function_declaration(true).map(|function| functions.push(function))
+                } else {
+                    parser.cast_field().map(|field| {
+                        if let Some(first) =
+                            fields.iter().find(|existing| existing.name.text == field.name.text)
+                        {
+                            let first_span = first.name.span;
+                            let name = field.name.clone();
+                            parser.report(duplicate_field(&name, first_span));
+                        }
+                        fields.push(field);
+                    })
+                };
+
+                if outcome.is_err() || parser.finish_statement().is_err() {
+                    parser.recover_to_statement_boundary();
+                }
+                if parser.position == before {
+                    parser.advance();
+                }
+                parser.skip_newlines();
+            }
+            Ok(parser.expect(TokenKind::CloseBrace, "a `}` to close this cast")?.span)
+        })?;
+
+        Ok(CastDecl { name, entertains, abilities, fields, functions, span: start.to(end) })
+    }
+
     /// Whether the member about to be read is a function rather than a field.
     fn starts_function(&self) -> bool {
         self.check(TokenKind::To)
@@ -325,6 +415,15 @@ impl<'src> Parser<'src> {
     }
 
     fn field(&mut self) -> Parse<Field> {
+        self.field_with_changing(false)
+    }
+
+    fn cast_field(&mut self) -> Parse<Field> {
+        let changing = self.eat(TokenKind::Changing);
+        self.field_with_changing(changing)
+    }
+
+    fn field_with_changing(&mut self, changing: bool) -> Parse<Field> {
         let start = self.current().span;
         let name = self.name("a field name")?;
 
@@ -338,7 +437,7 @@ impl<'src> Parser<'src> {
         let default = if self.eat(TokenKind::Equals) { Some(self.expression()?) } else { None };
 
         let end = default.as_ref().map(|value| value.span).unwrap_or(declared_type.span);
-        Ok(Field { name, declared_type, default, span: start.to(end) })
+        Ok(Field { name, declared_type, default, changing, span: start.to(end) })
     }
 
     /// `choice AccountError { InvalidAmount(amount: Int) Frozen }`

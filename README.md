@@ -109,6 +109,7 @@ crates/vaab-cli      the `vaab` binary
 docs/LANGUAGE.md     the living specification
 docs/DECISIONS.md    design choices and their reasoning
 examples/            runnable programs, one per feature
+examples/apps/tasks/ multi-file task API (casts + local riffs)
 examples/staffpulse/ aspirational StaffPulse API rewrite (phase 5–6 spec)
 ```
 

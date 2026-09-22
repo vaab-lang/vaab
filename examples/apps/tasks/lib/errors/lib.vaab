@@ -1,0 +1,22 @@
+choice EnvError {
+    Missing(name: Text)
+}
+
+choice DbError {
+    Failed(message: Text)
+}
+
+choice AuthError {
+    Unauthorized
+}
+
+choice HttpError {
+    Failed(message: Text)
+}
+
+choice ApiError {
+    Unauthorized
+    BadRequest(message: Text)
+    Database(message: Text)
+    Upstream(message: Text)
+}

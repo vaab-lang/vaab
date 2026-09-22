@@ -175,6 +175,7 @@ pub fn exports_of(module: &Module) -> HashSet<String> {
         match &statement.kind {
             StmtKind::Function(function) => names.insert(function.name.text.clone()),
             StmtKind::Type(declaration) => names.insert(declaration.name.text.clone()),
+            StmtKind::Cast(declaration) => names.insert(declaration.name.text.clone()),
             StmtKind::Choice(declaration) => names.insert(declaration.name.text.clone()),
             StmtKind::Ability(declaration) => names.insert(declaration.name.text.clone()),
             _ => false,

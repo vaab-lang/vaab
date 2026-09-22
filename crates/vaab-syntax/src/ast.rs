@@ -93,6 +93,8 @@ pub enum StmtKind {
     Function(Box<FunctionDecl>),
     /// `type Account { ... }`
     Type(Box<TypeDecl>),
+    /// `cast Counter { ... }`
+    Cast(Box<CastDecl>),
     /// `choice AccountError { ... }`
     Choice(Box<ChoiceDecl>),
     /// `ability Describable { ... }`
@@ -260,6 +262,8 @@ pub struct FunctionDecl {
     pub returns: Option<TypeExpr>,
     /// `None` for an ability's required signature, which has no implementation.
     pub body: Option<FunctionBody>,
+    /// `true` for `to self.factory(...)`, a method on the cast itself.
+    pub class_method: bool,
     pub span: Span,
 }
 
@@ -293,12 +297,26 @@ pub struct TypeDecl {
     pub span: Span,
 }
 
+/// `cast Dog entertains Animal can Runnable { ... }`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CastDecl {
+    pub name: Name,
+    /// Parent casts listed after `entertains`.
+    pub entertains: Vec<Name>,
+    pub abilities: Vec<Name>,
+    pub fields: Vec<Field>,
+    pub functions: Vec<FunctionDecl>,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
     pub name: Name,
     pub declared_type: TypeExpr,
     /// `balance: Int = 0` may be left out when calling `Account.new`.
     pub default: Option<Expr>,
+    /// `changing count: Int` on a cast field; always false on a type field.
+    pub changing: bool,
     pub span: Span,
 }
 

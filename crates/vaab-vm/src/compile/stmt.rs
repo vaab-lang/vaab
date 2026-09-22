@@ -29,7 +29,13 @@ impl<'a> Compiler<'a> {
             StmtKind::Assign(assignment) => {
                 self.expression(&assignment.value);
                 match self.assignable(&assignment.target) {
-                    Some(place) => self.store(place, span),
+                    Some(super::Assignment::Local(place)) => self.store(place, span),
+                    Some(super::Assignment::CastField(field)) => {
+                        if let ExprKind::Member { target, .. } = &assignment.target.kind {
+                            self.expression(target);
+                        }
+                        self.emit(Op::SetField(field), span);
+                    }
                     None => self.emit(Op::Pop, span),
                 }
             }
@@ -78,6 +84,20 @@ impl<'a> Compiler<'a> {
                 }
             }
 
+            StmtKind::Cast(declaration) => {
+                let Some(id) = self.casts_at.get(&statement.id).copied() else { return };
+                for written in &declaration.functions {
+                    let method = if written.class_method {
+                        self.checked.cast_class_method(id, &written.name.text)
+                    } else {
+                        self.checked.cast_method(id, &written.name.text)
+                    };
+                    if let Some(method) = method {
+                        self.function(method, written);
+                    }
+                }
+            }
+
             StmtKind::Choice(_) | StmtKind::Ability(_) => {}
 
             StmtKind::Serve(serve) => self.serve(statement, serve),
@@ -96,13 +116,26 @@ impl<'a> Compiler<'a> {
     ///
     /// Only a `changing` name can be assigned to; a field or an item of a list is
     /// a type error, so there is nothing here for either.
-    fn assignable(&mut self, target: &Expr) -> Option<super::Place> {
-        let ExprKind::Name(_) = &target.kind else { return None };
-        let Some(vaab_types::Resolution::Local(reference)) = self.checked.resolution(target.id)
-        else {
-            return None;
-        };
-        Some(self.place_of(reference.local))
+    fn assignable(&mut self, target: &Expr) -> Option<super::Assignment> {
+        match &target.kind {
+            ExprKind::Name(_) => {
+                let Some(vaab_types::Resolution::Local(reference)) =
+                    self.checked.resolution(target.id)
+                else {
+                    return None;
+                };
+                Some(super::Assignment::Local(self.place_of(reference.local)))
+            }
+            ExprKind::Member { .. } => {
+                let Some(vaab_types::Resolution::CastField { field, .. }) =
+                    self.checked.resolution(target.id)
+                else {
+                    return None;
+                };
+                Some(super::Assignment::CastField(*field as u32))
+            }
+            _ => None,
+        }
     }
 
     // -----------------------------------------------------------------------

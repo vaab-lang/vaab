@@ -25,7 +25,7 @@ use std::collections::{HashMap, HashSet};
 
 use vaab_syntax::ast::{self, FunctionBody, FunctionDecl, Module, NodeId, Stmt, StmtKind};
 use vaab_syntax::span::Span;
-use vaab_types::{Checked, FrameId, FunctionId, LocalId, Resolution, TypeId};
+use vaab_types::{CastId, Checked, FrameId, FunctionId, LocalId, Owner, Resolution, TypeId};
 
 use crate::bytecode::{Body, Capture, Op, Program};
 use crate::value::{Closure, RecordLayout, Ref, Value, VariantLayout};
@@ -40,6 +40,13 @@ pub fn compile(module: &Module, checked: &Checked) -> Program {
     let mut compiler = Compiler::new(checked);
     compiler.module(module);
     compiler.finish()
+}
+
+/// Where an assignment writes.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Assignment {
+    Local(Place),
+    CastField(u32),
 }
 
 /// Where a local lives, once the compiler has worked out which frame owns it.
@@ -91,6 +98,7 @@ pub(crate) struct Compiler<'a> {
     functions_at: HashMap<NodeId, FunctionId>,
     /// The same for types, whose fields may also have defaults.
     types_at: HashMap<NodeId, TypeId>,
+    casts_at: HashMap<NodeId, CastId>,
     /// Declaration statements in scope, registered on the way into each block the
     /// way the checker hoists them.
     declarations: HashMap<NodeId, &'a Stmt>,
@@ -108,6 +116,7 @@ impl<'a> Compiler<'a> {
             boxed: HashSet::new(),
             functions_at: HashMap::new(),
             types_at: HashMap::new(),
+            casts_at: HashMap::new(),
             declarations: HashMap::new(),
         };
         compiler.lay_out();
@@ -152,6 +161,33 @@ impl<'a> Compiler<'a> {
             self.program.layouts.push(Ref::new(RecordLayout {
                 name: declared.name.clone(),
                 fields: declared.fields.iter().map(|field| field.name.clone()).collect(),
+                mutable: false,
+                tables,
+            }));
+        }
+
+        for (number, declared) in self.checked.declared_casts.iter().enumerate() {
+            let mut tables = vec![Vec::new(); self.checked.abilities.len()];
+            for ability in &declared.abilities {
+                let Some(required) = self.checked.ability(*ability) else { continue };
+                let slots: Vec<u32> = required
+                    .functions
+                    .iter()
+                    .map(|wanted| {
+                        self.checked
+                            .cast_method(CastId(number as u32), &wanted.name)
+                            .map(|found| found.index() as u32 + 1)
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                if let Some(row) = tables.get_mut(ability.index()) {
+                    *row = slots;
+                }
+            }
+            self.program.layouts.push(Ref::new(RecordLayout {
+                name: declared.name.clone(),
+                fields: declared.fields.iter().map(|field| field.name.clone()).collect(),
+                mutable: true,
                 tables,
             }));
         }
@@ -174,11 +210,18 @@ impl<'a> Compiler<'a> {
         self.builders.push(Builder::new(Ref::from(TOP_LEVEL_NAME), Checked::TOP_LEVEL));
         for (number, function) in self.checked.functions.iter().enumerate() {
             let id = FunctionId(number as u32);
-            let owner = function
-                .owner
-                .and_then(|owner| self.checked.declared_type(owner))
-                .map(|owner| format!("{}.", owner.name))
-                .unwrap_or_default();
+            let owner = function.owner.map(|owner| match owner {
+                Owner::Type(id) => self
+                    .checked
+                    .declared_type(id)
+                    .map(|owner| format!("{}.", owner.name))
+                    .unwrap_or_default(),
+                Owner::Cast(id) => self
+                    .checked
+                    .declared_cast(id)
+                    .map(|owner| format!("{}.", owner.name))
+                    .unwrap_or_default(),
+            }).unwrap_or_default();
             let name: Ref<str> = Ref::from(format!("`{owner}{}`", function.name).as_str());
             self.body_of.insert(id, self.builders.len());
             self.builders.push(Builder::new(name, function.frame));
@@ -191,6 +234,9 @@ impl<'a> Compiler<'a> {
         }
         for (number, declared) in self.checked.declared_types.iter().enumerate() {
             self.types_at.insert(declared.declaration, TypeId(number as u32));
+        }
+        for (number, declared) in self.checked.declared_casts.iter().enumerate() {
+            self.casts_at.insert(declared.declaration, CastId(number as u32));
         }
 
         self.program.globals = self
@@ -257,10 +303,17 @@ impl<'a> Compiler<'a> {
     /// that a call written above a declaration still finds it.
     fn register_declarations(&mut self, statements: &'a [Stmt]) {
         for statement in statements {
-            if matches!(statement.kind, StmtKind::Function(_) | StmtKind::Type(_)) {
+            if matches!(
+                statement.kind,
+                StmtKind::Function(_) | StmtKind::Type(_) | StmtKind::Cast(_)
+            ) {
                 self.declarations.insert(statement.id, statement);
             }
         }
+    }
+
+    pub(crate) fn cast_layout(&self, id: CastId) -> u32 {
+        self.checked.declared_types.len() as u32 + id.0
     }
 
     // -----------------------------------------------------------------------
@@ -527,6 +580,10 @@ impl<'a> Compiler<'a> {
             StmtKind::Type(declaration) => {
                 declaration.functions.iter().find(|written| written.name.text == function.name)
             }
+            StmtKind::Cast(declaration) => declaration
+                .functions
+                .iter()
+                .find(|written| written.name.text == function.name),
             _ => None,
         }
     }
@@ -537,6 +594,15 @@ impl<'a> Compiler<'a> {
         let statement = self.declarations.get(&declared.declaration)?;
         match &statement.kind {
             StmtKind::Type(declaration) => Some(&declaration.fields),
+            _ => None,
+        }
+    }
+
+    fn cast_fields_of(&self, id: CastId) -> Option<&'a [ast::Field]> {
+        let declared = self.checked.declared_cast(id)?;
+        let statement = self.declarations.get(&declared.declaration)?;
+        match &statement.kind {
+            StmtKind::Cast(declaration) => Some(&declaration.fields),
             _ => None,
         }
     }

@@ -106,3 +106,8 @@ $ vaab run examples/15_first_class_app.vaab
 $ vaab run examples/16_store.vaab
 open failed: Database already open. Cannot acquire lock.
 done
+
+$ vaab run examples/17_casts.vaab
+Ada, a collie
+2
+0

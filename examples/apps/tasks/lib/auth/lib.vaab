@@ -1,0 +1,8 @@
+cast Auth {
+    to self.require_user(who: User or fails AuthError) returns User or fails ApiError {
+        match who {
+            when success user then { return success user }
+            when failure _ then { return failure ApiError.Unauthorized }
+        }
+    }
+}

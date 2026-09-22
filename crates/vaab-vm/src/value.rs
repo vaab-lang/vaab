@@ -109,16 +109,41 @@ impl fmt::Debug for Captured {
 pub struct RecordLayout {
     pub name: String,
     pub fields: Vec<String>,
+    /// `true` for a `cast`, whose fields may be changed in place.
+    pub mutable: bool,
     /// `tables[ability][slot]` is the body that fills that slot of that ability.
     /// An ability the type does not provide has an empty row.
     pub tables: Vec<Vec<u32>>,
 }
 
-/// A value of a declared `type`. The layout is shared by every value of the type.
+/// A value of a declared `type` or `cast`. The layout is shared by every value.
 #[derive(Clone, Debug)]
 pub struct Record {
     pub layout: Ref<RecordLayout>,
+    /// Immutable field storage for a `type`.
     pub fields: Vec<Value>,
+    /// Mutable field storage for a `cast`.
+    pub cells: Option<Ref<Vec<Captured>>>,
+}
+
+impl Record {
+    pub fn field(&self, index: usize) -> Option<Value> {
+        if let Some(cells) = &self.cells {
+            cells.get(index).map(Captured::get)
+        } else {
+            self.fields.get(index).cloned()
+        }
+    }
+
+    pub fn set_field(&self, index: usize, value: Value) -> bool {
+        if let Some(cells) = &self.cells {
+            if let Some(cell) = cells.get(index) {
+                cell.set(value);
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// What every value of one variant of one `choice` has in common.
@@ -238,8 +263,13 @@ impl Value {
                     .layout
                     .fields
                     .iter()
-                    .zip(&record.fields)
-                    .map(|(name, value)| format!("{name}: {}", value.quoted()))
+                    .enumerate()
+                    .map(|(index, name)| {
+                        format!(
+                            "{name}: {}",
+                            record.field(index).unwrap_or(Value::Nothing).quoted()
+                        )
+                    })
                     .collect();
                 format!("{}({})", record.layout.name, shown.join(", "))
             }
@@ -410,8 +440,10 @@ fn hash_value<H: Hasher>(value: &Value, state: &mut H) {
         }
         Value::Record(record) => {
             record.layout.name.hash(state);
-            for field in &record.fields {
-                hash_value(field, state);
+            for index in 0..record.layout.fields.len() {
+                if let Some(field) = record.field(index) {
+                    hash_value(&field, state);
+                }
             }
         }
         Value::Variant(variant) => {

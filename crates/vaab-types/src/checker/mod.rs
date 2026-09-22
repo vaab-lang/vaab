@@ -39,15 +39,16 @@ mod walk;
 use std::collections::{HashMap, HashSet};
 
 use vaab_syntax::ast::{
-    AbilityDecl, ChoiceDecl, Expr, FunctionDecl, Module, Name, NodeId, Stmt, StmtKind, TypeDecl,
-    TypeExpr, TypeKind,
+    AbilityDecl, CastDecl, ChoiceDecl, Expr, FunctionDecl, Module, Name, NodeId, Stmt, StmtKind,
+    TypeDecl, TypeExpr, TypeKind,
 };
 use vaab_syntax::diagnostic::Diagnostic;
 use vaab_syntax::span::Span;
 
 use crate::checked::{
-    Ability, AbilityId, Checked, Choice, ChoiceId, Constructor, DeclaredType, Field, Frame,
-    FrameId, FrameKind, Function, FunctionId, Local, LocalId, LocalRef, Required, Resolution,
+    Ability, AbilityId, CastField, CastId, Checked, Choice, ChoiceId, Constructor, DeclaredCast,
+    DeclaredType, Field, Frame, FrameId, FrameKind, Function, FunctionId, Local, LocalId,
+    LocalRef, Owner, Required, Resolution,
     TypeId, Variant,
 };
 use crate::json::can_json;
@@ -93,8 +94,15 @@ impl Wanted {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Global {
     Type(TypeId),
+    Cast(CastId),
     Choice(ChoiceId),
     Ability(AbilityId),
+}
+
+/// The type or cast whose body is being checked, which is what `self` and `raw` need.
+pub(super) enum Inside {
+    Type(TypeId),
+    Cast(CastId),
 }
 
 /// One level of names. Blocks, function bodies and match arms each open one.
@@ -141,8 +149,7 @@ pub(crate) struct Checker {
     frames: Vec<FrameId>,
     /// Functions whose bodies are being checked, innermost last.
     enclosing: Vec<Enclosing>,
-    /// The type whose body is being checked, which is what `self` and `raw` need.
-    inside: Option<TypeId>,
+    inside: Option<Inside>,
     /// Types still waiting to be pinned down. See [`Undecided`].
     undecided: Vec<Undecided>,
     globals: HashMap<String, Global>,
@@ -297,6 +304,7 @@ impl Checker {
         for statement in statements {
             match &statement.kind {
                 StmtKind::Type(declaration) => self.register_type(statement.id, declaration),
+                StmtKind::Cast(declaration) => self.register_cast(statement.id, declaration),
                 StmtKind::Choice(declaration) => self.register_choice(statement.id, declaration),
                 StmtKind::Ability(declaration) => self.register_ability(statement.id, declaration),
                 _ => {}
@@ -307,6 +315,7 @@ impl Checker {
         for statement in statements {
             match &statement.kind {
                 StmtKind::Type(declaration) => self.fill_type(statement.id, declaration),
+                StmtKind::Cast(declaration) => self.fill_cast(statement.id, declaration),
                 StmtKind::Choice(declaration) => self.fill_choice(declaration),
                 StmtKind::Ability(declaration) => self.fill_ability(declaration),
                 _ => {}
@@ -344,6 +353,24 @@ impl Checker {
             span: declaration.name.span,
         });
         self.globals.insert(declaration.name.text.clone(), Global::Type(id));
+    }
+
+    fn register_cast(&mut self, statement: NodeId, declaration: &CastDecl) {
+        if !self.claim(&declaration.name) {
+            return;
+        }
+        let id = CastId(self.checked.declared_casts.len() as u32);
+        self.checked.declared_casts.push(DeclaredCast {
+            name: declaration.name.text.clone(),
+            entertains: Vec::new(),
+            fields: Vec::new(),
+            methods: Vec::new(),
+            abilities: Vec::new(),
+            constructor: Constructor::Automatic,
+            declaration: statement,
+            span: declaration.name.span,
+        });
+        self.globals.insert(declaration.name.text.clone(), Global::Cast(id));
     }
 
     fn register_choice(&mut self, statement: NodeId, declaration: &ChoiceDecl) {
@@ -401,7 +428,7 @@ impl Checker {
         let mut methods = Vec::new();
         let mut constructor = Constructor::Automatic;
         for function in &declaration.functions {
-            let id = self.register_function(function, Some(id), statement);
+            let id = self.register_function(function, Some(Owner::Type(id)), statement);
             if function.name.text == "new" {
                 constructor = Constructor::UserDefined(id);
             }
@@ -421,6 +448,124 @@ impl Checker {
                 self.variables.record_provider(&ability, &declaration.name.text);
             }
         }
+    }
+
+    fn fill_cast(&mut self, statement: NodeId, declaration: &CastDecl) {
+        let Some(Global::Cast(id)) = self.globals.get(&declaration.name.text).copied() else {
+            return;
+        };
+
+        let entertains: Vec<CastId> = declaration
+            .entertains
+            .iter()
+            .filter_map(|name| self.resolve_cast_parent(name))
+            .collect();
+
+        let mut fields = self.inherited_cast_fields(&entertains);
+        for field in &declaration.fields {
+            let converted = CastField {
+                name: field.name.text.clone(),
+                declared: self.resolve_type(&field.declared_type),
+                changing: field.changing,
+                has_default: field.default.is_some(),
+                span: field.name.span,
+            };
+            if let Some(position) = fields.iter().position(|existing| existing.name == converted.name)
+            {
+                fields[position] = converted;
+            } else {
+                fields.push(converted);
+            }
+        }
+
+        let abilities: Vec<AbilityId> = declaration
+            .abilities
+            .iter()
+            .filter_map(|name| self.resolve_ability(name))
+            .collect();
+
+        let mut methods = self.inherited_cast_methods(&entertains);
+        let mut constructor = Constructor::Automatic;
+        for function in &declaration.functions {
+            let method = self.register_function(function, Some(Owner::Cast(id)), statement);
+            if function.name.text == "new" && !function.class_method {
+                constructor = Constructor::UserDefined(method);
+            }
+            methods.retain(|existing| {
+                self.checked.function(*existing).is_none_or(|existing| {
+                    if function.class_method {
+                        !(existing.class_method && existing.name == function.name.text)
+                    } else {
+                        !(!existing.class_method && existing.name == function.name.text)
+                    }
+                })
+            });
+            methods.push(method);
+        }
+
+        if let Some(declared) = self.checked.declared_casts.get_mut(id.index()) {
+            declared.entertains = entertains;
+            declared.fields = fields;
+            declared.abilities = abilities.clone();
+            declared.methods = methods;
+            declared.constructor = constructor;
+        }
+
+        for ability in &abilities {
+            if let Some(ability) = self.checked.ability(*ability) {
+                let ability = ability.name.clone();
+                self.variables.record_provider(&ability, &declaration.name.text);
+            }
+        }
+    }
+
+    fn resolve_cast_parent(&mut self, name: &Name) -> Option<CastId> {
+        match self.globals.get(&name.text).copied() {
+            Some(Global::Cast(id)) => Some(id),
+            Some(Global::Type(_)) => {
+                self.report(messages::cast_entertains_type(&name.text, name.span));
+                None
+            }
+            _ => {
+                let known = self.visible_names();
+                self.report(messages::undefined_name(&name.text, name.span, &known));
+                None
+            }
+        }
+    }
+
+    fn inherited_cast_fields(&self, parents: &[CastId]) -> Vec<CastField> {
+        let mut fields: Vec<CastField> = Vec::new();
+        for parent in parents {
+            let Some(declared) = self.checked.declared_cast(*parent) else { continue };
+            for field in &declared.fields {
+                if !fields.iter().any(|existing| existing.name == field.name) {
+                    fields.push(field.clone());
+                }
+            }
+        }
+        fields
+    }
+
+    fn inherited_cast_methods(&self, parents: &[CastId]) -> Vec<FunctionId> {
+        let mut methods = Vec::new();
+        for parent in parents {
+            let Some(declared) = self.checked.declared_cast(*parent) else { continue };
+            for method in &declared.methods {
+                let Some(function) = self.checked.function(*method) else { continue };
+                if function.class_method {
+                    continue;
+                }
+                if !methods.iter().any(|existing| {
+                    self.checked
+                        .function(*existing)
+                        .is_some_and(|existing| existing.name == function.name && !existing.class_method)
+                }) {
+                    methods.push(*method);
+                }
+            }
+        }
+        methods
     }
 
     fn fill_choice(&mut self, declaration: &ChoiceDecl) {
@@ -479,7 +624,7 @@ impl Checker {
     fn register_function(
         &mut self,
         declaration: &FunctionDecl,
-        owner: Option<TypeId>,
+        owner: Option<Owner>,
         statement: NodeId,
     ) -> FunctionId {
         let id = FunctionId(self.checked.functions.len() as u32);
@@ -495,6 +640,7 @@ impl Checker {
         self.checked.functions.push(Function {
             name: declaration.name.text.clone(),
             owner,
+            class_method: declaration.class_method,
             signature,
             frame,
             parameters: Vec::new(),
@@ -542,38 +688,71 @@ impl Checker {
     // Abilities
     // -----------------------------------------------------------------------
 
-    /// Checks that every type claiming an ability really provides it.
+    /// Checks that every type and cast claiming an ability really provides it.
     fn check_ability_promises(&mut self, statements: &[Stmt]) {
         for statement in statements {
-            let StmtKind::Type(declaration) = &statement.kind else { continue };
-            let Some(Global::Type(id)) = self.globals.get(&declaration.name.text).copied() else {
+            match &statement.kind {
+                StmtKind::Type(declaration) => {
+                    let Some(Global::Type(id)) = self.globals.get(&declaration.name.text).copied()
+                    else {
+                        continue;
+                    };
+                    let Some(declared) = self.checked.declared_type(id) else { continue };
+                    let provider = declared.name.clone();
+                    let abilities = declared.abilities.clone();
+                    self.check_owner_abilities(
+                        &provider,
+                        Owner::Type(id),
+                        &abilities,
+                        &declaration.abilities,
+                        declaration.name.span,
+                    );
+                }
+                StmtKind::Cast(declaration) => {
+                    let Some(Global::Cast(id)) = self.globals.get(&declaration.name.text).copied()
+                    else {
+                        continue;
+                    };
+                    let Some(declared) = self.checked.declared_cast(id) else { continue };
+                    let provider = declared.name.clone();
+                    let abilities = declared.abilities.clone();
+                    self.check_owner_abilities(
+                        &provider,
+                        Owner::Cast(id),
+                        &abilities,
+                        &declaration.abilities,
+                        declaration.name.span,
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn check_owner_abilities(
+        &mut self,
+        provider: &str,
+        owner: Owner,
+        abilities: &[AbilityId],
+        written: &[Name],
+        fallback: Span,
+    ) {
+        for (position, ability) in abilities.iter().enumerate() {
+            let Some(ability) = self.checked.ability(*ability) else { continue };
+            let wanted = ability.name.clone();
+            let required = ability.functions.clone();
+            let claim = written.get(position).map(|name| name.span).unwrap_or(fallback);
+
+            if wanted == "Json" {
+                let provider_type = Type::named(provider);
+                if !can_json(&provider_type, &self.checked) {
+                    self.report(messages::not_json(&provider_type, claim));
+                }
                 continue;
-            };
-            let Some(declared) = self.checked.declared_type(id) else { continue };
-            let provider = declared.name.clone();
-            let abilities = declared.abilities.clone();
+            }
 
-            for (position, ability) in abilities.iter().enumerate() {
-                let Some(ability) = self.checked.ability(*ability) else { continue };
-                let wanted = ability.name.clone();
-                let claim = declaration
-                    .abilities
-                    .get(position)
-                    .map(|name| name.span)
-                    .unwrap_or(declaration.name.span);
-
-                if wanted == "Json" {
-                    let provider_type = Type::named(&provider);
-                    if !can_json(&provider_type, &self.checked) {
-                        self.report(messages::not_json(&provider_type, claim));
-                    }
-                    continue;
-                }
-
-                let required = ability.functions.clone();
-                for required in &required {
-                    self.check_one_promise(&provider, id, &wanted, required, claim);
-                }
+            for required in &required {
+                self.check_one_promise(provider, owner, &wanted, required, claim);
             }
         }
     }
@@ -581,12 +760,16 @@ impl Checker {
     fn check_one_promise(
         &mut self,
         provider: &str,
-        id: TypeId,
+        owner: Owner,
         ability: &str,
         required: &Required,
         claim: Span,
     ) {
-        let Some(function) = self.checked.method(id, &required.name) else {
+        let function = match owner {
+            Owner::Type(id) => self.checked.method(id, &required.name),
+            Owner::Cast(id) => self.checked.cast_method(id, &required.name),
+        };
+        let Some(function) = function else {
             self.report(messages::missing_ability_function(
                 provider,
                 ability,
@@ -660,7 +843,9 @@ impl Checker {
         }
 
         match self.globals.get(&name.text) {
-            Some(Global::Type(_) | Global::Choice(_)) => return Type::named(&name.text),
+            Some(Global::Type(_) | Global::Cast(_) | Global::Choice(_)) => {
+                return Type::named(&name.text);
+            }
             Some(Global::Ability(_)) => return Type::Ability(name.text.clone()),
             None => {}
         }

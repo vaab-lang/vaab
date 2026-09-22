@@ -1,4 +1,6 @@
-# First-class app I/O: env, Db, request.who, http.
+# First-class app I/O with casts — single-file version for CI.
+#
+# Multi-file layout with one cast per route: examples/apps/tasks/
 #
 # Run with:
 #   AUTH_SECRET=dev cargo run -p vaab-cli -- serve examples/15_first_class_app.vaab
@@ -44,74 +46,107 @@ type NewTask can Json {
     title: Text
 }
 
-to open_db() returns Db or fails ApiError {
-    match Db.connect("sqlite:examples/tasks.db") {
-        when success db then { return success db }
-        when failure error then match error {
-            when Failed(message) then { return failure ApiError.Database(message) }
+cast Database {
+    to self.path() returns Text {
+        return "sqlite:examples/tasks.db"
+    }
+
+    to self.open() returns Db or fails ApiError {
+        match Db.connect(Database.path()) {
+            when success db then { return success db }
+            when failure error then match error {
+                when Failed(message) then { return failure ApiError.Database(message) }
+            }
+        }
+    }
+
+    to self.ensure_schema(db: Db) returns Int or fails ApiError {
+        let empty: list of Text = []
+        match db.execute(
+            "create table if not exists tasks (id text primary key, title text not null, owner text not null)",
+            empty,
+        ) {
+            when success count then { return success count }
+            when failure error then match error {
+                when Failed(message) then { return failure ApiError.Database(message) }
+            }
+        }
+    }
+
+    to self.query(db: Db, sql: Text, args: list of Text) returns list of map of Text to Text or fails ApiError {
+        match db.query(sql, args) {
+            when success rows then { return success rows }
+            when failure error then match error {
+                when Failed(message) then { return failure ApiError.Database(message) }
+            }
+        }
+    }
+
+    to self.execute(db: Db, sql: Text, args: list of Text) returns Int or fails ApiError {
+        match db.execute(sql, args) {
+            when success count then { return success count }
+            when failure error then match error {
+                when Failed(message) then { return failure ApiError.Database(message) }
+            }
         }
     }
 }
 
-to ensure_schema(db: Db) returns Int or fails ApiError {
-    let empty: list of Text = []
-    match db.execute("create table if not exists tasks (id text primary key, title text not null, owner text not null)", empty) {
-        when success count then { return success count }
-        when failure error then match error {
-            when Failed(message) then { return failure ApiError.Database(message) }
+cast Auth {
+    to self.require_user(who: User or fails AuthError) returns User or fails ApiError {
+        match who {
+            when success user then { return success user }
+            when failure _ then { return failure ApiError.Unauthorized }
         }
     }
 }
 
-to require_user(who: User or fails AuthError) returns User or fails ApiError {
-    match who {
-        when success user then { return success user }
-        when failure _ then { return failure ApiError.Unauthorized }
+cast HealthRoute {
+    to self.handle() returns OkResponse {
+        return OkResponse.new(ok: yes)
     }
 }
 
-to run_query(db: Db, sql: Text, args: list of Text) returns list of map of Text to Text or fails ApiError {
-    match db.query(sql, args) {
-        when success rows then { return success rows }
-        when failure error then match error {
-            when Failed(message) then { return failure ApiError.Database(message) }
-        }
+cast TasksRoute {
+    to self.list(who: User or fails AuthError) returns list of map of Text to Text or fails ApiError {
+        let user = try Auth.require_user(who)
+        let db = try Database.open()
+        try Database.ensure_schema(db)
+        return Database.query(
+            db,
+            "select id, title, owner from tasks where owner = $1 order by id desc",
+            [user.id],
+        )
     }
-}
 
-to run_execute(db: Db, sql: Text, args: list of Text) returns Int or fails ApiError {
-    match db.execute(sql, args) {
-        when success count then { return success count }
-        when failure error then match error {
-            when Failed(message) then { return failure ApiError.Database(message) }
+    to self.create(who: User or fails AuthError, body: NewTask) returns Task or fails ApiError {
+        let user = try Auth.require_user(who)
+        if body.title.is_empty {
+            return failure ApiError.BadRequest("title is required")
         }
+        let db = try Database.open()
+        try Database.ensure_schema(db)
+        let id = "{now()}"
+        try Database.execute(
+            db,
+            "insert into tasks(id, title, owner) values ($1, $2, $3)",
+            [id, body.title, user.id],
+        )
+        return success Task.new(id: id, title: body.title, owner: user.id)
     }
 }
 
 serve on port 8090 {
     route get "/health" {
-        reply with OkResponse.new(ok: yes)
+        reply with HealthRoute.handle()
     }
 
     route get "/tasks" {
-        let user = try require_user(request.who)
-        let db = try open_db()
-        try ensure_schema(db)
-        let rows = try run_query(db, "select id, title, owner from tasks where owner = $1", [user.id])
-        reply with rows
+        reply with try TasksRoute.list(request.who)
     }
 
     route post "/tasks" expecting NewTask as body {
-        let user = try require_user(request.who)
-        if body.title.is_empty {
-            reply explain(ApiError.BadRequest("title is required"))
-        } else {
-            let db = try open_db()
-            try ensure_schema(db)
-            let id = "{now()}"
-            try run_execute(db, "insert into tasks(id, title, owner) values ($1, $2, $3)", [id, body.title, user.id])
-            reply with Task.new(id: id, title: body.title, owner: user.id) status 201
-        }
+        reply with try TasksRoute.create(request.who, body) status 201
     }
 
     when anything fails with ApiError as error {

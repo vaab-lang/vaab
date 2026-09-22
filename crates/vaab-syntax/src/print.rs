@@ -93,6 +93,7 @@ impl Printer {
             StmtKind::Together(body) => self.node("together", |printer| printer.block(body)),
             StmtKind::Function(function) => self.function(function),
             StmtKind::Type(declaration) => self.type_declaration(declaration),
+            StmtKind::Cast(declaration) => self.cast_declaration(declaration),
             StmtKind::Choice(declaration) => self.choice_declaration(declaration),
             StmtKind::Ability(declaration) => self.ability_declaration(declaration),
             StmtKind::Serve(serve) => self.node("serve", |printer| {
@@ -184,7 +185,8 @@ impl Printer {
 
     fn function(&mut self, function: &FunctionDecl) {
         let purity = if function.pure { "pure " } else { "" };
-        self.node(format!("{purity}to {}", function.name.text), |printer| {
+        let receiver = if function.class_method { "self." } else { "" };
+        self.node(format!("{purity}to {receiver}{}", function.name.text), |printer| {
             for parameter in &function.parameters {
                 printer.node(format!("parameter {}", parameter.name.text), |printer| {
                     printer.type_expression(&parameter.declared_type);
@@ -215,15 +217,45 @@ impl Printer {
         }
         self.node(label, |printer| {
             for field in &declaration.fields {
-                printer.node(format!("field {}", field.name.text), |printer| {
-                    printer.type_expression(&field.declared_type);
-                    if let Some(default) = &field.default {
-                        printer.node("default", |printer| printer.expression(default));
-                    }
-                });
+                printer.field(field);
             }
             for function in &declaration.functions {
                 printer.function(function);
+            }
+        });
+    }
+
+    fn cast_declaration(&mut self, declaration: &CastDecl) {
+        let mut label = format!("cast {}", declaration.name.text);
+        if !declaration.entertains.is_empty() {
+            let parents: Vec<&str> =
+                declaration.entertains.iter().map(|name| name.text.as_str()).collect();
+            let _ = write!(label, " entertains {}", parents.join(", "));
+        }
+        if !declaration.abilities.is_empty() {
+            let abilities: Vec<&str> =
+                declaration.abilities.iter().map(|name| name.text.as_str()).collect();
+            let _ = write!(label, " can {}", abilities.join(", "));
+        }
+        self.node(label, |printer| {
+            for field in &declaration.fields {
+                printer.field(field);
+            }
+            for function in &declaration.functions {
+                printer.function(function);
+            }
+        });
+    }
+
+    fn field(&mut self, field: &Field) {
+        let mut label = format!("field {}", field.name.text);
+        if field.changing {
+            label = format!("changing {}", field.name.text);
+        }
+        self.node(label, |printer| {
+            printer.type_expression(&field.declared_type);
+            if let Some(default) = &field.default {
+                printer.node("default", |printer| printer.expression(default));
             }
         });
     }

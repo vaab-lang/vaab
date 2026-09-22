@@ -271,6 +271,44 @@ type Account can Describable {
 to announce_all(things: list of Describable) { ... }
 ```
 
+### Casts
+
+A **`cast`** is a mutable object: fields marked `changing` may be assigned to
+inside methods. **`type`** stays immutable; use a cast when the value should
+change in place.
+
+```vaab
+cast Counter {
+    changing count: Int = 0
+
+    to bump() {
+        self.count = self.count + 1
+    }
+
+    to self.zero() returns Counter {
+        return Counter.new(count: 0)
+    }
+}
+```
+
+**Inheritance** uses **`entertains`** (not `extends`):
+
+```vaab
+cast Animal {
+    changing name: Text
+}
+
+cast Dog entertains Animal {
+    changing breed: Text
+}
+```
+
+A cast inherits fields and methods from what it entertains. It may also declare
+`can SomeAbility` like a type.
+
+Construction is still `.new` with named arguments. Class-level methods are
+written `to self.method(...)`.
+
 ---
 
 ## Missing values and errors
