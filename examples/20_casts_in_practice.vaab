@@ -1,0 +1,180 @@
+# Casts in practice — mutable objects you actually write.
+#
+#     vaab run examples/20_casts_in_practice.vaab
+#
+# `type` is immutable data. `cast` is a role with changing state.
+# Inheritance is `entertains`. Factories are `to self.method`.
+
+# ---------------------------------------------------------------------------
+# Cart — mutable aggregate (qty by name)
+# ---------------------------------------------------------------------------
+
+choice CartError {
+    Empty
+    MissingItem(name: Text)
+}
+
+cast Cart {
+    changing count: Int = 0
+    changing last: Text = ""
+
+    to add(name: Text) {
+        self.count = self.count + 1
+        self.last = name
+    }
+
+    to take_last() returns Text or fails CartError {
+        if self.count <= 0 {
+            return failure CartError.Empty
+        }
+        self.count = self.count - 1
+        let name = self.last
+        self.last = ""
+        return success name
+    }
+
+    to clear() {
+        self.count = 0
+        self.last = ""
+    }
+
+    to self.empty() returns Cart {
+        return Cart.new()
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Session — state machine on a cast
+# ---------------------------------------------------------------------------
+
+choice SessionError {
+    AlreadySignedIn
+    NotSignedIn
+}
+
+cast Session {
+    changing user: Text = ""
+    changing signed_in: Bool = no
+
+    to sign_in(name: Text) returns Session or fails SessionError {
+        if self.signed_in {
+            return failure SessionError.AlreadySignedIn
+        }
+        self.user = name
+        self.signed_in = yes
+        return success self
+    }
+
+    to sign_out() returns Session or fails SessionError {
+        if not self.signed_in {
+            return failure SessionError.NotSignedIn
+        }
+        self.user = ""
+        self.signed_in = no
+        return success self
+    }
+
+    to who() returns Text {
+        if self.signed_in {
+            return self.user
+        }
+        return "guest"
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Shape hierarchy — entertains + override
+# ---------------------------------------------------------------------------
+
+ability Drawable {
+    to label() returns Text
+}
+
+cast Shape can Drawable {
+    changing colour: Text = "black"
+
+    to label() returns Text = "shape in {self.colour}"
+
+    to paint(colour: Text) {
+        self.colour = colour
+    }
+}
+
+cast Circle entertains Shape {
+    changing radius: Int
+
+    to label() returns Text = "circle r={self.radius} in {self.colour}"
+
+    to grow(by: Int) {
+        self.radius = self.radius + by
+    }
+}
+
+cast Square entertains Shape {
+    changing side: Int
+
+    to label() returns Text = "square {self.side}x{self.side} in {self.colour}"
+}
+
+# ---------------------------------------------------------------------------
+# RateLimiter — small service object with a class factory
+# ---------------------------------------------------------------------------
+
+cast RateLimiter {
+    changing remaining: Int
+    changing window: Int
+
+    to allow() returns Bool {
+        if self.remaining <= 0 {
+            return no
+        }
+        self.remaining = self.remaining - 1
+        return yes
+    }
+
+    to reset() {
+        self.remaining = self.window
+    }
+
+    to self.per_minute(limit: Int) returns RateLimiter {
+        return RateLimiter.new(remaining: limit, window: limit)
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Run through them
+# ---------------------------------------------------------------------------
+
+let cart = Cart.empty()
+cart.add("tea")
+cart.add("biscuit")
+print("cart holds {cart.count}, last was {cart.last}")
+match cart.take_last() {
+    when success name then print("took {name}, {cart.count} left")
+    when failure error then match error {
+        when Empty then print("cart was empty")
+        when MissingItem(name) then print("no {name}")
+    }
+}
+
+let session = Session.new()
+print(session.who())
+match session.sign_in("Ada") {
+    when success _ then print("signed in as {session.who()}")
+    when failure _ then print("could not sign in")
+}
+
+let circle = Circle.new(radius: 3, colour: "teal")
+circle.grow(2)
+circle.paint("emerald")
+print(circle.label())
+
+let square = Square.new(side: 4, colour: "ink")
+print(square.label())
+
+let limiter = RateLimiter.per_minute(2)
+print(limiter.allow())
+print(limiter.allow())
+print(limiter.allow())
+limiter.reset()
+print(limiter.allow())

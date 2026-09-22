@@ -1367,7 +1367,7 @@ checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
 
 [[package]]
 name = "vaab-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "tokio",
  "vaab-riff",
@@ -1379,7 +1379,7 @@ dependencies = [
 
 [[package]]
 name = "vaab-riff"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "directories",
  "insta",
@@ -1389,7 +1389,7 @@ dependencies = [
 
 [[package]]
 name = "vaab-server"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "http-body-util",
  "hyper",
@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "vaab-syntax"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ariadne",
  "insta",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "vaab-types"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "insta",
  "vaab-syntax",
@@ -1422,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "vaab-vm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cranelift-codegen",
  "cranelift-frontend",
