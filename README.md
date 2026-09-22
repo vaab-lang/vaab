@@ -45,7 +45,28 @@ single-threaded scheduler with cooperative preemption.
 | 6b | First-class app I/O — `env`, `Db`, `request.who`, `http` | done |
 | 7 | Multi-threaded work-stealing scheduler | done |
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/vaab-lang/vaab/master/install.sh | sh
+```
+
+Puts `vaab` in `~/.local/bin` (override with `VAAB_INSTALL_DIR`). Then:
+
+```sh
+vaab run main.vaab
+```
+
 ## Try it
+
+```sh
+vaab new demo && vaab run demo/main.vaab
+vaab run examples/12_running_programs.vaab
+vaab check examples/05_types.vaab
+vaab parse examples/01_hello.vaab
+```
+
+From a checkout, the same commands work via Cargo:
 
 ```sh
 cargo run -p vaab-cli -- new demo && cargo run -p vaab-cli -- run demo/main.vaab
@@ -57,7 +78,7 @@ cargo run -p vaab-cli -- parse examples/01_hello.vaab
 Or type at it:
 
 ```sh
-cargo run -p vaab-cli -- repl
+vaab repl
 ```
 ```
 vaab> let numbers = [1, 2, 3]
@@ -69,13 +90,13 @@ Feed it something broken to see the diagnostics:
 
 ```sh
 echo 'let count = 1;' > /tmp/oops.vaab
-cargo run -p vaab-cli -- parse /tmp/oops.vaab
+vaab parse /tmp/oops.vaab
 
 printf 'let ages = {"Ada": 36}\nlet age: Int = ages.get("Ada")\n' > /tmp/maybe.vaab
-cargo run -p vaab-cli -- check /tmp/maybe.vaab
+vaab check /tmp/maybe.vaab
 
 printf 'let none = 0\nprint(10 / none)\n' > /tmp/nope.vaab
-cargo run -p vaab-cli -- run /tmp/nope.vaab
+vaab run /tmp/nope.vaab
 ```
 
 ## Layout

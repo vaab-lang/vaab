@@ -41,9 +41,47 @@ jobs:
           ./target/release/vaab version
           ./target/release/vaab run examples/01_hello.vaab
 
+      - name: Stage named binary
+        run: |
+          mkdir -p dist
+          cp target/release/vaab "dist/${{ matrix.artifact }}"
+          chmod +x "dist/${{ matrix.artifact }}"
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: target/release/vaab
+          path: dist/${{ matrix.artifact }}
           if-no-files-found: error
+
+  release:
+    name: Publish latest release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish latest
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest
+          body: |
+            Prebuilt `vaab` binaries from `master`.
+
+            Install:
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/vaab-lang/vaab/master/install.sh | sh
+            ```
+          files: dist/*
+          make_latest: true
+          allow_updates: true
+          fail_on_unmatched_files: true
