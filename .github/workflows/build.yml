@@ -1,0 +1,49 @@
+name: Build Vaab
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: vaab-linux-x86_64
+          - os: macos-latest
+            artifact: vaab-macos-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: vaab-cli
+
+      - name: Build release binary
+        run: cargo build -p vaab-cli --release
+
+      - name: Smoke test
+        run: |
+          ./target/release/vaab version
+          ./target/release/vaab run examples/01_hello.vaab
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: target/release/vaab
+          if-no-files-found: error
