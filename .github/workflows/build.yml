@@ -3,6 +3,7 @@ name: Build Vaab
 on:
   push:
     branches: [master]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -55,9 +56,11 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish latest release
+    name: Publish release
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -69,19 +72,32 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Publish latest
+      - name: Resolve release tag
+        id: release
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "name=Vaab ${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "make_latest=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "name=Latest" >> "$GITHUB_OUTPUT"
+            echo "make_latest=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: ${{ steps.release.outputs.name }}
           body: |
-            Prebuilt `vaab` binaries from `master`.
+            Prebuilt `vaab` binaries.
 
             Install:
             ```sh
             curl -fsSL https://raw.githubusercontent.com/vaab-lang/vaab/master/install.sh | sh
             ```
           files: dist/*
-          make_latest: true
+          make_latest: ${{ steps.release.outputs.make_latest }}
           allow_updates: true
           fail_on_unmatched_files: true
