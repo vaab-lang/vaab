@@ -1,0 +1,44 @@
+# Decode the same JSON two ways: a typed record, or a walk of `Json`.
+#
+# `from_json(text, as: T)` fills a declared type. Missing `maybe` fields
+# become `nothing`. `Json.parse` keeps the document so `.at` and `.as_text`
+# can pick a value out. Both fail with built-in `JsonError`.
+
+type Note {
+    title: Text
+    tags: list of Text
+    hint: maybe Text
+}
+
+let payload = "\{\"title\":\"packing list\",\"tags\":[\"travel\",\"home\"]\}"
+
+show_typed(text: Text) returns Text or fails JsonError {
+    let note = try from_json(text, as: Note)
+    print(note.title)
+    print(note.tags.first otherwise "")
+    print(note.hint otherwise "none")
+    return "ok"
+}
+
+show_walked(text: Text) returns Text or fails JsonError {
+    let doc = try Json.parse(text)
+    print(doc.at("title").as_text() otherwise "")
+    let tags = doc.at("tags").as_list() otherwise []
+    print(tags.first.as_text() otherwise "")
+    print(doc.at("hint").as_text() otherwise "none")
+    return "ok"
+}
+
+match show_typed(payload) {
+    when success _ then {}
+    when failure error then match error {
+        when Failed(message) then print(message)
+    }
+}
+
+match show_walked(payload) {
+    when success _ then {}
+    when failure error then match error {
+        when Failed(message) then print(message)
+    }
+}

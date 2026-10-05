@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: rendered
+---
+[json-at] Error: `.at` takes a Text key or an Int index
+   ╭─[ example.vaab:2:40 ]
+   │
+ 2 │     when success doc then print(doc.at(yes))
+   │                                        ─┬─  
+   │                                         ╰─── this is Bool
+   │ 
+   │ Help: write `.at("name")` or `.at(0)`
+───╯

@@ -162,6 +162,16 @@ impl Checker {
         // type called `account`.
         if let ExprKind::Name(written) = &target.kind {
             if self.lookup_local(&written.text).is_none() {
+                if written.text == "Json" && name.text == "parse" {
+                    return Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("text", Type::Text)],
+                            Type::fallible(Type::named("Json"), Type::named("JsonError")),
+                        ),
+                        resolution: Resolution::BuiltinMethod("json_parse"),
+                        shape: CallShape::function("Json.parse", None),
+                    };
+                }
                 match self.globals.get(&written.text).copied() {
                     Some(Global::Type(id)) => return self.type_member(id, name),
                     Some(Global::Cast(id)) => return self.cast_member(id, name),
@@ -589,6 +599,12 @@ impl Checker {
         }
 
         match &found {
+            Type::Named(owner) if owner == "Json" => self.json_value_member(name),
+            Type::Maybe(inner)
+                if matches!(inner.as_ref(), Type::Named(owner) if owner == "Json") =>
+            {
+                self.json_value_member(name)
+            }
             Type::Named(owner) => self.named_member(owner, &found, name),
             Type::Ability(ability) => self.ability_member(ability, &found, name),
             Type::Db => self.builtin_member(&found, name, target),
@@ -596,6 +612,56 @@ impl Checker {
             Type::Logger => self.logger_member(name),
             Type::Query { error } => self.query_member(error, name),
             _ => self.builtin_member(&found, name, target),
+        }
+    }
+
+    /// Walking methods on a `Json` document, or on `maybe Json` so `.at` chains.
+    fn json_value_member(&mut self, name: &Name) -> Member {
+        let json = Type::named("Json");
+        match name.text.as_str() {
+            "at" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("key", Type::parameter("K"))],
+                    Type::maybe(json),
+                ),
+                resolution: Resolution::BuiltinMethod("json_at"),
+                shape: CallShape::function("Json.at", None),
+            },
+            "as_text" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::Text)),
+                resolution: Resolution::BuiltinMethod("json_as_text"),
+                shape: CallShape::function("Json.as_text", None),
+            },
+            "as_int" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::Int)),
+                resolution: Resolution::BuiltinMethod("json_as_int"),
+                shape: CallShape::function("Json.as_int", None),
+            },
+            "as_float" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+                resolution: Resolution::BuiltinMethod("json_as_float"),
+                shape: CallShape::function("Json.as_float", None),
+            },
+            "as_list" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::list(json))),
+                resolution: Resolution::BuiltinMethod("json_as_list"),
+                shape: CallShape::function("Json.as_list", None),
+            },
+            _ => {
+                self.report(messages::unknown_member(
+                    &json,
+                    &name.text,
+                    name.span,
+                    &[
+                        "at".into(),
+                        "as_text".into(),
+                        "as_int".into(),
+                        "as_float".into(),
+                        "as_list".into(),
+                    ],
+                ));
+                Member::Unknown
+            }
         }
     }
 

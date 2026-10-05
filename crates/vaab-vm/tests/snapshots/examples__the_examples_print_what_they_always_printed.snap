@@ -1,6 +1,5 @@
 ---
 source: crates/vaab-vm/tests/examples.rs
-assertion_line: 104
 expression: transcript
 ---
 $ vaab run examples/01_hello.vaab
@@ -132,3 +131,11 @@ yes
 yes
 no
 yes
+
+$ vaab run examples/28_json.vaab
+packing list
+travel
+none
+packing list
+travel
+none

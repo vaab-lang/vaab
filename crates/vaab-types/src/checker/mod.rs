@@ -323,6 +323,21 @@ impl Checker {
             &[("Failed", &[("message", Type::Text)])],
         );
         self.register_builtin_choice("AuthError", &[("Unauthorized", &[])]);
+        self.register_builtin_choice(
+            "JsonError",
+            &[("Failed", &[("message", Type::Text)])],
+        );
+        self.register_builtin_choice(
+            "Json",
+            &[
+                ("Null", &[]),
+                ("Bool", &[("value", Type::Bool)]),
+                ("Number", &[("value", Type::Float)]),
+                ("Text", &[("value", Type::Text)]),
+                ("List", &[("items", Type::list(Type::named("Json")))]),
+                ("Object", &[("entries", Type::map(Type::Text, Type::named("Json")))]),
+            ],
+        );
     }
 
     fn register_builtin_choice(
@@ -929,19 +944,28 @@ impl Checker {
     }
 
     fn resolve_ability(&mut self, name: &Name) -> Option<AbilityId> {
-        match self.globals.get(&name.text) {
-            Some(Global::Ability(id)) => Some(*id),
-            _ => {
-                let known: Vec<String> = self
-                    .checked
-                    .abilities
-                    .iter()
-                    .map(|ability| ability.name.clone())
-                    .collect();
-                self.report(messages::undefined_ability(&name.text, name.span, &known));
-                None
-            }
+        if let Some(Global::Ability(id)) = self.globals.get(&name.text) {
+            return Some(*id);
         }
+        // `Json` is both the marker ability (`can Json`) and the prelude choice,
+        // so the choice wins in `globals`. Find the ability by name instead.
+        if let Some((index, _)) = self
+            .checked
+            .abilities
+            .iter()
+            .enumerate()
+            .find(|(_, ability)| ability.name == name.text)
+        {
+            return Some(AbilityId(index as u32));
+        }
+        let known: Vec<String> = self
+            .checked
+            .abilities
+            .iter()
+            .map(|ability| ability.name.clone())
+            .collect();
+        self.report(messages::undefined_ability(&name.text, name.span, &known));
+        None
     }
 
     fn known_type_names(&self) -> Vec<String> {
