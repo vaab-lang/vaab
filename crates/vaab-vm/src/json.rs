@@ -60,6 +60,7 @@ fn value_to_json(value: &Value) -> Result<Json, Fault> {
         Value::Float(number) => Number::from_f64(*number).map(Json::Number).ok_or(Fault::Confused("a decimal that cannot be written as JSON")),
         Value::Bool(yes) => Ok(Json::Bool(*yes)),
         Value::Text(text) => Ok(Json::String(text.to_string())),
+        Value::Bytes(bytes) => Ok(Json::String(hex::encode(bytes.as_ref()))),
         Value::List(items) => Ok(Json::Array(items.iter().map(value_to_json).collect::<Result<Vec<_>, _>>()?)),
         Value::Map(entries) => {
             let mut object = Map::new();

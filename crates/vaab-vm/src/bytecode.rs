@@ -151,6 +151,9 @@ pub enum Op {
 
     ReadFile(u32),
     Now,
+    /// A Bytes constructor or method. Error layouts are looked up at compile time
+    /// so a bad offset becomes `failure BytesError` rather than a stop.
+    Bytes { op: BytesOp, errors: BytesErrors },
 
     EnvGet,
     EnvRequired(u32),
@@ -220,6 +223,33 @@ pub enum Op {
     NotYet(Feature),
     /// Reached when no arm of a `match` applied, which a checked program cannot do.
     NoArm,
+}
+
+/// One Bytes constructor or method, compiled as a single instruction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BytesOp {
+    FromBase64,
+    FromHex,
+    FromBase58,
+    Slice,
+    U8,
+    U32Le,
+    U64Le,
+    I64Le,
+    Bool,
+    ToHex,
+    ToBase58,
+    ToBase64,
+    StartsWith,
+    BorshText,
+}
+
+/// Layout indices for the three `BytesError` variants, in the compiled program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BytesErrors {
+    pub out_of_range: u32,
+    pub too_large: u32,
+    pub invalid: u32,
 }
 
 /// Where one of a body's captured values comes from when the function value is

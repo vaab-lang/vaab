@@ -45,6 +45,7 @@
 
 pub mod app_io;
 pub mod builtin;
+mod bytes;
 pub mod bytecode;
 mod compile;
 pub mod jit;
@@ -61,7 +62,7 @@ use vaab_syntax::Module;
 use vaab_types::Checked;
 
 pub use builtin::Builtin;
-pub use bytecode::{Body, Capture, Op, Program};
+pub use bytecode::{Body, BytesErrors, BytesOp, Capture, Op, Program};
 pub use compile::compile;
 pub use error::{Fault, Feature, Level, Operation, RuntimeError};
 pub use concurrency::Scheduler;

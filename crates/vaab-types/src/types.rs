@@ -25,6 +25,8 @@ pub enum Type {
     Float,
     Bool,
     Text,
+    /// A bag of raw bytes, unpacked with little-endian integer reads.
+    Bytes,
     /// The unit type: what a function with no `returns` gives back.
     Nothing,
     List(Box<Type>),
@@ -196,6 +198,7 @@ impl fmt::Display for Type {
             Type::Float => f.write_str("Float"),
             Type::Bool => f.write_str("Bool"),
             Type::Text => f.write_str("Text"),
+            Type::Bytes => f.write_str("Bytes"),
             Type::Nothing => f.write_str("Nothing"),
             Type::List(item) => write!(f, "list of {item}"),
             Type::Map { key, value } => write!(f, "map of {key} to {value}"),
@@ -328,6 +331,7 @@ mod tests {
     #[test]
     fn types_print_the_way_vaab_spells_them() {
         assert_eq!(Type::maybe(Type::Int).to_string(), "maybe Int");
+        assert_eq!(Type::Bytes.to_string(), "Bytes");
         assert_eq!(Type::list(Type::Text).to_string(), "list of Text");
         assert_eq!(Type::map(Type::Text, Type::Int).to_string(), "map of Text to Int");
         assert_eq!(

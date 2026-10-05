@@ -1,0 +1,53 @@
+# Bytes: decode, slice, and little-endian reads.
+#
+# A short hand-built payload, so the printed output is stable.
+#
+#   0..4    tag,  u32 little-endian (1)
+#   4..12   count, u64 little-endian (42)
+#  12       flag,  bool (yes)
+#  13..21   when,  i64 little-endian (-7)
+#  21..     name,  borsh text ("Ada")
+
+demo() returns Int or fails BytesError {
+    let payload = try Bytes.from_hex(
+        "010000002a0000000000000001f9ffffffffffffff03000000416461"
+    )
+    print(payload.length)
+    print(payload.to_hex())
+
+    let head = try payload.slice(from: 0, to: 4)
+    print(head.to_hex())
+    print(head.starts_with(try Bytes.from_hex("01000000")))
+    print(head.starts_with(try Bytes.from_hex("ffff")))
+
+    print(try payload.u8(at: 12))
+    print(try payload.u32_le(at: 0))
+    print(try payload.u64_le(at: 4))
+    print(try payload.i64_le(at: 13))
+    print(try payload.bool(at: 12))
+
+    match try payload.borsh_text(at: 21) {
+        when (name, after) then {
+            print(name)
+            print(after)
+        }
+    }
+
+    let id = try payload.slice(from: 0, to: 8)
+    print(id.to_base58())
+    print(id.to_base64())
+
+    let from_b64 = try Bytes.from_base64("YWI=")
+    print(from_b64.to_hex())
+
+    match payload.u8(at: 200) {
+        when success value then print(value)
+        when failure error then print(error)
+    }
+    return 0
+}
+
+match demo() {
+    when success _ then {}
+    when failure error then print(error)
+}

@@ -178,6 +178,106 @@ pub fn methods() -> Vec<Method> {
             signature: Signature::new(Vec::new(), Type::Int),
             property: true,
         },
+        // ---- Bytes --------------------------------------------------------
+        Method {
+            name: "length",
+            receiver: Type::Bytes,
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: true,
+        },
+        Method {
+            name: "slice",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("from", Type::Int), Parameter::new("to", Type::Int)],
+                Type::fallible(Type::Bytes, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "u8",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Int, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "u32_le",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Int, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "u64_le",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Int, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "i64_le",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Int, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "bool",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Bool, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "to_hex",
+            receiver: Type::Bytes,
+            signature: Signature::new(Vec::new(), Type::Text),
+            property: false,
+        },
+        Method {
+            name: "to_base58",
+            receiver: Type::Bytes,
+            signature: Signature::new(Vec::new(), Type::Text),
+            property: false,
+        },
+        Method {
+            name: "to_base64",
+            receiver: Type::Bytes,
+            signature: Signature::new(Vec::new(), Type::Text),
+            property: false,
+        },
+        Method {
+            name: "starts_with",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("prefix", Type::Bytes)],
+                Type::Bool,
+            ),
+            property: false,
+        },
+        Method {
+            name: "borsh_text",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(
+                    Type::Tuple(vec![Type::Text, Type::Int]),
+                    Type::named("BytesError"),
+                ),
+            ),
+            property: false,
+        },
         // ---- Numbers ------------------------------------------------------
         Method {
             name: "abs",
@@ -321,6 +421,16 @@ mod tests {
         assert!(same_shape(&Type::list(Type::Text), &Type::list(Type::Int)));
         assert!(!same_shape(&Type::list(Type::Text), &Type::Text));
         assert!(same_shape(&Type::Text, &Type::Text));
+        assert!(same_shape(&Type::Bytes, &Type::Bytes));
+    }
+
+    #[test]
+    fn bytes_offers_the_methods_a_bytes_value_should() {
+        let offered = members_of(&Type::Bytes);
+        for expected in ["length", "slice", "u8", "u32_le", "u64_le", "i64_le", "bool", "to_hex", "starts_with", "borsh_text"] {
+            assert!(offered.iter().any(|name| name == expected), "missing {expected}");
+        }
+        assert!(!offered.iter().any(|name| name == "upper"));
     }
 
     #[test]

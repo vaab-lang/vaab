@@ -93,6 +93,7 @@ conversions, and there is no null.
 | `Float` | a decimal number (64-bit) |
 | `Bool` | `yes` or `no` |
 | `Text` | text |
+| `Bytes` | raw bytes, decoded from hex, base64 or base58 |
 | `Nothing` | the unit type, returned by a function with no `returns` |
 | `list of T` | a list |
 | `map of K to V` | a map |
@@ -608,6 +609,34 @@ let sessions = try store
 Raw `db.query` / `db.execute` stay available for SQL the fluent surface cannot
 express yet.
 
+### Bytes
+
+`Bytes` is a bag of raw bytes. Constructors live on the `Bytes` name, like
+`File.read`. Reads that step past the end return `failure BytesError` so the
+program can skip the bad input.
+
+```vaab
+let raw = try Bytes.from_hex("010000002a")
+print(raw.length)                         # 5
+print(try raw.u32_le(at: 0))              # 1
+print(raw.starts_with(try Bytes.from_hex("01000000")))
+print(try raw.slice(from: 0, to: 2).to_hex())
+```
+
+| | |
+|---|---|
+| `Bytes.from_hex(text)` / `.from_base64` / `.from_base58` | decode, or `BytesError.Invalid` |
+| `raw.length` | how many bytes it holds |
+| `raw.slice(from:, to:)` | a copy of `from..to` (`to` is exclusive), or `OutOfRange` |
+| `raw.u8(at:)` / `.u32_le` / `.u64_le` / `.i64_le` | little-endian integer, or `OutOfRange` |
+| `raw.bool(at:)` | the byte at `at` as `yes` when it is not zero |
+| `raw.to_hex()` / `.to_base58()` / `.to_base64()` | encode the whole value |
+| `raw.starts_with(prefix)` | `yes` when `raw` begins with `prefix`; longer prefixes are `no` |
+| `raw.borsh_text(at:)` | `(Text, Int)`: a u32-length UTF-8 string and the offset after it |
+
+`u64_le` fails with `BytesError.TooLarge` when the unsigned value does not fit
+in an `Int`. `BytesError` is built-in; redeclaring the name is a duplicate.
+
 ### File I/O
 
 `FileError` is built-in. Prefer `File.read`; `read_file` remains as an alias.
@@ -671,8 +700,9 @@ print(to_json(Person.new(name: "Ada", score: 36)))
 ```
 
 Built-in scalars, lists, maps with `Text` keys, tuples, records, and choices whose
-parts are JSON-safe may be encoded. Functions, channels, tasks and other values
-that cannot be written as JSON are rejected by the checker.
+parts are JSON-safe may be encoded. `Bytes` encodes as a lowercase hex string.
+Functions, channels, tasks and other values that cannot be written as JSON are
+rejected by the checker.
 
 ---
 

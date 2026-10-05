@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"print(Bytes.from_b64(\\\"aa\\\"))\\n\")"
+---
+[unknown-member] Error: a Bytes has nothing called `from_b64`
+   ╭─[ example.vaab:1:13 ]
+   │
+ 1 │ print(Bytes.from_b64("aa"))
+   │             ────┬───  
+   │                 ╰───── this asks a Bytes for `from_b64`
+   │ 
+   │ Help: did you mean `from_base64`?
+───╯

@@ -303,6 +303,14 @@ impl Checker {
             &[("NotFound", &[("path", Type::Text)])],
         );
         self.register_builtin_choice(
+            "BytesError",
+            &[
+                ("OutOfRange", &[("at", Type::Int), ("length", Type::Int)]),
+                ("TooLarge", &[("at", Type::Int)]),
+                ("Invalid", &[("message", Type::Text)]),
+            ],
+        );
+        self.register_builtin_choice(
             "EnvError",
             &[("Missing", &[("name", Type::Text)])],
         );
@@ -901,6 +909,7 @@ impl Checker {
             "Float" => return Type::Float,
             "Bool" => return Type::Bool,
             "Text" => return Type::Text,
+            "Bytes" => return Type::Bytes,
             "Nothing" => return Type::Nothing,
             "Db" => return Type::Db,
             "Store" => return Type::Store,
@@ -945,7 +954,7 @@ impl Checker {
     }
 
     fn known_type_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = ["Int", "Float", "Bool", "Text", "Nothing", "Db", "Store", "Logger", "Query"]
+        let mut names: Vec<String> = ["Int", "Float", "Bool", "Text", "Bytes", "Nothing", "Db", "Store", "Logger", "Query"]
             .iter()
             .map(|n| n.to_string())
             .collect();

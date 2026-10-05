@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64.workspace = true
+bs58.workspace = true
 cranelift-codegen = "0.115.1"
 cranelift-frontend = "0.115.1"
 cranelift-jit = "0.115.1"
