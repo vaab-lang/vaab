@@ -170,6 +170,9 @@ fn sleep_until_next_deadline(shared: &Parallel) -> Option<std::time::Duration> {
     if !shared.injector.is_empty() || shared.stealers.iter().any(|stealer| !stealer.is_empty()) {
         return None;
     }
+    if host.io.has_pending() {
+        return Some(std::time::Duration::from_millis(1));
+    }
     if host.timeouts.is_empty() || !host.all_parked() {
         return None;
     }
@@ -401,6 +404,7 @@ fn try_finish_idle(shared: &Parallel) -> bool {
     let mut pending = VecDeque::new();
     if let Ok(mut host) = lock(&shared.host) {
         host.fire_timeouts(&mut pending);
+        host.drain_io(&mut pending);
     }
     for task in pending {
         shared.injector.push(task);
@@ -413,7 +417,7 @@ fn try_finish_idle(shared: &Parallel) -> bool {
         return false;
     }
     if let Ok(host) = lock(&shared.host) {
-        if host.timeouts.is_empty() && host.all_parked() {
+        if host.timeouts.is_empty() && !host.io.has_pending() && host.all_parked() {
             set_outcome(shared, Run::Failed(deadlock_parallel(&host, &shared.machines)));
             return true;
         }
@@ -442,6 +446,7 @@ fn deadlock_parallel(host: &Host, machines: &Mutex<Vec<Mutex<Machine>>>) -> Runt
             Some(WaitSite::Together { .. }) => "waiting in `together`".to_string(),
             Some(WaitSite::Select { .. }) => "waiting in `select`".to_string(),
             Some(WaitSite::Sleep { .. }) => "sleeping".to_string(),
+            Some(WaitSite::Io { .. }) => "waiting for I/O".to_string(),
             None => "blocked".to_string(),
         };
         lines.push(format!("  task {id} ({name}): {site}"));

@@ -204,6 +204,7 @@ enum Pending {
         span: Span,
     },
     Sleep { until: Instant },
+    Io { ticket: u64 },
 }
 
 /// A running Vaab program.
@@ -212,6 +213,7 @@ pub struct Machine {
     frames: Vec<Frame>,
     pending: Option<Pending>,
     together_group: Option<usize>,
+    pub response: Option<HttpResponse>,
 }
 
 impl Machine {
@@ -231,6 +233,7 @@ impl Machine {
             frames: Vec::new(),
             pending: None,
             together_group: None,
+            response: None,
         };
         machine.enter_call(program, body, arity, Value::Nothing, closure)?;
         Ok(machine)
@@ -249,6 +252,7 @@ impl Machine {
             }],
             pending: None,
             together_group: None,
+            response: None,
         }
     }
 
@@ -344,7 +348,7 @@ impl Machine {
                 }))),
                 }
             }
-            Some(Pending::Sleep { .. }) => None,
+            Some(Pending::Sleep { .. } | Pending::Io { .. }) => None,
             Some(Pending::Select { descriptor, channels, resume_pc, span }) => {
                 let Some(meta) = world.program.selects.get(descriptor) else {
                     return Some(Step::Failed(Box::new(RuntimeError {
@@ -401,6 +405,46 @@ impl Machine {
                 Level { name, at }
             })
             .collect()
+    }
+
+    fn park_http(
+        &mut self,
+        host: &mut crate::concurrency::Host,
+        pc: usize,
+        work: crate::io::IoWork,
+    ) -> Result<Result<String, String>, TickAction> {
+        if let Some(Pending::Io { ticket }) = self.pending {
+            match host.take_io(ticket) {
+                Some(result) => {
+                    self.pending = None;
+                    return Ok(result);
+                }
+                None => return Err(self.park_at(pc, WaitSite::Io { ticket })),
+            }
+        }
+        let ticket = host.submit_io(work);
+        self.pending = Some(Pending::Io { ticket });
+        Err(self.park_at(pc, WaitSite::Io { ticket }))
+    }
+
+    fn push_http_result(
+        &mut self,
+        program: &Program,
+        layout: u32,
+        result: Result<String, String>,
+        name: &'static str,
+    ) -> Result<(), Fault> {
+        match result {
+            Ok(body) => self.stack.push(Value::success(Value::text(body))),
+            Err(message) => {
+                let layout = program.variants.get(layout as usize).cloned().ok_or(
+                    Fault::Confused("an HTTP call named a variant that is not there"),
+                )?;
+                let _ = name;
+                self.stack.push(crate::app_io::failure_message(layout, message));
+            }
+        }
+        Ok(())
     }
 
     /// Parks with the instruction pointer back on the operation that must run again.
@@ -1644,62 +1688,71 @@ impl Machine {
                 }
             }
             Op::HttpGet(layout) => {
-                let url = match self.pop()? {
-                    Value::Text(text) => text.to_string(),
+                let url = match self.stack.last() {
+                    Some(Value::Text(text)) => text.to_string(),
                     _ => return Err(Fault::Confused("http.get expected a url")),
                 };
-                match crate::app_io::http_get(&url) {
-                    Ok(body) => self.stack.push(Value::success(Value::text(body))),
-                    Err(message) => {
-                        let layout = program.variants.get(layout as usize).cloned().ok_or(
-                            Fault::Confused("http.get named a variant that is not there"),
-                        )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                match self.park_http(host, pc, crate::io::IoWork::HttpGet { url }) {
+                    Ok(result) => {
+                        let _ = self.pop()?;
+                        self.push_http_result(program, layout, result, "http.get")?;
                     }
+                    Err(park) => return Ok(park),
                 }
             }
             Op::HttpPost(layout) => {
-                let body = match self.pop()? {
-                    Value::Text(text) => text.to_string(),
+                let body = match self.stack.last() {
+                    Some(Value::Text(text)) => text.to_string(),
                     _ => return Err(Fault::Confused("http.post expected a body")),
                 };
-                let url = match self.pop()? {
-                    Value::Text(text) => text.to_string(),
+                let url = match self.stack.get(self.stack.len().saturating_sub(2)) {
+                    Some(Value::Text(text)) => text.to_string(),
                     _ => return Err(Fault::Confused("http.post expected a url")),
                 };
-                match crate::app_io::http_post(&url, &body) {
-                    Ok(response) => self.stack.push(Value::success(Value::text(response))),
-                    Err(message) => {
-                        let layout = program.variants.get(layout as usize).cloned().ok_or(
-                            Fault::Confused("http.post named a variant that is not there"),
-                        )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                match self.park_http(host, pc, crate::io::IoWork::HttpPost { url, body }) {
+                    Ok(result) => {
+                        let _ = self.pop()?;
+                        let _ = self.pop()?;
+                        self.push_http_result(program, layout, result, "http.post")?;
                     }
+                    Err(park) => return Ok(park),
                 }
             }
             Op::HttpSend(layout) => {
-                let headers_value = self.pop()?;
+                let headers_value = self.stack.last().cloned().ok_or(Fault::Confused(
+                    "http.send expected headers",
+                ))?;
                 let headers = crate::app_io::headers_from_value(&headers_value)?;
-                let body = match self.pop()? {
-                    Value::Text(text) => text.to_string(),
+                let body = match self.stack.get(self.stack.len().saturating_sub(2)) {
+                    Some(Value::Text(text)) => text.to_string(),
                     _ => return Err(Fault::Confused("http.send expected a body")),
                 };
-                let url = match self.pop()? {
-                    Value::Text(text) => text.to_string(),
+                let url = match self.stack.get(self.stack.len().saturating_sub(3)) {
+                    Some(Value::Text(text)) => text.to_string(),
                     _ => return Err(Fault::Confused("http.send expected a url")),
                 };
-                let method = match self.pop()? {
-                    Value::Text(text) => text.to_string(),
+                let method = match self.stack.get(self.stack.len().saturating_sub(4)) {
+                    Some(Value::Text(text)) => text.to_string(),
                     _ => return Err(Fault::Confused("http.send expected a method")),
                 };
-                match crate::app_io::http_send(&method, &url, &body, &headers) {
-                    Ok(response) => self.stack.push(Value::success(Value::text(response))),
-                    Err(message) => {
-                        let layout = program.variants.get(layout as usize).cloned().ok_or(
-                            Fault::Confused("http.send named a variant that is not there"),
-                        )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                match self.park_http(
+                    host,
+                    pc,
+                    crate::io::IoWork::HttpSend {
+                        method,
+                        url,
+                        body,
+                        headers,
+                    },
+                ) {
+                    Ok(result) => {
+                        let _ = self.pop()?;
+                        let _ = self.pop()?;
+                        let _ = self.pop()?;
+                        let _ = self.pop()?;
+                        self.push_http_result(program, layout, result, "http.send")?;
                     }
+                    Err(park) => return Ok(park),
                 }
             }
             Op::RequestWho { user, unauthorized } => {
@@ -1737,7 +1790,7 @@ impl Machine {
                 };
                 let value = self.pop()?;
                 let body = crate::json::encode(&value)?;
-                world.response = Some(HttpResponse::json(status, body));
+                self.response = Some(HttpResponse::json(status, body));
             }
             Op::ReplyFile(has_status) => {
                 let status = if has_status {
@@ -1754,7 +1807,7 @@ impl Machine {
                     Value::Text(path) => path.to_string(),
                     _ => return Err(Fault::Confused("reply file expected a path")),
                 };
-                world.response = Some(crate::static_files::read_response(&path, status));
+                self.response = Some(crate::static_files::read_response(&path, status));
             }
             Op::ReplyText(has_status) => {
                 let status = if has_status {
@@ -1775,7 +1828,7 @@ impl Machine {
                     Value::Text(text) => text.to_string(),
                     _ => return Err(Fault::Confused("reply text expected a body")),
                 };
-                world.response = Some(HttpResponse {
+                self.response = Some(HttpResponse {
                     status,
                     body,
                     content_type,
@@ -1784,7 +1837,7 @@ impl Machine {
             Op::ReplyExplain => {
                 let value = self.pop()?;
                 let body = crate::json::encode(&value)?;
-                world.response = Some(HttpResponse::json(400, body));
+                self.response = Some(HttpResponse::json(400, body));
             }
 
             // -- Stopping --------------------------------------------------

@@ -140,6 +140,7 @@ impl ImpureFinder<'_> {
                 Some(PureViolation::Effect("call `read_file`"))
             }
             Some(Resolution::Builtin("sleep")) => Some(PureViolation::Effect("call `sleep`")),
+            Some(Resolution::Builtin("every")) => Some(PureViolation::Effect("call `every`")),
             Some(Resolution::Builtin(_)) => None,
             Some(Resolution::BuiltinMethod("wait")) => {
                 Some(PureViolation::Effect("wait for a task"))

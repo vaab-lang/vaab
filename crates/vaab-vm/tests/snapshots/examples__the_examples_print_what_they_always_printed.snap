@@ -163,3 +163,5 @@ Ahg1ptm671
 AQAAACoAAAA=
 6162
 BytesError.OutOfRange(200, 28)
+
+$ vaab run examples/30_server.vaab

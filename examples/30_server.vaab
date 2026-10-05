@@ -1,0 +1,18 @@
+# A long-lived server: a background task keeps a counter, and GET /count reads it.
+# Run with: vaab serve examples/30_server.vaab
+
+let count = Shared.new(0)
+
+to tick() {
+    count.update(n -> n + 1)
+}
+
+serve on port 8765 {
+    on start {
+        start { every(milliseconds: 100, f: tick) }
+    }
+
+    route get "/count" {
+        reply with count.value
+    }
+}

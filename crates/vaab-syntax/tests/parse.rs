@@ -26,6 +26,20 @@ serve on port 8080 {
     ));
 }
 
+#[test]
+fn serve_on_start() {
+    assert_snapshot!(tree(
+        r#"
+serve on port 8080 {
+    on start {
+        start { print("ready") }
+    }
+    route get "/hello" { reply with "hello" }
+}
+"#
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Values and bindings
 // ---------------------------------------------------------------------------

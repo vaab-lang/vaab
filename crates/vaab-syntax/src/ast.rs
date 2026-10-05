@@ -139,6 +139,7 @@ pub enum NeedImports {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServeDecl {
     pub port: Expr,
+    pub on_start: Option<Block>,
     pub before: Option<Block>,
     pub routes: Vec<RouteDecl>,
     pub error_handler: Option<ServeErrorHandler>,

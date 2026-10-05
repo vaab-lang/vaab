@@ -324,6 +324,17 @@ impl<'a> Compiler<'a> {
     fn serve(&mut self, statement: &'a Stmt, serve: &'a ServeDecl) {
         let Some(checked) = self.checked.serves.get(&statement.id) else { return };
 
+        if let (Some(frame), Some(body)) = (checked.on_start, serve.on_start.as_ref()) {
+            let body_index = self.builders.len();
+            self.builders.push(Builder::new(Ref::from("on start"), frame));
+            self.open_body(body_index, frame, 0);
+            self.block_discard(body);
+            self.emit(Op::Nothing, body.span);
+            self.emit(Op::Return, body.span);
+            self.open.pop();
+            self.program.on_start = Some(body_index);
+        }
+
         for (route, route_decl) in checked.routes.iter().zip(&serve.routes) {
             let body_index = self.builders.len();
             let name = Ref::from(format!("route {}", route.method).as_str());

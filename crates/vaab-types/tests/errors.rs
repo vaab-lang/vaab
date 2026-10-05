@@ -22,6 +22,18 @@ fn reply_outside_route() {
 "#));
 }
 
+#[test]
+fn a_server_global_that_is_not_a_handle() {
+    let rendered = errors(
+        "let count = 0\n\
+         serve on port 8080 {\n\
+         \x20   route get \"/count\" { reply with count }\n\
+         }\n",
+    );
+    assert!(rendered.contains("Shared.new"), "{rendered}");
+    assert_snapshot!(rendered);
+}
+
 // ---------------------------------------------------------------------------
 // The two messages the specification names
 // ---------------------------------------------------------------------------

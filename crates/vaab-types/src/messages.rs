@@ -933,6 +933,7 @@ fn pure_effect_label(effect: &str) -> String {
         "call `print`" => "this calls `print`".to_string(),
         "call `read_file`" => "this calls `read_file`".to_string(),
         "call `sleep`" => "this calls `sleep`".to_string(),
+        "call `every`" => "this calls `every`".to_string(),
         "read the clock" => "this reads the clock".to_string(),
         "call a function held in a value" => "this calls a function held in a value".to_string(),
         "start a task" => "this starts a task".to_string(),
@@ -958,7 +959,7 @@ fn pure_effect_help(effect: &str) -> String {
         "call `read_file`" => {
             "read the file before calling the `pure` function, and pass the text in"
         }
-        "call `sleep`" => "wait outside the `pure` function, then call it",
+        "call `sleep`" | "call `every`" => "wait outside the `pure` function, then call it",
         "read the clock" => {
             "read the clock before calling the `pure` function, and pass the number in"
         }
@@ -1022,6 +1023,31 @@ pub fn reply_outside_route(span: Span) -> Diagnostic {
         "`reply` may only appear inside a route body or error handler",
     )
     .at(span, "`reply` was written here")
+}
+
+pub fn server_global_must_be_handle(name: &str, found: &Type, span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "server-global-must-be-handle",
+        format!("`{name}` is {found}, so a server cannot keep it as a process-wide value"),
+    )
+    .at(span, format!("`{name}` is declared here"))
+    .with_help(server_global_help(name, found))
+}
+
+fn server_global_help(name: &str, found: &Type) -> String {
+    match found {
+        Type::Channel(_) => {
+            format!("build a channel instead: `let {name} = Channel.new(of: ..., size: ...)`")
+        }
+        Type::Db => format!("open a database instead: `let {name} = try Db.connect(...)`"),
+        Type::Store => format!("open a store instead: `let {name} = try Store.open(...)`"),
+        Type::Logger => {
+            format!("build a logger instead: `let {name} = Logger.stderr()`")
+        }
+        _ => format!(
+            "wrap it: `let {name} = Shared.new(...)`, then read `{name}.value` and change it with `{name}.update(...)`"
+        ),
+    }
 }
 
 pub fn cannot_json(span: Span) -> Diagnostic {

@@ -222,6 +222,7 @@ impl Checker {
         for statement in &module.statements {
             self.statement(statement);
         }
+        self.check_server_globals();
     }
 
     /// Hands back the tables, or the problems that stopped them being trustworthy.

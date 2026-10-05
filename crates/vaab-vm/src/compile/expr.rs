@@ -161,7 +161,9 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::ReadFile(self.file_error_not_found()), span)
             }
             Some(Resolution::Builtin("now")) => self.emit(Op::Now, span),
-            Some(Resolution::Builtin("sleep")) => self.emit(Op::Nothing, span),
+            Some(Resolution::Builtin("sleep") | Resolution::Builtin("every")) => {
+                self.emit(Op::Nothing, span)
+            }
             Some(Resolution::Builtin("print")) => {
                 self.push_constant(Value::Builtin(Builtin::Print), span)
             }
@@ -301,6 +303,9 @@ impl<'a> Compiler<'a> {
             Some(Resolution::Builtin("sleep")) => {
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 self.emit(Op::Sleep, span);
+            }
+            Some(Resolution::Builtin("every")) => {
+                self.compile_every(call, arguments, span);
             }
             Some(Resolution::Builtin("to_json")) => {
                 let count = self.push_arguments(call, arguments, Defaults::None);
@@ -1274,6 +1279,25 @@ impl<'a> Compiler<'a> {
         self.emit(Op::Pop, span);
         self.expression(fallback);
         self.land(end);
+    }
+
+    /// `every(milliseconds:, f)` is a loop that parks on `sleep` then calls `f`.
+    /// Compiling it as jumps keeps the wait off the Rust stack.
+    fn compile_every(&mut self, call: &'a Expr, arguments: &'a [Argument], span: Span) {
+        let milliseconds = self.temporary();
+        let function = self.temporary();
+        let _ = self.push_arguments(call, arguments, Defaults::None);
+        self.emit(Op::StoreLocal(function), span);
+        self.emit(Op::StoreLocal(milliseconds), span);
+        let start = self.here();
+        self.emit(Op::LoadLocal(milliseconds), span);
+        self.emit(Op::Sleep, span);
+        self.emit(Op::Pop, span);
+        self.emit(Op::LoadLocal(function), span);
+        self.emit(Op::Call(0), span);
+        self.emit(Op::Pop, span);
+        self.emit(Op::Jump(start), span);
+        self.emit(Op::Nothing, span);
     }
 }
 

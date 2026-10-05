@@ -1116,3 +1116,50 @@ lowercase hex string so a record that holds bytes stays JSON-safe.
 Decoding uses the `base64` and `bs58` crates; hex uses the existing `hex`
 dependency. `slice`'s `to` is exclusive, matching `from..to`.
 
+---
+
+## Long-lived servers
+
+### D91. Process-wide handle globals
+
+A top-level `let` in a file that `serve`s is created once, when the process
+starts, and every request machine reads the same slots. Only `Shared`,
+`Channel`, `Db`, `Store` and `Logger` values may live there. Anything else is
+a checker error that points at `Shared.new` (or the matching constructor).
+
+Ordinary values would look like process state but would be the wrong kind:
+an `Int` cannot change in place, and a fresh copy per request was the old
+behaviour people already found surprising. Handles are the values that are
+meant to be shared. `Channel` needs the same scheduler `Host` as the requests,
+which is why the server keeps one `World` and one scheduler for the process.
+
+### D92. `on start` runs on the request scheduler
+
+`on start` is compiled like a route body with no `request`, and run once after
+the listener binds. Tasks it `start`s are ordinary scheduler tasks, so they
+outlive the block. The scheduler does not stop when the `on start` machine
+finishes — that is the difference from `vaab run`, which ends when the
+top-level task returns.
+
+A second `on start` is an error. `on` followed by anything other than `start`
+is an error that shows `on start { ... }`.
+
+### D93. `http.get`, `http.post` and `http.send` park
+
+Those three builtins submit work to a small I/O thread pool and park on
+`WaitSite::Io { ticket }`. The scheduler thread never blocks on the network.
+The same wait site is honoured in the single-threaded loop and in the
+work-stealing pool, and deadlock text names "waiting for I/O" so a stuck
+outbound call is visible. `File.read` and `db.*` stay blocking in this
+milestone.
+
+### D94. `every` is a compiled loop
+
+`every(milliseconds:, f)` is not a Rust builtin that calls `f` recursively.
+The compiler writes sleep, call `f`, jump. `f` is `()` — a function of no
+arguments that returns nothing. The call is `every(milliseconds: 100, f: tick)`
+or `every(100, tick)`; a named argument cannot be followed by a positional one,
+so `every(milliseconds: 100, tick)` is refused like any other call. `every`
+itself returns nothing and does not stop until the task is cancelled, which is
+what Ctrl-C does through `TaskMeta.cancelled`.
+

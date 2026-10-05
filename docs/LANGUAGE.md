@@ -803,14 +803,30 @@ serve on port 8080 {
         reply with created status 201
     }
 
+    on start {
+        start { every(milliseconds: 100, f: tick) }
+    }
+
     when anything fails with ApiError as error {
         reply explain(error)
     }
 }
 ```
 
+`on start` runs once after the listener binds, on the same scheduler that runs
+requests. Tasks it `start`s keep running for the life of the process.
+
+A top-level `let` in a serve file is created once and given to every request.
+Only `Shared`, `Channel`, `Db`, `Store` and `Logger` values may live there —
+wrap ordinary data in `Shared.new`, then read `.value` and change it with
+`.update`. `every(milliseconds:, f)` sleeps, calls `f`, and loops until the
+task is cancelled; `f` takes no arguments and returns nothing.
+
 Every route body has type `Response or fails ApiError`. JSON-encodable values are
 serialised and deserialised automatically. Each request runs as its own task.
+`http.get`, `http.post` and `http.send` park the task instead of blocking the
+worker, so a slow outbound call does not stall other requests. Ctrl-C cancels
+background tasks and closes the listener.
 
 ---
 

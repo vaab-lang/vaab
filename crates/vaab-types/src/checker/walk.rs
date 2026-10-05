@@ -94,6 +94,9 @@ pub(super) fn statement(node: &Stmt, visitor: &mut impl Visit) {
         StmtKind::Type(_) | StmtKind::Cast(_) | StmtKind::Choice(_) | StmtKind::Ability(_) => {}
         StmtKind::Serve(serve) => {
             expression(&serve.port, visitor);
+            if let Some(on_start) = &serve.on_start {
+                block(on_start, visitor);
+            }
             if let Some(before) = &serve.before {
                 block(before, visitor);
             }

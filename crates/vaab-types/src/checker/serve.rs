@@ -34,6 +34,7 @@ impl Checker {
         let previous_error = self.route_error.clone();
         self.route_error = serve.error_handler.as_ref().map(|handler| self.resolve_type(&handler.error_type));
 
+        let on_start = serve.on_start.as_ref().map(|body| self.on_start_block(body, statement.id));
         let before = serve.before.as_ref().map(|body| self.before_hook(body, statement.id));
         let routes = serve.routes.iter().map(|route| self.check_route(route, statement.id)).collect();
         let error_handler =
@@ -44,7 +45,7 @@ impl Checker {
         if let Some(port) = port {
             self.checked.serves.insert(
                 statement.id,
-                Serve { port, before, routes, error_handler },
+                Serve { port, on_start, before, routes, error_handler },
             );
         }
     }
@@ -86,6 +87,16 @@ impl Checker {
                 self.expression(value, Wanted::Anything);
             }
         }
+    }
+
+    fn on_start_block(&mut self, block: &Block, serve: vaab_syntax::ast::NodeId) -> crate::checked::FrameId {
+        let frame = self.new_frame(FrameKind::OnStart(serve));
+        self.frames.push(frame);
+        self.push_scope();
+        self.block(block, Wanted::Discarded);
+        self.pop_scope();
+        self.frames.pop();
+        frame
     }
 
     fn before_hook(&mut self, block: &Block, route: vaab_syntax::ast::NodeId) -> crate::checked::FrameId {
@@ -177,6 +188,25 @@ impl Checker {
         self.route_depth -= 1;
     }
 
+    pub(super) fn check_server_globals(&mut self) {
+        if self.checked.serves.is_empty() {
+            return;
+        }
+        let locals: Vec<(String, Type, Span)> = self
+            .checked
+            .locals
+            .iter()
+            .filter(|local| local.frame == crate::checked::Checked::TOP_LEVEL)
+            .filter(|local| !is_server_handle(&local.declared))
+            .filter(|local| !local.declared.is_unknown())
+            .filter(|local| !matches!(local.declared, Type::Variable(_)))
+            .map(|local| (local.name.clone(), local.declared.clone(), local.span))
+            .collect();
+        for (name, declared, span) in locals {
+            self.report(messages::server_global_must_be_handle(&name, &declared, span));
+        }
+    }
+
     fn bind_request(&mut self) {
         let request_type = Type::Tuple(vec![
             Type::Text,
@@ -187,4 +217,11 @@ impl Checker {
         let name = Name::new(REQUEST, Span::default());
         self.declare_local(&name, request_type, false);
     }
+}
+
+fn is_server_handle(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Shared(_) | Type::Channel(_) | Type::Db | Type::Store | Type::Logger
+    )
 }

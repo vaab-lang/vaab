@@ -1035,6 +1035,22 @@ fn a_together_whose_body_only_calls_is_allowed_to_start_tasks_in_there() {
 }
 
 #[test]
+fn every_and_on_start_are_accepted() {
+    check(
+        "let count = Shared.new(0)\n\
+         to tick() {\n\
+         \x20   count.update(n -> n + 1)\n\
+         }\n\
+         serve on port 8080 {\n\
+         \x20   on start {\n\
+         \x20       start { every(milliseconds: 100, f: tick) }\n\
+         \x20   }\n\
+         \x20   route get \"/count\" { reply with count.value }\n\
+         }\n",
+    );
+}
+
+#[test]
 fn every_unit_of_time_a_timeout_may_be_written_in_is_accepted() {
     for unit in [
         "millisecond",

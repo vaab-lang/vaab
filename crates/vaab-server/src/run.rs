@@ -9,18 +9,48 @@ use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use indexmap::IndexMap;
 use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 use vaab_syntax::Module;
 use vaab_types::Checked;
-use vaab_vm::app_io::{Databases, Stores};
 use vaab_vm::bytecode::Program;
-use vaab_vm::concurrency::Host;
-use vaab_vm::log::{server_logger, Loggers};
-use vaab_vm::machine::{Budget, HttpResponse, Machine, Output, Step, World};
+use vaab_vm::log::server_logger;
+use vaab_vm::machine::{HttpResponse, Machine, Output};
 use vaab_vm::value::{Key, Ref, Value};
+use vaab_vm::LiveRuntime;
 
 use crate::{playground, router};
 
+pub struct Serving {
+    pub port: u16,
+    state: Arc<ServerState>,
+    stop: Option<oneshot::Sender<()>>,
+    accept: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Serving {
+    pub async fn shutdown(mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(accept) = self.accept.take() {
+            let _ = accept.await;
+        }
+        self.state.runtime.shutdown();
+    }
+}
+
 pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Result<(), String> {
+    let serving = start(module, checked).await?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = std::future::pending::<()>() => {}
+    }
+    serving.state.log.info("shutting down");
+    serving.shutdown().await;
+    Ok(())
+}
+
+pub async fn start(module: &Module, checked: &Checked) -> Result<Serving, String> {
     let serve = checked
         .serves
         .values()
@@ -38,39 +68,73 @@ pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Re
         .await
         .map_err(|error| format!("could not listen on port {}: {}", serve.port, error))?;
 
+    let runtime = Arc::new(LiveRuntime::start(world));
+    let top = runtime.run_to_completion(Machine::start(&program));
+    if let Err(error) = top.value {
+        runtime.shutdown();
+        return Err(format!("the file's top-level statements failed: {:?}", error.fault));
+    }
+    if let Some(body) = program.on_start {
+        let started = runtime.run_to_completion(Machine::entering(&program, body, 0));
+        if let Err(error) = started.value {
+            runtime.shutdown();
+            return Err(format!("`on start` failed: {:?}", error.fault));
+        }
+    }
+
     let log = server_logger();
     log.info(&format!("listening on http://127.0.0.1:{}", serve.port));
     let state = Arc::new(ServerState {
         program,
-        databases: Databases::shared(),
-        stores: Stores::shared(),
-        loggers: Loggers::shared(),
+        runtime,
         log,
     });
 
+    let (stop, stop_rx) = oneshot::channel();
+    let accept_state = Arc::clone(&state);
+    let accept = tokio::spawn(async move {
+        accept_loop(listener, accept_state, stop_rx).await;
+    });
+
+    Ok(Serving {
+        port: serve.port,
+        state,
+        stop: Some(stop),
+        accept: Some(accept),
+    })
+}
+
+async fn accept_loop(
+    listener: TcpListener,
+    state: Arc<ServerState>,
+    mut stop: oneshot::Receiver<()>,
+) {
     loop {
-        let (stream, peer) = listener.accept().await.map_err(|error| error.to_string())?;
-        let io = TokioIo::new(stream);
-        let state = Arc::clone(&state);
-        tokio::spawn(async move {
-            let log = state.log.clone();
-            let service = service_fn(move |request| handle(state.clone(), request));
-            if let Err(error) = http1::Builder::new().serve_connection(io, service).await {
-                log.write(
-                    vaab_vm::LogLevel::Warn,
-                    "connection error",
-                    &[("peer", &peer.to_string()), ("error", &error.to_string())],
-                );
+        tokio::select! {
+            _ = &mut stop => break,
+            accepted = listener.accept() => {
+                let Ok((stream, peer)) = accepted else { break };
+                let io = TokioIo::new(stream);
+                let state = Arc::clone(&state);
+                tokio::spawn(async move {
+                    let log = state.log.clone();
+                    let service = service_fn(move |request| handle(state.clone(), request));
+                    if let Err(error) = http1::Builder::new().serve_connection(io, service).await {
+                        log.write(
+                            vaab_vm::LogLevel::Warn,
+                            "connection error",
+                            &[("peer", &peer.to_string()), ("error", &error.to_string())],
+                        );
+                    }
+                });
             }
-        });
+        }
     }
 }
 
 struct ServerState {
     program: Ref<Program>,
-    databases: Arc<Databases>,
-    stores: Arc<Stores>,
-    loggers: Arc<Loggers>,
+    runtime: Arc<LiveRuntime>,
     log: vaab_vm::Logger,
 }
 
@@ -125,13 +189,28 @@ async fn handle(
         .map(|collected| collected.to_bytes())
         .unwrap_or_default();
 
-    let response = match router::find_route(&state.program.routes, &method, &path) {
-        Some(matched) => {
-            let route = &state.program.routes[matched.handler];
-            let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
-            run_route(&state, route, &method, &path, body_text, headers, matched.params)
-        }
-        None => HttpResponse::json(404, "{\"error\":\"not found\"}".to_string()),
+    let matched = router::find_route(&state.program.routes, &method, &path);
+    let response = if let Some(matched) = matched {
+        let route = state.program.routes[matched.handler].clone();
+        let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
+        let state = Arc::clone(&state);
+        let method_for_route = method.clone();
+        let path_for_route = path.clone();
+        tokio::task::spawn_blocking(move || {
+            run_route(
+                &state,
+                &route,
+                &method_for_route,
+                &path_for_route,
+                body_text,
+                headers,
+                matched.params,
+            )
+        })
+        .await
+        .unwrap_or_else(|_| HttpResponse::json(500, "{\"error\":\"route failed\"}".to_string()))
+    } else {
+        HttpResponse::json(404, "{\"error\":\"not found\"}".to_string())
     };
 
     let elapsed_ms = started.elapsed().as_millis().to_string();
@@ -173,15 +252,6 @@ fn run_route(
     headers: IndexMap<Key, Value>,
     params: Vec<String>,
 ) -> HttpResponse {
-    let mut world = World::with_app_io(
-        Ref::clone(&state.program),
-        Output::collected(),
-        Arc::clone(&state.databases),
-        Arc::clone(&state.stores),
-        Arc::clone(&state.loggers),
-    );
-    world.response = None;
-
     let request = Value::Tuple(Ref::from(vec![
         Value::Text(Ref::from(method)),
         Value::Text(Ref::from(path)),
@@ -213,23 +283,15 @@ fn run_route(
         let _ = machine.set_argument(slot, argument);
     }
 
-    let mut host = Host::scratch(&state.program);
-    match machine.resume(&mut world, &mut host, Budget::unlimited()) {
-        Step::Finished(value) => {
-            if world.response.is_none() {
-                if let Value::Failure(held) = &value {
-                    if let Ok(body) = vaab_vm::json::encode(held) {
-                        world.response = Some(HttpResponse::json(400, body));
-                    }
-                }
-            }
+    let done = state.runtime.run_to_completion(machine);
+    if let Some(response) = done.response {
+        return response;
+    }
+    if let Ok(Value::Failure(held)) = &done.value {
+        if let Ok(body) = vaab_vm::json::encode(held) {
+            return HttpResponse::json(400, body);
         }
-        Step::Yielded | Step::Parked(_) => {}
-        Step::Failed(_) => {}
     }
 
-    world.response.unwrap_or(HttpResponse::json(
-        500,
-        "{\"error\":\"route failed\"}".to_string(),
-    ))
+    HttpResponse::json(500, "{\"error\":\"route failed\"}".to_string())
 }

@@ -99,6 +99,9 @@ impl Printer {
             StmtKind::Ability(declaration) => self.ability_declaration(declaration),
             StmtKind::Serve(serve) => self.node("serve", |printer| {
                 printer.node("port", |printer| printer.expression(&serve.port));
+                if let Some(on_start) = &serve.on_start {
+                    printer.node("on start", |printer| printer.block(on_start));
+                }
                 if let Some(before) = &serve.before {
                     printer.node("before every request", |printer| printer.block(before));
                 }

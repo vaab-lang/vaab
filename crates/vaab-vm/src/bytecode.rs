@@ -316,6 +316,8 @@ pub struct Program {
     pub statements: Vec<u32>,
     pub selects: Vec<SelectDescriptor>,
     pub routes: Vec<RouteHandler>,
+    /// Body of `on start`, run once after the listener binds.
+    pub on_start: Option<usize>,
     /// Type shapes for `from_json(..., as: T)`, interned by the compiler.
     pub json_shapes: Vec<JsonShape>,
 }
@@ -361,6 +363,7 @@ impl Program {
             statements: Vec::new(),
             selects: Vec::new(),
             routes: Vec::new(),
+            on_start: None,
             json_shapes: Vec::new(),
         }
     }

@@ -112,6 +112,7 @@ pub struct Route {
 #[derive(Clone, Debug)]
 pub struct Serve {
     pub port: u16,
+    pub on_start: Option<FrameId>,
     pub before: Option<FrameId>,
     pub routes: Vec<Route>,
     pub error_handler: Option<(Type, LocalId, FrameId)>,
@@ -267,6 +268,8 @@ pub enum FrameKind {
     /// A closure, identified by the expression that wrote it.
     Closure(NodeId),
     Route(NodeId),
+    /// The `on start` block of a `serve`, run once after the listener binds.
+    OnStart(NodeId),
 }
 
 /// How to fill each parameter of a call, once names, order and defaults have been

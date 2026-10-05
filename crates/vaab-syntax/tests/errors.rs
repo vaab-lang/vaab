@@ -213,3 +213,28 @@ fn a_broken_function_does_not_swallow_the_one_after_it() {
     assert_eq!(parsed.diagnostics.len(), 1, "only the first function is broken");
     assert_eq!(parsed.module.statements.len(), 1, "the second function should survive");
 }
+
+#[test]
+fn a_second_on_start_is_refused() {
+    assert_snapshot!(errors(
+        r#"
+serve on port 8080 {
+    on start { print("one") }
+    on start { print("two") }
+    route get "/hello" { reply with "hello" }
+}
+"#
+    ));
+}
+
+#[test]
+fn on_inside_serve_needs_start() {
+    assert_snapshot!(errors(
+        r#"
+serve on port 8080 {
+    on stop { print("no") }
+    route get "/hello" { reply with "hello" }
+}
+"#
+    ));
+}

@@ -133,6 +133,7 @@ fn map_stmt_kind(kind: StmtKind, mode: &Mode) -> StmtKind {
 fn map_serve(serve: ServeDecl, mode: &Mode) -> ServeDecl {
     ServeDecl {
         port: map_expr(serve.port, mode),
+        on_start: serve.on_start.map(|block| map_block(block, mode)),
         before: serve.before.map(|block| map_block(block, mode)),
         routes: serve
             .routes

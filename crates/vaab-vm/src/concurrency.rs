@@ -7,6 +7,7 @@ use vaab_syntax::span::Span;
 
 use crate::bytecode::{Program, SelectArm, SelectDescriptor};
 use crate::error::{Fault, RuntimeError};
+use crate::io::IoHub;
 use crate::machine::{Budget, Machine, Step};
 use crate::value::{Ref, Value};
 
@@ -42,6 +43,7 @@ pub struct Host {
     pub(crate) pending_spawns: VecDeque<(Machine, usize)>,
     pub(crate) pending_wakeups: VecDeque<usize>,
     completed_sends: HashSet<usize>,
+    pub(crate) io: IoHub,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -60,6 +62,7 @@ pub enum WaitSite {
     Together { group: usize },
     Select { descriptor: usize, resume_pc: usize },
     Sleep { until: Instant },
+    Io { ticket: u64 },
 }
 
 pub(crate) struct TaskMeta {
@@ -68,7 +71,7 @@ pub(crate) struct TaskMeta {
     pub(crate) outcome: Option<Result<Value, RuntimeError>>,
     pub(crate) together: Option<usize>,
     pub(crate) cancelled: bool,
-    select_fire: Option<usize>,
+    pub(crate) select_fire: Option<usize>,
 }
 
 struct ChannelState {
@@ -143,6 +146,7 @@ impl Scheduler {
                 pending_spawns: VecDeque::new(),
                 pending_wakeups: VecDeque::new(),
                 completed_sends: HashSet::new(),
+                io: IoHub::new(),
             },
             machines: vec![Machine::start(&program)],
             runnable: VecDeque::from([0]),
@@ -152,12 +156,19 @@ impl Scheduler {
     pub fn run(&mut self, world: &mut crate::machine::World) -> Run {
         loop {
             self.host.fire_timeouts(&mut self.runnable);
+            self.host.drain_io(&mut self.runnable);
 
             if self.runnable.is_empty() {
-                if self.host.timeouts.is_empty() {
+                let deadline = self.host.next_deadline();
+                let waiting_io = self.host.io.has_pending();
+                if deadline.is_none() && !waiting_io {
                     return Run::Failed(self.host.deadlock(&self.machines));
                 }
-                if let Some(deadline) = self.host.next_deadline() {
+                if waiting_io {
+                    self.host.wait_io(deadline, &mut self.runnable);
+                    continue;
+                }
+                if let Some(deadline) = deadline {
                     let now = Instant::now();
                     if deadline > now {
                         std::thread::sleep(deadline - now);
@@ -236,6 +247,12 @@ impl Scheduler {
 }
 
 impl Host {
+    pub fn empty(program: &Ref<Program>) -> Host {
+        let mut host = Host::scratch(program);
+        host.tasks.clear();
+        host
+    }
+
     pub fn scratch(program: &Ref<Program>) -> Host {
         Host {
             program: Ref::clone(program),
@@ -256,6 +273,7 @@ impl Host {
             pending_spawns: VecDeque::new(),
             pending_wakeups: VecDeque::new(),
             completed_sends: HashSet::new(),
+            io: IoHub::new(),
         }
     }
 
@@ -265,6 +283,55 @@ impl Host {
 
     pub fn current(&self) -> usize {
         self.current
+    }
+
+    pub fn submit_io(&mut self, work: crate::io::IoWork) -> u64 {
+        self.io.submit(work)
+    }
+
+    pub fn take_io(&mut self, ticket: u64) -> Option<Result<String, String>> {
+        self.io.take(ticket)
+    }
+
+    pub fn drain_io(&mut self, runnable: &mut VecDeque<usize>) {
+        let mut woken = Vec::new();
+        self.io.drain(&mut |task| woken.push(task));
+        for task in woken {
+            self.wake_io_task(task, runnable);
+        }
+    }
+
+    pub fn wait_io(&mut self, deadline: Option<Instant>, runnable: &mut VecDeque<usize>) {
+        let mut woken = Vec::new();
+        self.io.wait(deadline, &mut |task| woken.push(task));
+        for task in woken {
+            self.wake_io_task(task, runnable);
+        }
+    }
+
+    fn wake_io_task(&mut self, task: usize, runnable: &mut VecDeque<usize>) {
+        if let Some(entry) = self.tasks.get_mut(task) {
+            if entry.cancelled || entry.state == TaskLife::Done {
+                return;
+            }
+            if matches!(entry.waiting, Some(WaitSite::Io { .. })) {
+                entry.waiting = None;
+                entry.state = TaskLife::Runnable;
+                runnable.push_back(task);
+            }
+        }
+    }
+
+    pub fn cancel_all(&mut self) {
+        for entry in &mut self.tasks {
+            if entry.outcome.is_some() {
+                continue;
+            }
+            entry.cancelled = true;
+            entry.state = TaskLife::Done;
+            entry.waiting = None;
+        }
+        self.timeouts.clear();
     }
 
     fn wake(&mut self, task: usize) {
@@ -554,7 +621,7 @@ impl Host {
         })
     }
 
-    fn register_wait(&mut self, task: usize, site: &WaitSite, _runnable: &mut VecDeque<usize>) {
+    pub(crate) fn register_wait(&mut self, task: usize, site: &WaitSite, _runnable: &mut VecDeque<usize>) {
         match site {
             WaitSite::Send { channel, .. } => {
                 if let Some(state) = self.channels.get_mut(channel) {
@@ -571,6 +638,9 @@ impl Host {
                 }
             }
             WaitSite::WaitTask { .. } | WaitSite::Together { .. } | WaitSite::Select { .. } => {}
+            WaitSite::Io { ticket } => {
+                self.io.register(*ticket, task);
+            }
             WaitSite::Sleep { until } => {
                 self.timeouts.push(PendingTimeout {
                     at: *until,
@@ -607,7 +677,7 @@ impl Host {
         true
     }
 
-    fn wake_task_waiters(&mut self, finished: usize, runnable: &mut VecDeque<usize>) {
+    pub(crate) fn wake_task_waiters(&mut self, finished: usize, runnable: &mut VecDeque<usize>) {
         for (id, entry) in self.tasks.iter_mut().enumerate() {
             if matches!(entry.waiting, Some(WaitSite::WaitTask { task, .. }) if task == finished) {
                 entry.waiting = None;
@@ -617,7 +687,7 @@ impl Host {
         }
     }
 
-    fn finish_together_task(&mut self, task: usize, runnable: &mut VecDeque<usize>) {
+    pub(crate) fn finish_together_task(&mut self, task: usize, runnable: &mut VecDeque<usize>) {
         let group = self.tasks.get(task).and_then(|entry| entry.together);
         let Some(group) = group else { return };
         let Some(entry) = self.together_groups.get(group) else { return };
@@ -664,7 +734,7 @@ impl Host {
         self.wake_task_waiters(task, runnable);
     }
 
-    fn fire_timeouts(&mut self, runnable: &mut VecDeque<usize>) {
+    pub(crate) fn fire_timeouts(&mut self, runnable: &mut VecDeque<usize>) {
         let now = Instant::now();
         let due: Vec<PendingTimeout> = self
             .timeouts
@@ -706,6 +776,7 @@ impl Host {
                 Some(WaitSite::Together { .. }) => "waiting in `together`".to_string(),
                 Some(WaitSite::Select { .. }) => "waiting in `select`".to_string(),
                 Some(WaitSite::Sleep { .. }) => "sleeping".to_string(),
+                Some(WaitSite::Io { .. }) => "waiting for I/O".to_string(),
                 None => "blocked".to_string(),
             };
             lines.push(format!("  task {id} ({name}): {site}"));
