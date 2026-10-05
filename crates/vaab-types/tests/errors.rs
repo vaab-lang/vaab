@@ -234,6 +234,26 @@ fn a_member_on_something_that_has_none() {
 }
 
 #[test]
+fn an_unknown_bytes_constructor_says_what_to_write() {
+    assert_snapshot!(errors("print(Bytes.decode(\"aa\"))\n"));
+}
+
+#[test]
+fn a_misspelled_bytes_constructor_is_offered_the_right_one() {
+    assert_snapshot!(errors("print(Bytes.from_b64(\"aa\"))\n"));
+}
+
+#[test]
+fn an_unknown_bytes_method_says_what_to_write() {
+    assert_snapshot!(errors("to peek(raw: Bytes) returns Int = raw.decode()\n"));
+}
+
+#[test]
+fn redeclaring_bytes_error_is_a_duplicate() {
+    assert_snapshot!(errors("choice BytesError { Broken }\n"));
+}
+
+#[test]
 fn a_static_member_that_is_neither_new_nor_raw() {
     assert_snapshot!(errors(
         "type Account {\n\

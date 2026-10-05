@@ -145,3 +145,21 @@ none
 packing list
 travel
 none
+
+$ vaab run examples/29_bytes.vaab
+28
+010000002a0000000000000001f9ffffffffffffff03000000416461
+01000000
+yes
+no
+1
+1
+42
+-7
+yes
+Ada
+28
+Ahg1ptm671
+AQAAACoAAAA=
+6162
+BytesError.OutOfRange(200, 28)

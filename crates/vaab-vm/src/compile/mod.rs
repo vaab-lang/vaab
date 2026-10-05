@@ -637,6 +637,14 @@ impl<'a> Compiler<'a> {
         self.variant_layout("FileError", "NotFound")
     }
 
+    pub(crate) fn bytes_errors(&self) -> crate::bytecode::BytesErrors {
+        crate::bytecode::BytesErrors {
+            out_of_range: self.variant_layout("BytesError", "OutOfRange"),
+            too_large: self.variant_layout("BytesError", "TooLarge"),
+            invalid: self.variant_layout("BytesError", "Invalid"),
+        }
+    }
+
     pub(crate) fn env_error_missing(&self) -> u32 {
         self.variant_layout("EnvError", "Missing")
     }

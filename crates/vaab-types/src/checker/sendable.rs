@@ -8,7 +8,7 @@
 //!
 //! # What is sendable
 //!
-//! * `Int`, `Float`, `Bool`, `Text` and `Nothing` are sendable. They cannot be
+//! * `Int`, `Float`, `Bool`, `Text`, `Bytes` and `Nothing` are sendable. They cannot be
 //!   changed at all, so two tasks holding one cannot disagree.
 //! * A list, a map, a tuple, a `maybe T` and a `T or fails E` are sendable when
 //!   everything inside them is. Vaab has no way to change a list or a `type` in
@@ -124,7 +124,7 @@ impl Checker {
     ) -> Result<(), NotSendable> {
         match declared {
             // Nothing can change these, so two tasks holding one cannot disagree.
-            Type::Int | Type::Float | Type::Bool | Type::Text | Type::Nothing | Type::Db | Type::Store
+            Type::Int | Type::Float | Type::Bool | Type::Text | Type::Bytes | Type::Nothing | Type::Db | Type::Store
             | Type::Logger | Type::Query { .. } => {
                 Ok(())
             }

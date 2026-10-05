@@ -37,6 +37,8 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     Text(Ref<str>),
+    /// Raw bytes, stored the same way as Text: one atomic pointer to the payload.
+    Bytes(Ref<[u8]>),
     List(Ref<Vec<Value>>),
     Map(Ref<Table>),
     Tuple(Ref<Vec<Value>>),
@@ -183,6 +185,10 @@ impl Value {
         Value::Text(Ref::from(text.as_ref()))
     }
 
+    pub fn bytes(bytes: impl Into<Box<[u8]>>) -> Value {
+        Value::Bytes(Ref::from(bytes.into()))
+    }
+
     pub fn list(items: Vec<Value>) -> Value {
         Value::List(Ref::new(items))
     }
@@ -246,6 +252,7 @@ impl Value {
             Value::Bool(true) => "yes".to_string(),
             Value::Bool(false) => "no".to_string(),
             Value::Text(text) => quote(text),
+            Value::Bytes(bytes) => format!("bytes({})", hex::encode(bytes.as_ref())),
             Value::List(items) => format!("[{}]", joined(items)),
             Value::Map(entries) => {
                 if entries.is_empty() {
@@ -348,6 +355,7 @@ fn compare(left: &Value, right: &Value, floats: Floats) -> bool {
         },
         (Value::Bool(left), Value::Bool(right)) => left == right,
         (Value::Text(left), Value::Text(right)) => left == right,
+        (Value::Bytes(left), Value::Bytes(right)) => left.as_ref() == right.as_ref(),
         (Value::List(left), Value::List(right)) | (Value::Tuple(left), Value::Tuple(right)) => {
             left.len() == right.len()
                 && left.iter().zip(right.iter()).all(|(a, b)| compare(a, b, floats))
@@ -424,6 +432,7 @@ fn hash_value<H: Hasher>(value: &Value, state: &mut H) {
         Value::Float(number) => number.to_bits().hash(state),
         Value::Bool(held) => held.hash(state),
         Value::Text(text) => text.hash(state),
+        Value::Bytes(bytes) => bytes.hash(state),
         Value::List(items) | Value::Tuple(items) => {
             items.len().hash(state);
             for item in items.iter() {
@@ -484,6 +493,13 @@ mod tests {
     fn text_is_bare_on_its_own_and_quoted_inside_a_list() {
         assert_eq!(Value::text("hello").show(), "hello");
         assert_eq!(Value::list(vec![Value::text("hello")]).show(), "[\"hello\"]");
+    }
+
+    #[test]
+    fn bytes_print_as_lowercase_hex() {
+        assert_eq!(Value::bytes(vec![0xbd, 0xdb, 0x7f]).show(), "bytes(bddb7f)");
+        assert!(Value::bytes(vec![0xaa]).equals(&Value::bytes(vec![0xaa])));
+        assert!(!Value::bytes(vec![0xaa]).equals(&Value::bytes(vec![0xbb])));
     }
 
     #[test]

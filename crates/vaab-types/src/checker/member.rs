@@ -191,6 +191,42 @@ impl Checker {
                         shape: CallShape::function("File.read", None),
                     };
                 }
+                if written.text == "Bytes" {
+                    return match name.text.as_str() {
+                        "from_base64" => Member::Callable {
+                            signature: Signature::new(
+                                vec![Parameter::new("text", Type::Text)],
+                                Type::fallible(Type::Bytes, Type::named("BytesError")),
+                            ),
+                            resolution: Resolution::BuiltinMethod("bytes_from_base64"),
+                            shape: CallShape::function("Bytes.from_base64", None),
+                        },
+                        "from_hex" => Member::Callable {
+                            signature: Signature::new(
+                                vec![Parameter::new("text", Type::Text)],
+                                Type::fallible(Type::Bytes, Type::named("BytesError")),
+                            ),
+                            resolution: Resolution::BuiltinMethod("bytes_from_hex"),
+                            shape: CallShape::function("Bytes.from_hex", None),
+                        },
+                        "from_base58" => Member::Callable {
+                            signature: Signature::new(
+                                vec![Parameter::new("text", Type::Text)],
+                                Type::fallible(Type::Bytes, Type::named("BytesError")),
+                            ),
+                            resolution: Resolution::BuiltinMethod("bytes_from_base58"),
+                            shape: CallShape::function("Bytes.from_base58", None),
+                        },
+                        _ => {
+                            self.report(messages::unknown_bytes_member(
+                                &name.text,
+                                name.span,
+                                &["from_base64".into(), "from_hex".into(), "from_base58".into()],
+                            ));
+                            Member::Unknown
+                        }
+                    };
+                }
                 if written.text == "Channel" && name.text == "new" {
                     return Member::Handle(Handle::Channel);
                 }
@@ -1167,7 +1203,11 @@ impl Checker {
         }
 
         let known = prelude::members_of(found);
-        self.report(messages::unknown_member(found, &name.text, name.span, &known));
+        if matches!(found, Type::Bytes) {
+            self.report(messages::unknown_bytes_member(&name.text, name.span, &known));
+        } else {
+            self.report(messages::unknown_member(found, &name.text, name.span, &known));
+        }
         Member::Unknown
     }
 

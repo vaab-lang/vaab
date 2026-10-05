@@ -35,6 +35,8 @@ ureq = "2.12"
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"
+base64 = "0.22"
+bs58 = "0.5"
 vaab-syntax = { path = "crates/vaab-syntax" }
 vaab-types = { path = "crates/vaab-types" }
 vaab-vm = { path = "crates/vaab-vm" }

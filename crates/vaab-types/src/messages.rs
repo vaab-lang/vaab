@@ -284,6 +284,20 @@ pub fn unknown_member(owner: &Type, member: &str, span: Span, known: &[String]) 
     }
 }
 
+/// A missing `Bytes` constructor or method, with what to type instead.
+pub fn unknown_bytes_member(member: &str, span: Span, known: &[String]) -> Diagnostic {
+    let diagnostic =
+        Diagnostic::error("unknown-member", format!("a Bytes has nothing called `{member}`"))
+            .at(span, format!("this asks a Bytes for `{member}`"));
+    match nearest(member, known.iter().map(String::as_str)) {
+        Some(close) => diagnostic.with_help(format!("did you mean `{close}`?")),
+        None => diagnostic.with_help(
+            "decode with `Bytes.from_base64`, `Bytes.from_hex` or `Bytes.from_base58`; \
+             read with `.u8(at:)`, `.u64_le(at:)` or `.slice(from:, to:)`",
+        ),
+    }
+}
+
 pub fn needs_call(member: &str, span: Span) -> Diagnostic {
     Diagnostic::error("needs-call", format!("`{member}` is a function, so it has to be called"))
         .at(span, "this reads it without calling it")

@@ -757,6 +757,20 @@ impl<'a> Compiler<'a> {
                 self.receiver(target, span);
                 return self.emit(Op::JsonAsList, span);
             }
+            "bytes_from_base64" | "bytes_from_hex" | "bytes_from_base58" => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(
+                    Op::Bytes {
+                        op: match name {
+                            "bytes_from_base64" => crate::bytecode::BytesOp::FromBase64,
+                            "bytes_from_hex" => crate::bytecode::BytesOp::FromHex,
+                            _ => crate::bytecode::BytesOp::FromBase58,
+                        },
+                        errors: self.bytes_errors(),
+                    },
+                    span,
+                );
+            }
             "log_debug" | "log_info" | "log_warn" | "log_error" => {
                 self.emit(Op::LoggerProcess, span);
                 let _ = self.push_arguments(call, arguments, Defaults::None);
@@ -897,6 +911,26 @@ impl<'a> Compiler<'a> {
                 return self.emit(Op::ClockMonotonicMillis, span);
             }
             _ => {}
+        }
+
+        let bytes_op = match name {
+            "slice" => Some(crate::bytecode::BytesOp::Slice),
+            "u8" => Some(crate::bytecode::BytesOp::U8),
+            "u32_le" => Some(crate::bytecode::BytesOp::U32Le),
+            "u64_le" => Some(crate::bytecode::BytesOp::U64Le),
+            "i64_le" => Some(crate::bytecode::BytesOp::I64Le),
+            "bool" => Some(crate::bytecode::BytesOp::Bool),
+            "to_hex" => Some(crate::bytecode::BytesOp::ToHex),
+            "to_base58" => Some(crate::bytecode::BytesOp::ToBase58),
+            "to_base64" => Some(crate::bytecode::BytesOp::ToBase64),
+            "starts_with" => Some(crate::bytecode::BytesOp::StartsWith),
+            "borsh_text" => Some(crate::bytecode::BytesOp::BorshText),
+            _ => None,
+        };
+        if let Some(op) = bytes_op {
+            self.receiver(target, span);
+            self.push_arguments(call, arguments, Defaults::None);
+            return self.emit(Op::Bytes { op, errors: self.bytes_errors() }, span);
         }
 
         let builtin = match name {

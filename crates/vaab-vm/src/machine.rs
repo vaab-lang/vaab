@@ -1041,6 +1041,9 @@ impl Machine {
                 let receiver = self.pop()?;
                 self.stack.push(crate::json::json_as_list(&receiver));
             }
+            Op::Bytes { op, errors } => {
+                crate::bytes::apply(op, errors, program, &mut self.stack)?;
+            }
 
             Op::EnvGet => {
                 let name = match self.pop()? {
@@ -2094,6 +2097,7 @@ fn length_of(value: &Value) -> Result<usize, Fault> {
         // Text is measured in characters, because that is what someone reading it
         // counts.
         Value::Text(text) => Ok(text.chars().count()),
+        Value::Bytes(bytes) => Ok(bytes.len()),
         _ => Err(Fault::Confused("something without a length was measured")),
     }
 }

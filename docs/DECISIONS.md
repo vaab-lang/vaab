@@ -1051,7 +1051,7 @@ structure is JSON-safe. Claiming `can Json` is optional documentation, not requi
 
 ---
 
-## Time, maths, and JSON
+## Time, maths, JSON, and bytes
 
 ### D87. `Clock` and `sleep`
 
@@ -1096,4 +1096,23 @@ and `.as_list` (each a `maybe`). This supersedes D77's record that
 `JsonError.Failed(message)` joins the prelude error choices (D80); redeclaring it
 is a duplicate. Missing `maybe` fields decode to `nothing`. `from_json`,
 `Json.parse` and the walking methods are pure.
+
+### D90. `Bytes` and `BytesError`
+
+`Type::Bytes` / `Value::Bytes(Ref<[u8]>)` store raw bytes the same way `Text`
+stores `Ref<str>`: one atomic pointer, sendable, compared byte-wise, printed as
+`bytes(hex…)` in lowercase. Constructors `Bytes.from_hex`, `Bytes.from_base64`
+and `Bytes.from_base58` are namespace members like `File.read`. Instance methods
+live in the prelude.
+
+Reads that do not fit (`slice`, `u8`, `u32_le`, `u64_le`, `i64_le`, `bool`,
+`borsh_text`) return `T or fails BytesError` rather than stopping the program.
+`starts_with` is a plain `Bool`: a longer prefix is `no`. A `u64` that does not
+fit in `i64` is `BytesError.TooLarge`, not a wrap. `to_json` writes `Bytes` as a
+lowercase hex string so a record that holds bytes stays JSON-safe.
+
+`BytesError` joins the prelude error choices: `OutOfRange(at, length)`,
+`TooLarge(at)`, `Invalid(message)`. Redeclaring the name is a duplicate.
+Decoding uses the `base64` and `bs58` crates; hex uses the existing `hex`
+dependency. `slice`'s `to` is exclusive, matching `from..to`.
 

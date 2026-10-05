@@ -474,6 +474,132 @@ fn store_delete_after_insert_does_not_deadlock() {
 }
 
 #[test]
+fn bytes_decode_and_read_little_endian_integers() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_hex(\"010000002a0000000000000001\")\n\
+    print(raw.length)\n\
+    print(try raw.u32_le(at: 0))\n\
+    print(try raw.u64_le(at: 4))\n\
+    print(try raw.bool(at: 12))\n\
+    print(raw.to_hex())\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(
+        output(source),
+        ["13", "1", "42", "yes", "010000002a0000000000000001"]
+    );
+}
+
+#[test]
+fn bytes_from_base64_and_base58_round_trip() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_base64(\"YWI=\")\n\
+    print(raw.to_hex())\n\
+    print(raw.to_base64())\n\
+    let again = try Bytes.from_hex(raw.to_hex())\n\
+    print(again.to_base58())\n\
+    let back = try Bytes.from_base58(again.to_base58())\n\
+    print(back.to_hex())\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["6162", "YWI=", "8Qq", "6162"]);
+}
+
+#[test]
+fn bytes_slice_starts_with_and_borsh_text() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_hex(\"ffff03000000416461\")\n\
+    print((try raw.slice(from: 0, to: 2)).to_hex())\n\
+    print(raw.starts_with(try Bytes.from_hex(\"ffff\")))\n\
+    print(raw.starts_with(try Bytes.from_hex(\"ffff00\")))\n\
+    match try raw.borsh_text(at: 2) {\n\
+    when (name, after) then {\n\
+        print(name)\n\
+        print(after)\n\
+    }\n\
+    }\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["ffff", "yes", "no", "Ada", "9"]);
+}
+
+#[test]
+fn bytes_out_of_range_and_invalid_input_are_failures() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_hex(\"00\")\n\
+    match raw.u8(at: 4) {\n\
+    when success value then print(value)\n\
+    when failure error then print(error)\n\
+    }\n\
+    match Bytes.from_hex(\"zz\") {\n\
+    when success _ then print(\"ok\")\n\
+    when failure error then print(error)\n\
+    }\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(
+        output(source),
+        [
+            "BytesError.OutOfRange(4, 1)",
+            "BytesError.Invalid(\"not hex: Invalid character 'z' at position 0\")"
+        ]
+    );
+}
+
+#[test]
+fn bytes_u64_that_does_not_fit_an_int_is_too_large() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_hex(\"ffffffffffffffff\")\n\
+    match raw.u64_le(at: 0) {\n\
+    when success value then print(value)\n\
+    when failure error then print(error)\n\
+    }\n\
+    print(try raw.i64_le(at: 0))\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["BytesError.TooLarge(0)", "-1"]);
+}
+
+#[test]
+fn to_json_writes_bytes_as_hex() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    print(to_json(try Bytes.from_hex(\"ab\")))\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(printed(source), "\"ab\"");
+}
+
+#[test]
 fn read_file_returns_the_contents_of_a_file() {
     let path = std::env::temp_dir().join("vaab-read-file-test.txt");
     std::fs::write(&path, "hello from disk").expect("write temp file");
