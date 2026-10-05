@@ -221,6 +221,9 @@ pub enum Op {
     SocketMessages,
     SocketBinary,
     SocketClosedBecause,
+    HubNew,
+    HubJoin,
+    HubBroadcast,
     RequestWho { user: u32, unauthorized: u32 },
 
     /// `from_json(text, as: T)` — shape is an index into [`Program::json_shapes`].
@@ -328,8 +331,15 @@ pub struct Program {
     pub json_shapes: Vec<JsonShape>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RouteKind {
+    Http,
+    Socket,
+}
+
 #[derive(Clone, Debug)]
 pub struct RouteHandler {
+    pub kind: RouteKind,
     pub method: String,
     pub path: Vec<vaab_types::RouteSegment>,
     pub body: usize,

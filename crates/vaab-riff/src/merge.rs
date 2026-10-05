@@ -6,7 +6,8 @@ use vaab_syntax::ast::{
     AbilityDecl, ArmBody, Argument, AssignStmt, Block, ChoiceDecl, ElseBranch, ExpectingDecl, Expr,
     ExprKind, Field, ForEachStmt, FunctionBody, FunctionDecl, IfExpr, LetStmt, MapEntry, MatchArm,
     MatchExpr, Module, Name, Parameter, Pattern, PatternKind, RepeatStmt, ReplyKind, ReplyStmt,
-    RouteDecl, SelectArm, SelectExpr, SendStmt, ServeDecl, ServeErrorHandler, Stmt, StmtKind,
+    RouteDecl, SelectArm, SelectExpr, SendStmt, ServeDecl, ServeErrorHandler, SocketRouteDecl,
+    Stmt, StmtKind,
     TextPart, CastDecl, TypeDecl, TypeExpr, TypeKind, Variant, VariantField, WhileStmt,
 };
 
@@ -140,10 +141,24 @@ fn map_serve(serve: ServeDecl, mode: &Mode) -> ServeDecl {
             .into_iter()
             .map(|route| map_route(route, mode))
             .collect(),
+        sockets: serve
+            .sockets
+            .into_iter()
+            .map(|socket| map_socket_route(socket, mode))
+            .collect(),
         error_handler: serve
             .error_handler
             .map(|handler| map_serve_error_handler(handler, mode)),
         span: serve.span,
+    }
+}
+
+fn map_socket_route(socket: SocketRouteDecl, mode: &Mode) -> SocketRouteDecl {
+    SocketRouteDecl {
+        path: socket.path,
+        binding: socket.binding,
+        body: map_block(socket.body, mode),
+        span: socket.span,
     }
 }
 
@@ -338,6 +353,7 @@ fn map_type_kind(kind: TypeKind, mode: &Mode) -> TypeKind {
         },
         TypeKind::Maybe(inner) => TypeKind::Maybe(Box::new(map_type_expr(*inner, mode))),
         TypeKind::Channel(inner) => TypeKind::Channel(Box::new(map_type_expr(*inner, mode))),
+        TypeKind::Hub(inner) => TypeKind::Hub(Box::new(map_type_expr(*inner, mode))),
         TypeKind::Task(inner) => TypeKind::Task(Box::new(map_type_expr(*inner, mode))),
         TypeKind::Shared(inner) => TypeKind::Shared(Box::new(map_type_expr(*inner, mode))),
         TypeKind::Tuple(items) => {

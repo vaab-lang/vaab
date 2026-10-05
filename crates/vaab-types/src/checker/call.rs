@@ -155,6 +155,26 @@ impl Checker {
     ) -> Type {
         let mut sources = Vec::new();
         let built = match handle {
+            Handle::Hub => {
+                self.resolve_to(callee.id, Resolution::NewHub);
+                let mut carries = None;
+                for (position, argument) in arguments.iter().enumerate() {
+                    if carries.is_none() {
+                        carries = Some((self.type_argument(&argument.value), argument.value.span));
+                    } else {
+                        self.expression(&argument.value, Wanted::Anything);
+                    }
+                    sources.push(ArgumentSource::Given(position));
+                }
+                match carries {
+                    Some((carries, span)) => Type::hub(self.check_channel_type(carries, span)),
+                    None => {
+                        self.report(messages::needs_a_type_name(call.span));
+                        Type::hub(Type::Unknown)
+                    }
+                }
+            }
+
             Handle::Channel => {
                 self.resolve_to(callee.id, Resolution::NewChannel);
                 let mut carries = None;

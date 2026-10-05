@@ -2,7 +2,7 @@
 
 use vaab_syntax::ast::{Block, Expr, ExprKind, ReplyKind, ServeDecl, Stmt, StmtKind};
 
-use crate::bytecode::RouteHandler;
+use crate::bytecode::{RouteHandler, RouteKind};
 use crate::value::Ref;
 
 use super::Builder;
@@ -349,6 +349,7 @@ impl<'a> Compiler<'a> {
             self.open.pop();
 
             self.program.routes.push(RouteHandler {
+                kind: RouteKind::Http,
                 method: route.method.clone(),
                 path: route.path.clone(),
                 body: body_index,
@@ -367,6 +368,27 @@ impl<'a> Compiler<'a> {
                         _ => None,
                     }
                 }),
+            });
+        }
+
+        for (socket, socket_decl) in checked.sockets.iter().zip(&serve.sockets) {
+            let body_index = self.builders.len();
+            let name = Ref::from("socket route");
+            self.builders.push(Builder::new(name, socket.frame));
+            self.open_body(body_index, socket.frame, 1);
+            self.block_discard(&socket_decl.body);
+            self.emit(Op::Return, socket_decl.span);
+            self.open.pop();
+
+            self.program.routes.push(RouteHandler {
+                kind: RouteKind::Socket,
+                method: String::new(),
+                path: socket.path.clone(),
+                body: body_index,
+                frame: socket.frame,
+                path_param_count: 0,
+                expects_body: false,
+                body_layout: None,
             });
         }
     }

@@ -61,6 +61,7 @@ pub use checked::{
     Ability, AbilityId, ArgumentSource, Call, CastField, CastId, Checked, Choice, ChoiceId,
     Closure, Constructor, DeclaredCast, DeclaredType, Field, Frame, FrameId, FrameKind, Function,
     FunctionId, Local, LocalId, LocalRef, Owner, Required, Resolution, Route, RouteSegment, Serve,
+    SocketRoute,
     Task, TypeId, Variant,
 };
 pub use checker::check;

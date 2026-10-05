@@ -34,6 +34,7 @@ pub fn can_json(value: &Type, checked: &Checked) -> bool {
         | Type::Task(_)
         | Type::Shared(_)
         | Type::Channel(_)
+        | Type::Hub(_)
         | Type::Db
         | Type::Store
         | Type::Logger

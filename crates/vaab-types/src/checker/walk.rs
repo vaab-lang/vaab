@@ -103,6 +103,9 @@ pub(super) fn statement(node: &Stmt, visitor: &mut impl Visit) {
             for route in &serve.routes {
                 block(&route.body, visitor);
             }
+            for socket in &serve.sockets {
+                block(&socket.body, visitor);
+            }
             if let Some(handler) = &serve.error_handler {
                 block(&handler.body, visitor);
             }

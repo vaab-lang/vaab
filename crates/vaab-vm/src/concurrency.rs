@@ -49,8 +49,14 @@ pub struct Host {
     pub(crate) io: IoHub,
     sockets: HashMap<u32, SocketState>,
     next_socket: u32,
+    hubs: HashMap<u32, HubState>,
+    next_hub: u32,
     socket_tx: Sender<SocketEvent>,
     socket_rx: Receiver<SocketEvent>,
+}
+
+struct HubState {
+    members: Vec<u32>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -176,6 +182,8 @@ impl Scheduler {
                 io: IoHub::new(),
                 sockets: HashMap::new(),
                 next_socket: 0,
+                hubs: HashMap::new(),
+                next_hub: 0,
                 socket_tx,
                 socket_rx,
             },
@@ -313,6 +321,8 @@ impl Host {
             io: IoHub::new(),
             sockets: HashMap::new(),
             next_socket: 0,
+            hubs: HashMap::new(),
+            next_hub: 0,
             socket_tx,
             socket_rx,
         }
@@ -642,7 +652,10 @@ impl Host {
                     let _ = ack.send(());
                 }
             }
-            SocketEvent::Closed { socket, reason } => self.finish_socket(socket, reason),
+            SocketEvent::Closed { socket, reason } => {
+                self.finish_socket(socket, reason);
+                self.leave_hubs(socket);
+            }
         }
     }
 
@@ -702,6 +715,74 @@ impl Host {
         let binary = state.binary;
         let _ = self.close(messages);
         let _ = self.close(binary);
+    }
+
+    pub fn hub_new(&mut self) -> Value {
+        let id = self.next_hub;
+        self.next_hub += 1;
+        self.hubs.insert(id, HubState { members: Vec::new() });
+        Value::Hub(id)
+    }
+
+    pub fn hub_join(&mut self, hub: u32, socket: u32) {
+        if !self.sockets.contains_key(&socket) {
+            return;
+        }
+        if let Some(state) = self.hubs.get_mut(&hub) {
+            if !state.members.contains(&socket) {
+                state.members.push(socket);
+            }
+        }
+    }
+
+    pub fn hub_broadcast(&mut self, hub: u32, value: Value) {
+        let text = match &value {
+            Value::Text(text) => text.to_string(),
+            other => other.show(),
+        };
+        let Some(members) = self.hubs.get(&hub).map(|state| state.members.clone()) else {
+            return;
+        };
+        let mut drop = Vec::new();
+        for socket in members {
+            let closed = self
+                .sockets
+                .get(&socket)
+                .map_or(true, |state| state.closed_because.is_some() || state.writer.is_none());
+            if closed || self.try_hub_send(socket, text.clone()).is_err() {
+                drop.push(socket);
+            }
+        }
+        for socket in drop {
+            let already_closed = self
+                .sockets
+                .get(&socket)
+                .is_some_and(|state| state.closed_because.is_some());
+            if already_closed {
+                self.leave_hubs(socket);
+            } else {
+                self.finish_socket(socket, Some("buffer full".to_string()));
+                self.leave_hubs(socket);
+            }
+        }
+    }
+
+    fn try_hub_send(&self, handle: u32, text: String) -> Result<(), ()> {
+        let writer = self
+            .sockets
+            .get(&handle)
+            .and_then(|state| state.writer.clone())
+            .ok_or(())?;
+        let (reply, _done) = oneshot::channel();
+        writer
+            .try_send(SocketCmd::Send { text, reply })
+            .map_err(|_| ())
+    }
+
+    fn leave_hubs(&mut self, socket: u32) {
+        for state in self.hubs.values_mut() {
+            state.members.retain(|member| *member != socket);
+        }
     }
 
     pub fn channel_id(value: &Value) -> Option<u32> {

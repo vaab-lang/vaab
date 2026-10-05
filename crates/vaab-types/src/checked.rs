@@ -115,7 +115,14 @@ pub struct Serve {
     pub on_start: Option<FrameId>,
     pub before: Option<FrameId>,
     pub routes: Vec<Route>,
+    pub sockets: Vec<SocketRoute>,
     pub error_handler: Option<(Type, LocalId, FrameId)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SocketRoute {
+    pub path: Vec<RouteSegment>,
+    pub frame: FrameId,
 }
 
 impl Checked {
@@ -206,6 +213,8 @@ pub enum Resolution {
     Variant { choice: ChoiceId, variant: usize },
     /// `Channel.new(of: Text, size: 4)`.
     NewChannel,
+    /// `Hub.new(of: Text)`.
+    NewHub,
     /// `Shared.new(0)`.
     NewShared,
     /// `Db.connect("sqlite:tasks.db")`.

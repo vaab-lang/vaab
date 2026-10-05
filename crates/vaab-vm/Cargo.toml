@@ -26,7 +26,7 @@ sea-query.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 target-lexicon = "0.12.16"
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "sync", "io-util"] }
 tokio-tungstenite.workspace = true
 ureq.workspace = true
 vaab-syntax.workspace = true

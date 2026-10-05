@@ -387,6 +387,9 @@ impl<'a> Compiler<'a> {
                 }
             }
 
+            Some(Resolution::NewHub) => {
+                self.emit(Op::HubNew, span);
+            }
             Some(Resolution::NewChannel) => {
                 if let Some(argument) = arguments
                     .iter()
@@ -653,6 +656,16 @@ impl<'a> Compiler<'a> {
             "socket_close" => {
                 self.receiver(target, span);
                 return self.emit(Op::SocketClose, span);
+            }
+            "hub_join" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::HubJoin, span);
+            }
+            "hub_broadcast" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::HubBroadcast, span);
             }
             "execute" => {
                 self.receiver(target, span);

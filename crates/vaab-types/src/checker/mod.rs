@@ -902,6 +902,7 @@ impl Checker {
             TypeKind::List(item) => Type::list(self.resolve_type(item)),
             TypeKind::Maybe(item) => Type::maybe(self.resolve_type(item)),
             TypeKind::Channel(item) => Type::channel(self.resolve_type(item)),
+            TypeKind::Hub(item) => Type::hub(self.resolve_type(item)),
             TypeKind::Task(item) => Type::task(self.resolve_type(item)),
             TypeKind::Shared(item) => Type::shared(self.resolve_type(item)),
             TypeKind::Map { key, value } => {

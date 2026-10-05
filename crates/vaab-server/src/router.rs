@@ -1,5 +1,5 @@
 use vaab_types::RouteSegment;
-use vaab_vm::bytecode::RouteHandler;
+use vaab_vm::bytecode::{RouteHandler, RouteKind};
 
 pub(crate) struct Match {
     pub handler: usize,
@@ -9,7 +9,19 @@ pub(crate) struct Match {
 pub(crate) fn find_route(routes: &[RouteHandler], method: &str, path: &str) -> Option<Match> {
     let method = method.to_ascii_lowercase();
     for (index, route) in routes.iter().enumerate() {
-        if route.method != method {
+        if route.kind != RouteKind::Http || route.method != method {
+            continue;
+        }
+        if let Some(params) = match_path(&route.path, path) {
+            return Some(Match { handler: index, params });
+        }
+    }
+    None
+}
+
+pub(crate) fn find_socket_route(routes: &[RouteHandler], path: &str) -> Option<Match> {
+    for (index, route) in routes.iter().enumerate() {
+        if route.kind != RouteKind::Socket {
             continue;
         }
         if let Some(params) = match_path(&route.path, path) {

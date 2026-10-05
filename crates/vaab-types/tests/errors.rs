@@ -31,6 +31,7 @@ fn a_server_global_that_is_not_a_handle() {
          }\n",
     );
     assert!(rendered.contains("Shared.new"), "{rendered}");
+    assert!(rendered.contains("Hub.new"), "{rendered}");
     assert_snapshot!(rendered);
 }
 
@@ -1230,6 +1231,29 @@ fn a_pure_function_cannot_read_why_a_socket_closed() {
 #[test]
 fn socket_names_the_members_it_has() {
     assert_snapshot!(errors("print(Socket.listen(\"ws://127.0.0.1\"))\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_build_a_hub() {
+    assert_snapshot!(errors("pure to make() returns hub of Text = Hub.new(of: Text)\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_broadcast_on_a_hub() {
+    assert_snapshot!(errors(
+        "pure to shout(hub: hub of Text) {\n\
+         \x20   hub.broadcast(\"hi\")\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn hub_names_the_members_it_has() {
+    assert_snapshot!(errors(
+        "to run(hub: hub of Text) {\n\
+         \x20   hub.push(\"x\")\n\
+         }\n"
+    ));
 }
 
 #[test]

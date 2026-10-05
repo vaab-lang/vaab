@@ -141,6 +141,7 @@ impl Checker {
             Type::List(item)
             | Type::Maybe(item)
             | Type::Channel(item)
+            | Type::Hub(item)
             | Type::Task(item)
             | Type::Shared(item) => self.sendability_of(item, visiting),
 

@@ -142,6 +142,7 @@ pub struct ServeDecl {
     pub on_start: Option<Block>,
     pub before: Option<Block>,
     pub routes: Vec<RouteDecl>,
+    pub sockets: Vec<SocketRouteDecl>,
     pub error_handler: Option<ServeErrorHandler>,
     pub span: Span,
 }
@@ -158,6 +159,15 @@ pub struct RouteDecl {
     pub method: Name,
     pub path: Vec<RouteSegment>,
     pub expecting: Option<ExpectingDecl>,
+    pub body: Block,
+    pub span: Span,
+}
+
+/// `socket "/ws" as client { ... }` — one accepted WebSocket, same shape as `Socket.connect`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SocketRouteDecl {
+    pub path: Vec<RouteSegment>,
+    pub binding: Name,
     pub body: Block,
     pub span: Span,
 }
@@ -625,6 +635,8 @@ pub enum TypeKind {
     Maybe(Box<TypeExpr>),
     /// `channel of T`
     Channel(Box<TypeExpr>),
+    /// `hub of T`
+    Hub(Box<TypeExpr>),
     /// `task of T`
     Task(Box<TypeExpr>),
     /// `shared T`

@@ -83,6 +83,7 @@ impl Variables {
             Type::List(item) => Type::list(self.resolve(item)),
             Type::Maybe(item) => Type::maybe(self.resolve(item)),
             Type::Channel(item) => Type::channel(self.resolve(item)),
+            Type::Hub(item) => Type::hub(self.resolve(item)),
             Type::Task(item) => Type::task(self.resolve(item)),
             Type::Shared(item) => Type::shared(self.resolve(item)),
             Type::Map { key, value } => Type::map(self.resolve(key), self.resolve(value)),
@@ -143,6 +144,7 @@ impl Variables {
             (Type::List(from), Type::List(to))
             | (Type::Maybe(from), Type::Maybe(to))
             | (Type::Channel(from), Type::Channel(to))
+            | (Type::Hub(from), Type::Hub(to))
             | (Type::Task(from), Type::Task(to))
             | (Type::Shared(from), Type::Shared(to)) => self.fits(from, to),
 

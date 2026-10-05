@@ -1918,6 +1918,30 @@ impl Machine {
                 };
                 self.stack.push(host.socket_closed_because(handle)?);
             }
+            Op::HubNew => {
+                self.stack.push(host.hub_new());
+            }
+            Op::HubJoin => {
+                let socket = match self.pop()? {
+                    Value::Socket(handle) => handle,
+                    _ => return Err(Fault::Confused("hub.join expected a Socket")),
+                };
+                let hub = match self.pop()? {
+                    Value::Hub(handle) => handle,
+                    _ => return Err(Fault::Confused("hub.join expected a Hub")),
+                };
+                host.hub_join(hub, socket);
+                self.stack.push(Value::Nothing);
+            }
+            Op::HubBroadcast => {
+                let value = self.pop()?;
+                let hub = match self.pop()? {
+                    Value::Hub(handle) => handle,
+                    _ => return Err(Fault::Confused("hub.broadcast expected a Hub")),
+                };
+                host.hub_broadcast(hub, value);
+                self.stack.push(Value::Nothing);
+            }
             Op::RequestWho { user, unauthorized } => {
                 let request = self.slot(base, 0)?;
                 let headers = match &request {

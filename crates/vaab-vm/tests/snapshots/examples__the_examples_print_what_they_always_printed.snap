@@ -168,3 +168,6 @@ $ vaab run examples/30_server.vaab
 
 $ vaab run examples/31_socket.vaab
 socket
+
+$ vaab run examples/32_hub.vaab
+hub

@@ -9,12 +9,11 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, OnceLock};
 
 use futures_util::{SinkExt, StreamExt};
-use tokio::net::TcpStream;
 use tokio::sync::{mpsc as tokio_mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
 use tokio_tungstenite::tungstenite::protocol::Message;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{connect_async, WebSocketStream};
 
 use crate::io::{IoCompleter, IoOutcome};
 
@@ -60,7 +59,7 @@ pub enum SocketEvent {
 }
 
 pub struct LiveSocket {
-    stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    start: Box<dyn FnOnce(u32, SocketMailbox) -> tokio_mpsc::Sender<SocketCmd> + Send>,
 }
 
 #[derive(Clone)]
@@ -101,15 +100,35 @@ pub async fn connect(
     let (stream, _) = connect_async(request)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(LiveSocket { stream })
+    Ok(LiveSocket::from_stream(stream))
 }
 
 impl LiveSocket {
-    pub fn start(self, socket: u32, mailbox: SocketMailbox) -> tokio_mpsc::Sender<SocketCmd> {
-        let (commands, command_rx) = tokio_mpsc::channel(8);
-        runtime().spawn(connection_loop(self.stream, socket, command_rx, mailbox));
-        commands
+    pub fn from_stream<S>(stream: WebSocketStream<S>) -> LiveSocket
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    {
+        LiveSocket {
+            start: Box::new(move |id, mailbox| start_connection(stream, id, mailbox)),
+        }
     }
+
+    pub fn start(self, socket: u32, mailbox: SocketMailbox) -> tokio_mpsc::Sender<SocketCmd> {
+        (self.start)(socket, mailbox)
+    }
+}
+
+fn start_connection<S>(
+    stream: WebSocketStream<S>,
+    socket: u32,
+    mailbox: SocketMailbox,
+) -> tokio_mpsc::Sender<SocketCmd>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    let (commands, command_rx) = tokio_mpsc::channel(8);
+    runtime().spawn(connection_loop(stream, socket, command_rx, mailbox));
+    commands
 }
 
 pub fn submit_connect(
@@ -154,12 +173,14 @@ pub fn submit_command(
     });
 }
 
-async fn connection_loop(
-    stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+async fn connection_loop<S>(
+    stream: WebSocketStream<S>,
     socket: u32,
     mut commands: tokio_mpsc::Receiver<SocketCmd>,
     mailbox: SocketMailbox,
-) {
+) where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     let (mut sink, mut incoming) = stream.split();
     loop {
         tokio::select! {

@@ -7,7 +7,7 @@ use vaab_syntax::ast::{
 use vaab_syntax::span::Span;
 
 use super::{Checker, Wanted};
-use crate::checked::{FrameKind, LocalId, Route, RouteSegment, Serve};
+use crate::checked::{FrameKind, LocalId, Route, RouteSegment, Serve, SocketRoute};
 use crate::json::can_json;
 use crate::messages;
 use crate::types::Type;
@@ -37,6 +37,11 @@ impl Checker {
         let on_start = serve.on_start.as_ref().map(|body| self.on_start_block(body, statement.id));
         let before = serve.before.as_ref().map(|body| self.before_hook(body, statement.id));
         let routes = serve.routes.iter().map(|route| self.check_route(route, statement.id)).collect();
+        let sockets = serve
+            .sockets
+            .iter()
+            .map(|socket| self.check_socket_route(socket, statement.id))
+            .collect();
         let error_handler =
             serve.error_handler.as_ref().map(|handler| self.check_error_handler(handler, statement.id));
 
@@ -45,7 +50,7 @@ impl Checker {
         if let Some(port) = port {
             self.checked.serves.insert(
                 statement.id,
-                Serve { port, on_start, before, routes, error_handler },
+                Serve { port, on_start, before, routes, sockets, error_handler },
             );
         }
     }
@@ -161,6 +166,52 @@ impl Checker {
         Route { method, path, frame, path_params, expecting }
     }
 
+    fn check_socket_route(
+        &mut self,
+        socket: &vaab_syntax::ast::SocketRouteDecl,
+        route_id: vaab_syntax::ast::NodeId,
+    ) -> SocketRoute {
+        let mut path = Vec::new();
+        let mut path_params = Vec::new();
+        for segment in &socket.path {
+            match segment {
+                AstRouteSegment::Literal(text) => path.push(RouteSegment::Literal(text.clone())),
+                AstRouteSegment::Param { name, declared } => {
+                    path.push(RouteSegment::Param(name.text.clone()));
+                    let param_type = match declared {
+                        Some(type_expr) => {
+                            let resolved = self.resolve_type(type_expr);
+                            if !matches!(resolved, Type::Int | Type::Text) {
+                                self.report(messages::route_param_type(&resolved, type_expr.span));
+                            }
+                            resolved
+                        }
+                        None => Type::Text,
+                    };
+                    path_params.push((name.text.clone(), param_type));
+                }
+                AstRouteSegment::CatchAll { name } => {
+                    path.push(RouteSegment::CatchAll(name.text.clone()));
+                    path_params.push((name.text.clone(), Type::Text));
+                }
+            }
+        }
+
+        let frame = self.new_frame(FrameKind::Route(route_id));
+        self.frames.push(frame);
+        self.push_scope();
+        self.declare_local(&socket.binding, Type::Socket, false);
+        for (name, param_type) in &path_params {
+            let binding = Name::new(name.clone(), socket.span);
+            self.declare_local(&binding, param_type.clone(), false);
+        }
+        self.block(&socket.body, Wanted::Discarded);
+        self.pop_scope();
+        self.frames.pop();
+
+        SocketRoute { path, frame }
+    }
+
     fn check_error_handler(
         &mut self,
         handler: &ServeErrorHandler,
@@ -222,6 +273,6 @@ impl Checker {
 fn is_server_handle(ty: &Type) -> bool {
     matches!(
         ty,
-        Type::Shared(_) | Type::Channel(_) | Type::Db | Type::Store | Type::Logger
+        Type::Shared(_) | Type::Channel(_) | Type::Hub(_) | Type::Db | Type::Store | Type::Logger
     )
 }

@@ -13,6 +13,7 @@ use std::time::Instant;
 use crate::concurrency::{Host, PREEMPT_AFTER, TaskLife};
 use crate::error::RuntimeError;
 use crate::machine::{Budget, HttpResponse, Machine, Step, World};
+use crate::socket::LiveSocket;
 use crate::value::{Ref, Value};
 
 pub type Done = Box<dyn FnOnce(LiveDone) + Send>;
@@ -24,6 +25,10 @@ pub struct LiveDone {
 
 enum Job {
     Spawn { machine: Machine, done: Option<Done> },
+    Prepare {
+        build: Box<dyn FnOnce(&mut Host) -> Machine + Send>,
+        done: Option<Done>,
+    },
     Shutdown,
 }
 
@@ -99,6 +104,22 @@ impl LiveRuntime {
         self.pulse.ping();
     }
 
+    pub fn attach_socket_and_spawn(
+        &self,
+        live: LiveSocket,
+        then: impl FnOnce(Value) -> Machine + Send + 'static,
+        done: Option<Done>,
+    ) {
+        let _ = self.jobs.send(Job::Prepare {
+            build: Box::new(move |host| {
+                let socket = host.attach_socket(live, crate::socket::DEFAULT_BUFFER);
+                then(socket)
+            }),
+            done,
+        });
+        self.pulse.ping();
+    }
+
     pub fn run_to_completion(&self, machine: Machine) -> LiveDone {
         let (tx, rx) = mpsc::channel();
         self.spawn(
@@ -148,6 +169,14 @@ fn run_loop(mut world: World, jobs: Receiver<Job>, pulse: Pulse) {
         while let Ok(job) = jobs.try_recv() {
             match job {
                 Job::Spawn { machine, done } => {
+                    let id = push_task(&mut host, &mut machines, machine);
+                    if let Some(done) = done {
+                        callbacks.insert(id, done);
+                    }
+                    runnable.push_back(id);
+                }
+                Job::Prepare { build, done } => {
+                    let machine = build(&mut host);
                     let id = push_task(&mut host, &mut machines, machine);
                     if let Some(done) = done {
                         callbacks.insert(id, done);

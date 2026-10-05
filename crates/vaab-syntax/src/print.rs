@@ -117,6 +117,12 @@ impl Printer {
                         printer.block(&route.body);
                     });
                 }
+                for socket in &serve.sockets {
+                    printer.node(format!("socket as {}", socket.binding.text), |printer| {
+                        printer.line(format!("path {:?}", socket.path));
+                        printer.block(&socket.body);
+                    });
+                }
                 if let Some(handler) = &serve.error_handler {
                     printer.node(
                         format!("when anything fails as {}", handler.binding.text),
@@ -527,6 +533,7 @@ impl Printer {
             TypeKind::Channel(item) => {
                 self.node("channel of", |printer| printer.type_expression(item))
             }
+            TypeKind::Hub(item) => self.node("hub of", |printer| printer.type_expression(item)),
             TypeKind::Task(item) => self.node("task of", |printer| printer.type_expression(item)),
             TypeKind::Shared(item) => self.node("shared", |printer| printer.type_expression(item)),
             TypeKind::Tuple(items) => self.node("tuple type", |printer| {

@@ -1201,3 +1201,42 @@ are not `pure`. Open the socket, send, close, or read the close reason outside
 the function, and pass values in. `.messages` and `.binary` are properties
 that yield handles already held.
 
+### D99. `socket "/path" as name` is a serve item
+
+`socket` is recognised only inside `serve`, the same way `route` is. It is not
+a reserved word, so `let socket = try Socket.connect(url)` stays legal. The
+path is parsed with the same quoted-path grammar as `route`. The binding is a
+`Socket`, so one set of members covers both directions: `.messages`,
+`.binary`, `.send`, `.close`, `.closed_because`.
+
+The body runs once per accepted connection, on the same live scheduler as HTTP
+routes. It is not an HTTP route: there is no `request`, and `reply` is
+refused. The router matches socket routes by path only.
+
+### D100. Upgrade is GET plus the WebSocket headers
+
+A socket path answers an HTTP GET with `Upgrade: websocket` and
+`Connection: upgrade` by completing hyper's upgrade and handing the stream to
+`tokio-tungstenite` as a server. Unknown paths are still 404. A request that
+hits a socket path without those headers is 400. The HTTP/1 listener uses
+`with_upgrades` so the 101 response can finish.
+
+### D101. `Hub` is a process-wide fan-out handle
+
+`Hub.new(of: T)` builds a handle, spelled `hub of T`. `hub.join(client)`
+registers a connected `Socket`. `hub.broadcast(value)` sends a text frame to
+every joined client (`Text` is sent as written; anything else uses the same
+display as `print`). Clients that close are dropped from every hub. Broadcast
+never parks: it `try_send`s onto the socket's outbound command queue. If that
+queue is full, or the socket is already gone, that client is disconnected
+with `closed_because` `buffer full` rather than allowed to stall the
+broadcaster.
+
+`Hub` may live as a server global next to `Shared`, `Channel`, `Db`, `Store`
+and `Logger`. The `server-global-must-be-handle` help names `Hub.new`.
+
+### D102. Hub work is not `pure`
+
+`Hub.new`, `hub.join` and `hub.broadcast` are not `pure`. Build the hub, join,
+and broadcast outside a `pure` function, and pass values in.
+

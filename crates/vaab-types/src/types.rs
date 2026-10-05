@@ -41,6 +41,8 @@ pub enum Type {
     /// providing it.
     Ability(String),
     Channel(Box<Type>),
+    /// A process-wide fan-out from `Hub.new(of: T)`.
+    Hub(Box<Type>),
     Task(Box<Type>),
     Shared(Box<Type>),
     /// An open database connection from `Db.connect`.
@@ -96,6 +98,10 @@ impl Type {
         Type::Channel(Box::new(item))
     }
 
+    pub fn hub(item: Type) -> Type {
+        Type::Hub(Box::new(item))
+    }
+
     pub fn task(item: Type) -> Type {
         Type::Task(Box::new(item))
     }
@@ -137,6 +143,7 @@ impl Type {
             Type::List(item)
             | Type::Maybe(item)
             | Type::Channel(item)
+            | Type::Hub(item)
             | Type::Task(item)
             | Type::Shared(item) => item.collect_parameters(found),
             Type::Map { key, value } => {
@@ -173,6 +180,7 @@ impl Type {
             Type::List(item) => Type::list(item.substitute(swaps)),
             Type::Maybe(item) => Type::maybe(item.substitute(swaps)),
             Type::Channel(item) => Type::channel(item.substitute(swaps)),
+            Type::Hub(item) => Type::hub(item.substitute(swaps)),
             Type::Task(item) => Type::task(item.substitute(swaps)),
             Type::Shared(item) => Type::shared(item.substitute(swaps)),
             Type::Map { key, value } => Type::map(key.substitute(swaps), value.substitute(swaps)),
@@ -206,6 +214,7 @@ impl fmt::Display for Type {
             Type::Map { key, value } => write!(f, "map of {key} to {value}"),
             Type::Maybe(item) => write!(f, "maybe {item}"),
             Type::Channel(item) => write!(f, "channel of {item}"),
+            Type::Hub(item) => write!(f, "hub of {item}"),
             Type::Task(item) => write!(f, "task of {item}"),
             Type::Shared(item) => write!(f, "shared {item}"),
             Type::Db => f.write_str("Db"),

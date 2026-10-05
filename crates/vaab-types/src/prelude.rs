@@ -572,6 +572,7 @@ pub fn same_shape(left: &Type, right: &Type) -> bool {
             | (Type::Task(_), Type::Task(_))
             | (Type::Shared(_), Type::Shared(_))
             | (Type::Channel(_), Type::Channel(_))
+            | (Type::Hub(_), Type::Hub(_))
             | (Type::Db, Type::Db)
             | (Type::Store, Type::Store)
             | (Type::Logger, Type::Logger)

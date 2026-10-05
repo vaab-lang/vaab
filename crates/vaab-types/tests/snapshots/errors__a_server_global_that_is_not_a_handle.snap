@@ -9,5 +9,5 @@ expression: rendered
    │     ──┬──  
    │       ╰──── `count` is declared here
    │ 
-   │ Help: wrap it: `let count = Shared.new(...)`, then read `count.value` and change it with `count.update(...)`
+   │ Help: keep a handle such as `Shared.new(...)` or `Hub.new(of: ...)`, then read `count.value` and change it with `count.update(...)`
 ───╯

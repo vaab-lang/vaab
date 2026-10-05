@@ -3,10 +3,14 @@ use std::sync::Arc;
 
 use http_body_util::Full;
 use hyper::body::Bytes;
+use hyper::header::{HeaderValue, CONNECTION, UPGRADE};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
+use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
+use tokio_tungstenite::WebSocketStream;
 use indexmap::IndexMap;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
@@ -119,7 +123,11 @@ async fn accept_loop(
                 tokio::spawn(async move {
                     let log = state.log.clone();
                     let service = service_fn(move |request| handle(state.clone(), request));
-                    if let Err(error) = http1::Builder::new().serve_connection(io, service).await {
+                    if let Err(error) = http1::Builder::new()
+                        .serve_connection(io, service)
+                        .with_upgrades()
+                        .await
+                    {
                         log.write(
                             vaab_vm::LogLevel::Warn,
                             "connection error",
@@ -149,6 +157,17 @@ async fn handle(
     }
 
     let path = request.uri().path().to_string();
+
+    if let Some(matched) = router::find_socket_route(&state.program.routes, &path) {
+        if is_websocket_upgrade(&request) {
+            return upgrade_socket(state, request, matched.handler).await;
+        }
+        return Ok(cors_response(
+            StatusCode::BAD_REQUEST,
+            "application/json",
+            Bytes::from("{\"error\":\"websocket upgrade required\"}"),
+        ));
+    }
 
     if method.eq_ignore_ascii_case("POST") && path == "/api/run" {
         let body_bytes = http_body_util::BodyExt::collect(request.into_body())
@@ -294,4 +313,88 @@ fn run_route(
     }
 
     HttpResponse::json(500, "{\"error\":\"route failed\"}".to_string())
+}
+
+fn is_websocket_upgrade(request: &Request<hyper::body::Incoming>) -> bool {
+    let upgrade = request
+        .headers()
+        .get(UPGRADE)
+        .and_then(|value| value.to_str().ok())
+        .map_or(false, |value| value.eq_ignore_ascii_case("websocket"));
+    let connection = request
+        .headers()
+        .get(CONNECTION)
+        .and_then(|value| value.to_str().ok())
+        .map_or(false, |value| value.to_ascii_lowercase().contains("upgrade"));
+    request.method() == hyper::Method::GET && upgrade && connection
+}
+
+async fn upgrade_socket(
+    state: Arc<ServerState>,
+    request: Request<hyper::body::Incoming>,
+    handler: usize,
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
+    let key = request
+        .headers()
+        .get("sec-websocket-key")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    if key.is_empty() {
+        return Ok(cors_response(
+            StatusCode::BAD_REQUEST,
+            "application/json",
+            Bytes::from("{\"error\":\"missing websocket key\"}"),
+        ));
+    }
+
+    let accept = derive_accept_key(key.as_bytes());
+    let on_upgrade = hyper::upgrade::on(request);
+    let program = Ref::clone(&state.program);
+    let runtime = Arc::clone(&state.runtime);
+    let route = state.program.routes[handler].clone();
+    tokio::spawn(async move {
+        let upgraded = match on_upgrade.await {
+            Ok(upgraded) => upgraded,
+            Err(error) => {
+                state.log.write(
+                    vaab_vm::LogLevel::Warn,
+                    "websocket upgrade failed",
+                    &[("error", &error.to_string())],
+                );
+                return;
+            }
+        };
+        let mut config = WebSocketConfig::default();
+        config.max_write_buffer_size = 16 * 1024;
+        config.write_buffer_size = 1024;
+        let stream = WebSocketStream::from_raw_socket(
+            TokioIo::new(upgraded),
+            Role::Server,
+            Some(config),
+        )
+        .await;
+        let live = vaab_vm::socket::LiveSocket::from_stream(stream);
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        runtime.attach_socket_and_spawn(
+            live,
+            move |socket| {
+                let mut machine = Machine::entering(&program, route.body, 0);
+                let _ = machine.set_argument(0, socket);
+                machine
+            },
+            Some(Box::new(move |done| {
+                let _ = done_tx.send(done);
+            })),
+        );
+        let _ = done_rx.await;
+    });
+
+    Ok(Response::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header(UPGRADE, HeaderValue::from_static("websocket"))
+        .header(CONNECTION, HeaderValue::from_static("Upgrade"))
+        .header("sec-websocket-accept", accept)
+        .body(Full::new(Bytes::new()))
+        .expect("upgrade response is valid"))
 }

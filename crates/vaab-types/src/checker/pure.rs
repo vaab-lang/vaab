@@ -155,6 +155,13 @@ impl ImpureFinder<'_> {
                 Some(PureViolation::Effect("read a `shared` value"))
             }
             Some(Resolution::NewChannel) => Some(PureViolation::Effect("build a channel")),
+            Some(Resolution::NewHub) => Some(PureViolation::Effect("build a hub")),
+            Some(Resolution::BuiltinMethod("hub_join")) => {
+                Some(PureViolation::Effect("join a socket to a hub"))
+            }
+            Some(Resolution::BuiltinMethod("hub_broadcast")) => {
+                Some(PureViolation::Effect("broadcast on a hub"))
+            }
             Some(Resolution::NewShared) => Some(PureViolation::Effect("build a `shared` value")),
             Some(Resolution::NewDb) => Some(PureViolation::Effect("connect to a database")),
             Some(Resolution::NewStore) => Some(PureViolation::Effect("open a store")),

@@ -727,6 +727,39 @@ The channels close when the connection drops. `SocketError` is built-in;
 redeclaring the name is a duplicate. Connect, send, close and reading
 `closed_because` are not `pure`.
 
+A `serve` block may also accept sockets. `socket "/path" as name` upgrades a
+matching request and runs the body for that connection on the same scheduler as
+HTTP routes. `name` is a `Socket` — the same `.messages`, `.send`, `.close`,
+`.binary` and `.closed_because` as `Socket.connect`.
+
+`Hub.new(of: T)` is a process-wide fan-out. `hub.join(client)` registers a
+connected socket. `hub.broadcast(value)` sends a text frame to every joined
+client. Clients that disconnect are dropped. A slow client whose outbound
+buffer fills is disconnected so it cannot stall the broadcaster. `Hub` is a
+server handle, like `Shared` and `Channel`. It is not `pure`.
+
+```vaab
+let hub = Hub.new(of: Text)
+
+to listen(client: Socket) {
+    while yes {
+        match receive from client.messages {
+            when found message then { }
+            when nothing then { return }
+        }
+    }
+}
+
+serve on port 8765 {
+    socket "/ws" as client {
+        hub.join(client)
+        listen(client)
+    }
+}
+
+hub.broadcast(to_json(snapshot))
+```
+
 ### Logging
 
 `log.info(...)` works with no setup (process default: stderr, info, text).
@@ -856,9 +889,9 @@ serve on port 8080 {
 requests. Tasks it `start`s keep running for the life of the process.
 
 A top-level `let` in a serve file is created once and given to every request.
-Only `Shared`, `Channel`, `Db`, `Store` and `Logger` values may live there —
-wrap ordinary data in `Shared.new`, then read `.value` and change it with
-`.update`. `every(milliseconds:, f)` sleeps, calls `f`, and loops until the
+Only `Shared`, `Channel`, `Hub`, `Db`, `Store` and `Logger` values may live
+there — wrap ordinary data in `Shared.new`, then read `.value` and change it
+with `.update`. `Hub.new(of: T)` fans text out to joined sockets. `every(milliseconds:, f)` sleeps, calls `f`, and loops until the
 task is cancelled; `f` takes no arguments and returns nothing.
 
 Every route body has type `Response or fails ApiError`. JSON-encodable values are

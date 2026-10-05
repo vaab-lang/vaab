@@ -32,6 +32,7 @@ pub(super) enum Member {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Handle {
     Channel,
+    Hub,
     Shared,
     Db,
     Store,
@@ -257,6 +258,9 @@ impl Checker {
                 }
                 if written.text == "Channel" && name.text == "new" {
                     return Member::Handle(Handle::Channel);
+                }
+                if written.text == "Hub" && name.text == "new" {
+                    return Member::Handle(Handle::Hub);
                 }
                 if written.text == "Shared" && name.text == "new" {
                     return Member::Handle(Handle::Shared);
@@ -719,6 +723,7 @@ impl Checker {
             Type::Store => self.store_member(name, target),
             Type::Logger => self.logger_member(name),
             Type::Socket => self.socket_member(name),
+            Type::Hub(item) => self.hub_member(item, name),
             Type::Query { error } => self.query_member(error, name),
             _ => self.builtin_member(&found, name, target),
         }
@@ -949,6 +954,37 @@ impl Checker {
                     &name.text,
                     name.span,
                     &known,
+                ));
+                Member::Unknown
+            }
+        }
+    }
+
+    /// Methods on a process-wide `Hub`.
+    fn hub_member(&mut self, item: &Type, name: &Name) -> Member {
+        match name.text.as_str() {
+            "join" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("client", Type::Socket)],
+                    Type::Nothing,
+                ),
+                resolution: Resolution::BuiltinMethod("hub_join"),
+                shape: CallShape::function("hub.join", None),
+            },
+            "broadcast" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("value", item.clone())],
+                    Type::Nothing,
+                ),
+                resolution: Resolution::BuiltinMethod("hub_broadcast"),
+                shape: CallShape::function("hub.broadcast", None),
+            },
+            _ => {
+                self.report(messages::unknown_member(
+                    &Type::hub(item.clone()),
+                    &name.text,
+                    name.span,
+                    &["join".into(), "broadcast".into()],
                 ));
                 Member::Unknown
             }

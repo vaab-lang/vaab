@@ -1051,6 +1051,19 @@ fn every_and_on_start_are_accepted() {
 }
 
 #[test]
+fn hub_and_socket_route_type_check() {
+    check(
+        "let hub = Hub.new(of: Text)\n\
+         serve on port 8080 {\n\
+         \x20   socket \"/ws\" as client {\n\
+         \x20       hub.join(client)\n\
+         \x20       hub.broadcast(\"hi\")\n\
+         \x20   }\n\
+         }\n",
+    );
+}
+
+#[test]
 fn socket_connect_and_members_type_check() {
     check(
         "to talk(url: Text, payload: Text) {\n\

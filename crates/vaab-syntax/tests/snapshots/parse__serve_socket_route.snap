@@ -1,0 +1,24 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet hub = Hub.new(of: Text)\nserve on port 8080 {\n    socket \"/ws\" as client {\n        hub.join(client)\n    }\n}\n\"#)"
+---
+module
+  let hub
+    call
+      callee
+        member .new
+          name Hub
+      argument of:
+        name Text
+  serve
+    port
+      int 8080
+    socket as client
+      path [Literal("/ws")]
+      block
+        call
+          callee
+            member .join
+              name hub
+          argument
+            name client

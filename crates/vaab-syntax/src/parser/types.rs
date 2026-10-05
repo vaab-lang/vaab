@@ -118,6 +118,16 @@ impl<'src> Parser<'src> {
                 })
             }
             _ => {
+                let token = self.current();
+                if token.kind == TokenKind::Identifier && token.text(self.source()) == "hub" {
+                    self.advance();
+                    self.expect_word(Of, "the word `of`, as in `hub of Text`")?;
+                    let item = self.type_term()?;
+                    return Ok(TypeExpr {
+                        span: start.to(item.span),
+                        kind: TypeKind::Hub(Box::new(item)),
+                    });
+                }
                 let name = self.name("a type")?;
                 let span = name.span;
                 Ok(TypeExpr { kind: TypeKind::Named(name), span })

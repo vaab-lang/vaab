@@ -73,6 +73,8 @@ pub enum Value {
     Logger(u32),
     /// An open WebSocket living in the scheduler [`crate::concurrency::Host`].
     Socket(u32),
+    /// A process-wide fan-out living in the scheduler [`crate::concurrency::Host`].
+    Hub(u32),
     /// A fluent AREL-style relation over a Db or Store.
     Query(Ref<crate::query::Query>),
 }
@@ -305,6 +307,7 @@ impl Value {
             Value::Store(handle) => format!("store {handle}"),
             Value::Logger(handle) => format!("logger {handle}"),
             Value::Socket(handle) => format!("socket {handle}"),
+            Value::Hub(handle) => format!("hub {handle}"),
             Value::Query(_) => "query".to_string(),
         }
     }
@@ -400,6 +403,7 @@ fn compare(left: &Value, right: &Value, floats: Floats) -> bool {
         (Value::Store(left), Value::Store(right)) => left == right,
         (Value::Logger(left), Value::Logger(right)) => left == right,
         (Value::Socket(left), Value::Socket(right)) => left == right,
+        (Value::Hub(left), Value::Hub(right)) => left == right,
         (Value::Query(left), Value::Query(right)) => left.as_ref() == right.as_ref(),
         _ => false,
     }
@@ -483,6 +487,7 @@ fn hash_value<H: Hasher>(value: &Value, state: &mut H) {
         Value::Store(id) => id.hash(state),
         Value::Logger(id) => id.hash(state),
         Value::Socket(id) => id.hash(state),
+        Value::Hub(id) => id.hash(state),
         Value::Query(query) => {
             // Identity by pointer is enough for map keys; queries are not keyed.
             Ref::as_ptr(query).hash(state);

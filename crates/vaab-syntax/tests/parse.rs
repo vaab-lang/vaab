@@ -40,6 +40,20 @@ serve on port 8080 {
     ));
 }
 
+#[test]
+fn serve_socket_route() {
+    assert_snapshot!(tree(
+        r#"
+let hub = Hub.new(of: Text)
+serve on port 8080 {
+    socket "/ws" as client {
+        hub.join(client)
+    }
+}
+"#
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // Values and bindings
 // ---------------------------------------------------------------------------

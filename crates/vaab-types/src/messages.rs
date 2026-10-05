@@ -950,6 +950,9 @@ fn pure_effect_label(effect: &str) -> String {
             "this waits for something to become ready".to_string()
         }
         "build a channel" => "this builds a channel".to_string(),
+        "build a hub" => "this builds a hub".to_string(),
+        "join a socket to a hub" => "this joins a socket to a hub".to_string(),
+        "broadcast on a hub" => "this broadcasts on a hub".to_string(),
         "build a `shared` value" => "this builds a `shared` value".to_string(),
         "read a `shared` value" => "this reads a `shared` value".to_string(),
         "change a `shared` value" => "this changes a `shared` value".to_string(),
@@ -981,6 +984,10 @@ fn pure_effect_help(effect: &str) -> String {
         }
         "build a channel" | "build a `shared` value" => {
             "build channels and `shared` values outside the `pure` function, and pass them in"
+        }
+        "build a hub" => "build the hub outside the `pure` function, and pass it in",
+        "join a socket to a hub" | "broadcast on a hub" => {
+            "join and broadcast outside the `pure` function"
         }
         "read a `shared` value" | "change a `shared` value" => {
             "read or change a `shared` value outside the `pure` function, and pass the value in"
@@ -1051,13 +1058,14 @@ fn server_global_help(name: &str, found: &Type) -> String {
         Type::Channel(_) => {
             format!("build a channel instead: `let {name} = Channel.new(of: ..., size: ...)`")
         }
+        Type::Hub(_) => format!("build a hub instead: `let {name} = Hub.new(of: ...)`"),
         Type::Db => format!("open a database instead: `let {name} = try Db.connect(...)`"),
         Type::Store => format!("open a store instead: `let {name} = try Store.open(...)`"),
         Type::Logger => {
             format!("build a logger instead: `let {name} = Logger.stderr()`")
         }
         _ => format!(
-            "wrap it: `let {name} = Shared.new(...)`, then read `{name}.value` and change it with `{name}.update(...)`"
+            "keep a handle such as `Shared.new(...)` or `Hub.new(of: ...)`, then read `{name}.value` and change it with `{name}.update(...)`"
         ),
     }
 }

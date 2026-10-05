@@ -22,6 +22,7 @@ impl<'src> Parser<'src> {
         let mut on_start = None;
         let mut before = None;
         let mut routes = Vec::new();
+        let mut sockets = Vec::new();
         let mut error_handler = None;
 
         while !self.check(TokenKind::CloseBrace) && !self.at_end() {
@@ -31,6 +32,8 @@ impl<'src> Parser<'src> {
             }
             if self.check(TokenKind::Route) {
                 routes.push(self.route_declaration()?);
+            } else if self.check_identifier("socket") {
+                sockets.push(self.socket_route_declaration()?);
             } else if self.check(TokenKind::Before) {
                 before = Some(self.before_hook()?);
             } else if self.check(TokenKind::When) {
@@ -53,10 +56,10 @@ impl<'src> Parser<'src> {
                 self.report(
                     Diagnostic::error(
                         "unexpected-in-serve",
-                        "only `on start`, `before`, `route` and `when anything fails` belong inside a `serve` block",
+                        "only `on start`, `before`, `route`, `socket` and `when anything fails` belong inside a `serve` block",
                     )
                     .at(self.current().span, "this does not belong here")
-                    .with_help("write `on start { ... }`, `before every request { ... }`, `route get \"/path\" { ... }`, or `when anything fails with Error as error { ... }`"),
+                    .with_help("write `on start { ... }`, `before every request { ... }`, `route get \"/path\" { ... }`, `socket \"/ws\" as client { ... }`, or `when anything fails with Error as error { ... }`"),
                 );
                 self.recover_to_statement_boundary();
             }
@@ -68,6 +71,7 @@ impl<'src> Parser<'src> {
             on_start,
             before,
             routes,
+            sockets,
             error_handler,
             span: start.to(self.previous_span()),
         })
@@ -113,6 +117,20 @@ impl<'src> Parser<'src> {
         self.expect(TokenKind::As, "the word `as`")?;
         let binding = self.name("a name for the error")?;
         Ok(ServeErrorHandler { error_type, binding, body: self.block()? })
+    }
+
+    fn socket_route_declaration(&mut self) -> Parse<crate::ast::SocketRouteDecl> {
+        let start = self.current().span;
+        self.expect_literal("socket", "the word `socket`")?;
+        let path = self.route_path()?;
+        self.expect(TokenKind::As, "the word `as` after the socket path")?;
+        let binding = self.name("a name for the connected socket")?;
+        Ok(crate::ast::SocketRouteDecl {
+            path,
+            binding,
+            body: self.block()?,
+            span: start.to(self.previous_span()),
+        })
     }
 
     fn route_declaration(&mut self) -> Parse<RouteDecl> {
