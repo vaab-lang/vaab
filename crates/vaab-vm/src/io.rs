@@ -2,12 +2,15 @@
 //!
 //! Builtins that wait park with [`WaitSite::Io`](crate::concurrency::WaitSite::Io)
 //! and are woken when the worker finishes. The scheduler thread itself never
-//! blocks on the network.
+//! blocks on the network. Socket work uses the same tickets and notify path, but
+//! runs on the dedicated Tokio runtime in [`crate::socket`].
 
 use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+use crate::socket::LiveSocket;
 
 const WORKERS: usize = 4;
 
@@ -37,10 +40,32 @@ impl IoWork {
     }
 }
 
+pub enum IoOutcome {
+    Http(Result<String, String>),
+    SocketConnect(Result<LiveSocket, String>),
+    Unit(Result<(), String>),
+    Pulse,
+}
+
+#[derive(Clone)]
+pub struct IoCompleter {
+    tx: Sender<(u64, IoOutcome)>,
+}
+
+impl IoCompleter {
+    pub fn complete(&self, ticket: u64, outcome: IoOutcome) {
+        let _ = self.tx.send((ticket, outcome));
+    }
+
+    pub fn pulse(&self) {
+        let _ = self.tx.send((0, IoOutcome::Pulse));
+    }
+}
+
 struct IoJob {
     ticket: u64,
     work: IoWork,
-    reply: Sender<(u64, Result<String, String>)>,
+    reply: Sender<(u64, IoOutcome)>,
     notify: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -64,7 +89,7 @@ fn pool() -> Sender<IoJob> {
                             Err(_) => return,
                         }
                     };
-                    let result = job.work.run();
+                    let result = IoOutcome::Http(job.work.run());
                     let _ = job.reply.send((job.ticket, result));
                     if let Some(notify) = job.notify {
                         notify();
@@ -78,10 +103,10 @@ fn pool() -> Sender<IoJob> {
 
 /// Outbound I/O tickets and their results, owned by a [`Host`](crate::concurrency::Host).
 pub struct IoHub {
-    tx: Sender<(u64, Result<String, String>)>,
-    rx: Receiver<(u64, Result<String, String>)>,
+    tx: Sender<(u64, IoOutcome)>,
+    rx: Receiver<(u64, IoOutcome)>,
     waiters: HashMap<u64, usize>,
-    results: HashMap<u64, Result<String, String>>,
+    results: HashMap<u64, IoOutcome>,
     next_ticket: u64,
     notify: Option<Arc<dyn Fn() + Send + Sync>>,
 }
@@ -103,9 +128,22 @@ impl IoHub {
         self.notify = Some(notify);
     }
 
-    pub fn submit(&mut self, work: IoWork) -> u64 {
+    pub fn notify(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
+        self.notify.clone()
+    }
+
+    pub fn completer(&self) -> IoCompleter {
+        IoCompleter { tx: self.tx.clone() }
+    }
+
+    pub fn reserve(&mut self) -> u64 {
         let ticket = self.next_ticket;
         self.next_ticket += 1;
+        ticket
+    }
+
+    pub fn submit(&mut self, work: IoWork) -> u64 {
+        let ticket = self.reserve();
         let job = IoJob {
             ticket,
             work,
@@ -116,7 +154,7 @@ impl IoHub {
         ticket
     }
 
-    pub fn take(&mut self, ticket: u64) -> Option<Result<String, String>> {
+    pub fn take(&mut self, ticket: u64) -> Option<IoOutcome> {
         self.results.remove(&ticket)
     }
 
@@ -128,13 +166,31 @@ impl IoHub {
         self.waiters.insert(ticket, task);
     }
 
+    fn wake_ready(&mut self, wake: &mut impl FnMut(usize)) {
+        let ready: Vec<u64> = self
+            .waiters
+            .keys()
+            .copied()
+            .filter(|ticket| self.results.contains_key(ticket))
+            .collect();
+        for ticket in ready {
+            if let Some(task) = self.waiters.remove(&ticket) {
+                wake(task);
+            }
+        }
+    }
+
     pub fn drain(&mut self, wake: &mut impl FnMut(usize)) {
         while let Ok((ticket, result)) = self.rx.try_recv() {
+            if ticket == 0 {
+                continue;
+            }
             self.results.insert(ticket, result);
             if let Some(task) = self.waiters.remove(&ticket) {
                 wake(task);
             }
         }
+        self.wake_ready(wake);
     }
 
     pub fn wait(&mut self, deadline: Option<Instant>, wake: &mut impl FnMut(usize)) {
@@ -144,9 +200,11 @@ impl IoHub {
         };
         match self.rx.recv_timeout(timeout) {
             Ok((ticket, result)) => {
-                self.results.insert(ticket, result);
-                if let Some(task) = self.waiters.remove(&ticket) {
-                    wake(task);
+                if ticket != 0 {
+                    self.results.insert(ticket, result);
+                    if let Some(task) = self.waiters.remove(&ticket) {
+                        wake(task);
+                    }
                 }
             }
             Err(_) => {}

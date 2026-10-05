@@ -688,6 +688,45 @@ let elapsed = Clock.monotonic_millis() - started
 print(if elapsed >= 100 { "yes" } else { "no" })
 ```
 
+### Sockets
+
+`Socket.connect` opens a WebSocket and parks until the handshake finishes.
+Incoming text frames land on `socket.messages`; binary frames land on
+`socket.binary`. Those are ordinary channels, so `receive`, `select` and
+`when timeout after` already work. Pings and pongs are handled by the library.
+Reconnection is the program's job: wrap `connect` in `while yes` and `sleep`
+between attempts.
+
+```vaab
+let socket = try Socket.connect(url)
+try socket.send(to_json(payload))
+
+while yes {
+    select {
+        when receive from socket.messages as message { handle(message) }
+        when timeout after 30 seconds {
+            log.warn("no message for 30s, reconnecting")
+            return
+        }
+    }
+}
+```
+
+| | |
+|---|---|
+| `Socket.connect(url)` | handshake, or `SocketError.Failed` |
+| `Socket.connect(url, headers:)` | extra HTTP headers; default is `{}` |
+| `Socket.connect(url, buffer:)` | channel capacity; default is `1024` |
+| `socket.messages` | `channel of Text` |
+| `socket.binary` | `channel of Bytes` |
+| `socket.closed_because` | `maybe Text` — why the connection dropped |
+| `socket.send(text)` | a text frame, or `SocketError.Failed` |
+| `socket.close()` | close the connection |
+
+The channels close when the connection drops. `SocketError` is built-in;
+redeclaring the name is a duplicate. Connect, send, close and reading
+`closed_because` are not `pure`.
+
 ### Logging
 
 `log.info(...)` works with no setup (process default: stderr, info, text).

@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to open() returns Socket or fails SocketError = Socket.connect(\\\"ws://127.0.0.1\\\")\\n\")"
+---
+[not-pure] Error: `open` is declared `pure`, so it cannot connect a socket
+   ╭─[ example.vaab:1:54 ]
+   │
+ 1 │ pure to open() returns Socket or fails SocketError = Socket.connect("ws://127.0.0.1")
+   │                        ─────────────┬─────────────   ────────────────┬───────────────  
+   │                                     │                                ╰───────────────── this connects a socket
+   │                                     │                                                  
+   │                                     ╰────────────────────────────────────────────────── `open` is declared `pure` here
+   │ 
+   │ Help: open the socket before calling the `pure` function, and pass it in
+───╯

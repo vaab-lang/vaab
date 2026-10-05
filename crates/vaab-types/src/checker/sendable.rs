@@ -125,7 +125,7 @@ impl Checker {
         match declared {
             // Nothing can change these, so two tasks holding one cannot disagree.
             Type::Int | Type::Float | Type::Bool | Type::Text | Type::Bytes | Type::Nothing | Type::Db | Type::Store
-            | Type::Logger | Type::Query { .. } => {
+            | Type::Logger | Type::Socket | Type::Query { .. } => {
                 Ok(())
             }
 

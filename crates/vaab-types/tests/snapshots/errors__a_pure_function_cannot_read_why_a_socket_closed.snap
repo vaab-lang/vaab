@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to why(socket: Socket) returns maybe Text = socket.closed_because\\n\")"
+---
+[not-pure] Error: `why` is declared `pure`, so it cannot read why a socket closed
+   ╭─[ example.vaab:1:50 ]
+   │
+ 1 │ pure to why(socket: Socket) returns maybe Text = socket.closed_because
+   │                                     ─────┬────   ──────────┬──────────  
+   │                                          │                 ╰──────────── this reads why a socket closed
+   │                                          │                              
+   │                                          ╰────────────────────────────── `why` is declared `pure` here
+   │ 
+   │ Help: read `closed_because` outside the `pure` function, and pass the text in
+───╯

@@ -118,6 +118,9 @@ impl ImpureFinder<'_> {
             Some(Resolution::BuiltinMethod("value")) => {
                 Some(PureViolation::Effect("read a `shared` value"))
             }
+            Some(Resolution::BuiltinMethod("socket_closed_because")) => {
+                Some(PureViolation::Effect("read why a socket closed"))
+            }
             _ => None,
         }
     }
@@ -167,6 +170,18 @@ impl ImpureFinder<'_> {
             }
             Some(Resolution::BuiltinMethod("http_get" | "http_post" | "http_send")) => {
                 Some(PureViolation::Effect("make an HTTP request"))
+            }
+            Some(Resolution::BuiltinMethod("socket_connect")) => {
+                Some(PureViolation::Effect("connect a socket"))
+            }
+            Some(Resolution::BuiltinMethod("socket_send")) => {
+                Some(PureViolation::Effect("send on a socket"))
+            }
+            Some(Resolution::BuiltinMethod("socket_close")) => {
+                Some(PureViolation::Effect("close a socket"))
+            }
+            Some(Resolution::BuiltinMethod("socket_closed_because")) => {
+                Some(PureViolation::Effect("read why a socket closed"))
             }
             Some(Resolution::BuiltinMethod("execute" | "query")) => {
                 Some(PureViolation::Effect("talk to a database"))

@@ -163,6 +163,11 @@ fn run_loop(mut world: World, jobs: Receiver<Job>, pulse: Pulse) {
 
         host.fire_timeouts(&mut runnable);
         host.drain_io(&mut runnable);
+        while let Some(woken) = host.pending_wakeups.pop_front() {
+            if !runnable.iter().any(|id| *id == woken) {
+                runnable.push_back(woken);
+            }
+        }
 
         if stopping {
             finish_remaining(&mut machines, &mut callbacks);

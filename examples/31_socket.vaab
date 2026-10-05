@@ -1,0 +1,49 @@
+# A WebSocket client. Incoming frames land on ordinary channels, so
+# `receive`, `select`, and `when timeout after` already work.
+#
+# Reconnection is the program's job: wrap `Socket.connect` in `while yes`
+# and sleep between attempts. Pings and pongs are handled by the library.
+#
+# This file shows the calls. A live echo lives in the VM tests so `vaab run`
+# does not need the network.
+
+to talk(url: Text, payload: Text) returns Text or fails SocketError {
+    let socket = try Socket.connect(url, headers: {"User-Agent": "vaab"}, buffer: 32)
+    try socket.send(payload)
+    select {
+        when receive from socket.messages as message { print(message) }
+        when receive from socket.binary as bytes { print(bytes.to_hex()) }
+        when timeout after 30 seconds {
+            log.warn("no message for 30s, reconnecting")
+            return success "timeout"
+        }
+    }
+    socket.close()
+    return success "ok"
+}
+
+to listen(url: Text) {
+    while yes {
+        match Socket.connect(url) {
+            when success socket then {
+                match receive from socket.messages {
+                    when found message then print(message)
+                    when nothing then {
+                        match socket.closed_because {
+                            when found reason then print(reason)
+                            when nothing then print("closed")
+                        }
+                    }
+                }
+                return
+            }
+            when failure error then {
+                print(error)
+                sleep(milliseconds: 10)
+                return
+            }
+        }
+    }
+}
+
+print("socket")

@@ -262,6 +262,9 @@ impl<'a> Compiler<'a> {
                     "keys" => Op::Builtin(Builtin::Keys),
                     "value" => Op::SharedRead,
                     "logger_lines" => Op::LoggerLines,
+                    "socket_messages" => Op::SocketMessages,
+                    "socket_binary" => Op::SocketBinary,
+                    "socket_closed_because" => Op::SocketClosedBecause,
                     _ => Op::Nothing,
                 };
                 if matches!(op, Op::NotYet(_)) {
@@ -637,6 +640,19 @@ impl<'a> Compiler<'a> {
             "http_send" => {
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 return self.emit(Op::HttpSend(self.http_error_failed()), span);
+            }
+            "socket_connect" => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::SocketConnect(self.socket_error_failed()), span);
+            }
+            "socket_send" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::SocketSend(self.socket_error_failed()), span);
+            }
+            "socket_close" => {
+                self.receiver(target, span);
+                return self.emit(Op::SocketClose, span);
             }
             "execute" => {
                 self.receiver(target, span);

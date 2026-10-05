@@ -215,6 +215,12 @@ pub enum Op {
     HttpGet(u32),
     HttpPost(u32),
     HttpSend(u32),
+    SocketConnect(u32),
+    SocketSend(u32),
+    SocketClose,
+    SocketMessages,
+    SocketBinary,
+    SocketClosedBecause,
     RequestWho { user: u32, unauthorized: u32 },
 
     /// `from_json(text, as: T)` — shape is an index into [`Program::json_shapes`].

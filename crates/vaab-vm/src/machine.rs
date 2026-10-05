@@ -413,6 +413,20 @@ impl Machine {
         pc: usize,
         work: crate::io::IoWork,
     ) -> Result<Result<String, String>, TickAction> {
+        match self.park_io(host, pc, |host| host.submit_io(work))? {
+            crate::io::IoOutcome::Http(result) => Ok(result),
+            _ => Ok(Err(
+                "an HTTP call finished with the wrong kind of I/O result".to_string(),
+            )),
+        }
+    }
+
+    fn park_io(
+        &mut self,
+        host: &mut crate::concurrency::Host,
+        pc: usize,
+        submit: impl FnOnce(&mut crate::concurrency::Host) -> u64,
+    ) -> Result<crate::io::IoOutcome, TickAction> {
         if let Some(Pending::Io { ticket }) = self.pending {
             match host.take_io(ticket) {
                 Some(result) => {
@@ -422,7 +436,7 @@ impl Machine {
                 None => return Err(self.park_at(pc, WaitSite::Io { ticket })),
             }
         }
-        let ticket = host.submit_io(work);
+        let ticket = submit(host);
         self.pending = Some(Pending::Io { ticket });
         Err(self.park_at(pc, WaitSite::Io { ticket }))
     }
@@ -1754,6 +1768,155 @@ impl Machine {
                     }
                     Err(park) => return Ok(park),
                 }
+            }
+            Op::SocketConnect(layout) => {
+                let buffer = match self.stack.last() {
+                    Some(Value::Nothing) => crate::socket::DEFAULT_BUFFER,
+                    Some(Value::Int(number)) => *number,
+                    _ => return Err(Fault::Confused("Socket.connect expected a buffer size")),
+                };
+                let headers_value = self
+                    .stack
+                    .get(self.stack.len().saturating_sub(2))
+                    .cloned()
+                    .ok_or(Fault::Confused("Socket.connect expected headers"))?;
+                let headers = match headers_value {
+                    Value::Nothing => std::collections::HashMap::new(),
+                    other => crate::app_io::headers_from_value(&other)?,
+                };
+                let url = match self.stack.get(self.stack.len().saturating_sub(3)) {
+                    Some(Value::Text(text)) => text.to_string(),
+                    _ => return Err(Fault::Confused("Socket.connect expected a url")),
+                };
+                match self.park_io(host, pc, |host| host.submit_socket_connect(url, headers)) {
+                    Ok(crate::io::IoOutcome::SocketConnect(result)) => {
+                        let _ = self.pop()?;
+                        let _ = self.pop()?;
+                        let _ = self.pop()?;
+                        match result {
+                            Ok(live) => {
+                                let socket = host.attach_socket(live, buffer);
+                                self.stack.push(Value::success(socket));
+                            }
+                            Err(message) => {
+                                let layout = program.variants.get(layout as usize).cloned().ok_or(
+                                    Fault::Confused("Socket.connect named a variant that is not there"),
+                                )?;
+                                self.stack.push(crate::app_io::failure_message(layout, message));
+                            }
+                        }
+                    }
+                    Ok(_) => {
+                        return Err(Fault::Confused(
+                            "Socket.connect finished with the wrong kind of I/O result",
+                        ))
+                    }
+                    Err(park) => return Ok(park),
+                }
+            }
+            Op::SocketSend(layout) => {
+                let text = match self.stack.last() {
+                    Some(Value::Text(text)) => text.to_string(),
+                    _ => return Err(Fault::Confused("socket.send expected text")),
+                };
+                let handle = match self.stack.get(self.stack.len().saturating_sub(2)) {
+                    Some(Value::Socket(handle)) => *handle,
+                    _ => return Err(Fault::Confused("socket.send expected a Socket")),
+                };
+                if self.pending.is_none() {
+                    match host.submit_socket_send(handle, text) {
+                        Ok(ticket) => {
+                            self.pending = Some(Pending::Io { ticket });
+                            return Ok(self.park_at(pc, WaitSite::Io { ticket }));
+                        }
+                        Err(message) => {
+                            let _ = self.pop()?;
+                            let _ = self.pop()?;
+                            let layout = program.variants.get(layout as usize).cloned().ok_or(
+                                Fault::Confused("socket.send named a variant that is not there"),
+                            )?;
+                            self.stack
+                                .push(crate::app_io::failure_message(layout, message));
+                        }
+                    }
+                } else {
+                    match self.park_io(host, pc, |_| 0) {
+                        Ok(crate::io::IoOutcome::Unit(result)) => {
+                            let _ = self.pop()?;
+                            let _ = self.pop()?;
+                            match result {
+                                Ok(()) => self.stack.push(Value::success(Value::Nothing)),
+                                Err(message) => {
+                                    let layout = program.variants.get(layout as usize).cloned().ok_or(
+                                        Fault::Confused(
+                                            "socket.send named a variant that is not there",
+                                        ),
+                                    )?;
+                                    self.stack
+                                        .push(crate::app_io::failure_message(layout, message));
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            return Err(Fault::Confused(
+                                "socket.send finished with the wrong kind of I/O result",
+                            ))
+                        }
+                        Err(park) => return Ok(park),
+                    }
+                }
+            }
+            Op::SocketClose => {
+                let handle = match self.stack.last() {
+                    Some(Value::Socket(handle)) => *handle,
+                    _ => return Err(Fault::Confused("socket.close expected a Socket")),
+                };
+                if self.pending.is_none() {
+                    match host.submit_socket_close(handle) {
+                        Some(ticket) => {
+                            self.pending = Some(Pending::Io { ticket });
+                            return Ok(self.park_at(pc, WaitSite::Io { ticket }));
+                        }
+                        None => {
+                            let _ = self.pop()?;
+                            self.stack.push(Value::Nothing);
+                        }
+                    }
+                } else {
+                    match self.park_io(host, pc, |_| 0) {
+                        Ok(crate::io::IoOutcome::Unit(_)) => {
+                            let _ = self.pop()?;
+                            self.stack.push(Value::Nothing);
+                        }
+                        Ok(_) => {
+                            return Err(Fault::Confused(
+                                "socket.close finished with the wrong kind of I/O result",
+                            ))
+                        }
+                        Err(park) => return Ok(park),
+                    }
+                }
+            }
+            Op::SocketMessages => {
+                let handle = match self.pop()? {
+                    Value::Socket(handle) => handle,
+                    _ => return Err(Fault::Confused("socket.messages expected a Socket")),
+                };
+                self.stack.push(host.socket_messages(handle)?);
+            }
+            Op::SocketBinary => {
+                let handle = match self.pop()? {
+                    Value::Socket(handle) => handle,
+                    _ => return Err(Fault::Confused("socket.binary expected a Socket")),
+                };
+                self.stack.push(host.socket_binary(handle)?);
+            }
+            Op::SocketClosedBecause => {
+                let handle = match self.pop()? {
+                    Value::Socket(handle) => handle,
+                    _ => return Err(Fault::Confused("socket.closed_because expected a Socket")),
+                };
+                self.stack.push(host.socket_closed_because(handle)?);
             }
             Op::RequestWho { user, unauthorized } => {
                 let request = self.slot(base, 0)?;

@@ -191,6 +191,34 @@ impl Checker {
                         shape: CallShape::function("File.read", None),
                     };
                 }
+                if written.text == "Socket" {
+                    return match name.text.as_str() {
+                        "connect" => Member::Callable {
+                            signature: Signature::new(
+                                vec![
+                                    Parameter::new("url", Type::Text),
+                                    Parameter::optional(
+                                        "headers",
+                                        Type::map(Type::Text, Type::Text),
+                                    ),
+                                    Parameter::optional("buffer", Type::Int),
+                                ],
+                                Type::fallible(Type::Socket, Type::named("SocketError")),
+                            ),
+                            resolution: Resolution::BuiltinMethod("socket_connect"),
+                            shape: CallShape::function("Socket.connect", None),
+                        },
+                        _ => {
+                            self.report(messages::unknown_member(
+                                &Type::named("Socket"),
+                                &name.text,
+                                name.span,
+                                &["connect".into()],
+                            ));
+                            Member::Unknown
+                        }
+                    };
+                }
                 if written.text == "Bytes" {
                     return match name.text.as_str() {
                         "from_base64" => Member::Callable {
@@ -690,6 +718,7 @@ impl Checker {
             Type::Db => self.builtin_member(&found, name, target),
             Type::Store => self.store_member(name, target),
             Type::Logger => self.logger_member(name),
+            Type::Socket => self.socket_member(name),
             Type::Query { error } => self.query_member(error, name),
             _ => self.builtin_member(&found, name, target),
         }
@@ -920,6 +949,52 @@ impl Checker {
                     &name.text,
                     name.span,
                     &known,
+                ));
+                Member::Unknown
+            }
+        }
+    }
+
+    /// Properties and methods on an open `Socket`.
+    fn socket_member(&mut self, name: &Name) -> Member {
+        match name.text.as_str() {
+            "messages" => Member::Value {
+                declared: Type::channel(Type::Text),
+                resolution: Resolution::BuiltinMethod("socket_messages"),
+            },
+            "binary" => Member::Value {
+                declared: Type::channel(Type::Bytes),
+                resolution: Resolution::BuiltinMethod("socket_binary"),
+            },
+            "closed_because" => Member::Value {
+                declared: Type::maybe(Type::Text),
+                resolution: Resolution::BuiltinMethod("socket_closed_because"),
+            },
+            "send" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("text", Type::Text)],
+                    Type::fallible(Type::Nothing, Type::named("SocketError")),
+                ),
+                resolution: Resolution::BuiltinMethod("socket_send"),
+                shape: CallShape::function("socket.send", None),
+            },
+            "close" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::Nothing),
+                resolution: Resolution::BuiltinMethod("socket_close"),
+                shape: CallShape::function("socket.close", None),
+            },
+            _ => {
+                self.report(messages::unknown_member(
+                    &Type::Socket,
+                    &name.text,
+                    name.span,
+                    &[
+                        "messages".into(),
+                        "binary".into(),
+                        "closed_because".into(),
+                        "send".into(),
+                        "close".into(),
+                    ],
                 ));
                 Member::Unknown
             }

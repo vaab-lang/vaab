@@ -935,6 +935,10 @@ fn pure_effect_label(effect: &str) -> String {
         "call `sleep`" => "this calls `sleep`".to_string(),
         "call `every`" => "this calls `every`".to_string(),
         "read the clock" => "this reads the clock".to_string(),
+        "connect a socket" => "this connects a socket".to_string(),
+        "send on a socket" => "this sends on a socket".to_string(),
+        "close a socket" => "this closes a socket".to_string(),
+        "read why a socket closed" => "this reads why a socket closed".to_string(),
         "call a function held in a value" => "this calls a function held in a value".to_string(),
         "start a task" => "this starts a task".to_string(),
         "wait for a task" => "this waits for a task".to_string(),
@@ -962,6 +966,14 @@ fn pure_effect_help(effect: &str) -> String {
         "call `sleep`" | "call `every`" => "wait outside the `pure` function, then call it",
         "read the clock" => {
             "read the clock before calling the `pure` function, and pass the number in"
+        }
+        "connect a socket" => {
+            "open the socket before calling the `pure` function, and pass it in"
+        }
+        "send on a socket" => "send on the socket outside the `pure` function",
+        "close a socket" => "close the socket outside the `pure` function",
+        "read why a socket closed" => {
+            "read `closed_because` outside the `pure` function, and pass the text in"
         }
         "call a function held in a value" => {
             "call a function declared with `pure to` by name instead, since a function \

@@ -1163,3 +1163,41 @@ so `every(milliseconds: 100, tick)` is refused like any other call. `every`
 itself returns nothing and does not stop until the task is cancelled, which is
 what Ctrl-C does through `TaskMeta.cancelled`.
 
+---
+
+## Sockets
+
+### D95. `Socket.connect` parks; frames land on channels
+
+`Socket.connect(url)` / `Socket.connect(url, headers:)` / `Socket.connect(url, buffer:)`
+returns `Socket or fails SocketError`. Headers default to an empty map. Buffer
+default is 1024 and is the capacity of `socket.messages` (`Channel of Text`) and
+`socket.binary` (`Channel of Bytes`). That capacity is the backpressure: a full
+channel stops the reader from taking the next frame.
+
+Connect, send and close park on `WaitSite::Io`. The handshake and writes run on
+a dedicated Tokio runtime (`tokio-tungstenite` with rustls native roots). A
+reader task posts frames to a host mailbox; the scheduler injects them with
+`Host` send so `receive`, `select` and `when timeout after` already work. No
+new select syntax. An open socket counts as pending I/O so a receive waiter
+does not deadlock.
+
+### D96. `SocketError` is a prelude error
+
+`SocketError.Failed(message: Text)` sits next to `HttpError`. Redeclaring the
+name is a duplicate.
+
+### D97. Pings are library work; reconnect is the program's
+
+The client answers pings and ignores pongs. `socket.close()` closes the
+connection. When the connection drops, both channels close and
+`socket.closed_because` holds the reason (`Text or nothing`). Reconnection is a
+`while yes` around `connect`, with `sleep` for backoff.
+
+### D98. Socket I/O is not `pure`
+
+`Socket.connect`, `socket.send`, `socket.close` and reading `closed_because`
+are not `pure`. Open the socket, send, close, or read the close reason outside
+the function, and pass values in. `.messages` and `.binary` are properties
+that yield handles already held.
+

@@ -331,6 +331,10 @@ impl Checker {
             "HttpError",
             &[("Failed", &[("message", Type::Text)])],
         );
+        self.register_builtin_choice(
+            "SocketError",
+            &[("Failed", &[("message", Type::Text)])],
+        );
         self.register_builtin_choice("AuthError", &[("Unauthorized", &[])]);
         self.register_builtin_choice(
             "JsonError",
@@ -930,6 +934,7 @@ impl Checker {
             "Db" => return Type::Db,
             "Store" => return Type::Store,
             "Logger" => return Type::Logger,
+            "Socket" => return Type::Socket,
             "Query" => return Type::query(Type::named("DbError")),
             _ => {}
         }
@@ -979,7 +984,7 @@ impl Checker {
     }
 
     fn known_type_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = ["Int", "Float", "Bool", "Text", "Bytes", "Nothing", "Db", "Store", "Logger", "Query"]
+        let mut names: Vec<String> = ["Int", "Float", "Bool", "Text", "Bytes", "Nothing", "Db", "Store", "Logger", "Socket", "Query"]
             .iter()
             .map(|n| n.to_string())
             .collect();

@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"to use(socket: Socket) {\\n\\\n         \\x20   print(socket.ping())\\n\\\n         }\\n\")"
+---
+[unknown-member] Error: a Socket has nothing called `ping`
+   ╭─[ example.vaab:2:18 ]
+   │
+ 2 │     print(socket.ping())
+   │                  ──┬─  
+   │                    ╰─── this asks a Socket for `ping`
+   │ 
+   │ Help: a Socket offers `messages`, `binary`, `closed_because`, `send` and `close`
+───╯

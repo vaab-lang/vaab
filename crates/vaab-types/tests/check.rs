@@ -1051,6 +1051,28 @@ fn every_and_on_start_are_accepted() {
 }
 
 #[test]
+fn socket_connect_and_members_type_check() {
+    check(
+        "to talk(url: Text, payload: Text) {\n\
+         \x20   match Socket.connect(url, headers: {\"X\": \"1\"}, buffer: 8) {\n\
+         \x20       when success socket then {\n\
+         \x20           match socket.send(payload) {\n\
+         \x20               when success _ then {\n\
+         \x20                   print(socket.messages)\n\
+         \x20                   print(socket.binary)\n\
+         \x20                   print(socket.closed_because)\n\
+         \x20                   socket.close()\n\
+         \x20               }\n\
+         \x20               when failure error then {}\n\
+         \x20           }\n\
+         \x20       }\n\
+         \x20       when failure error then {}\n\
+         \x20   }\n\
+         }\n",
+    );
+}
+
+#[test]
 fn every_unit_of_time_a_timeout_may_be_written_in_is_accepted() {
     for unit in [
         "millisecond",

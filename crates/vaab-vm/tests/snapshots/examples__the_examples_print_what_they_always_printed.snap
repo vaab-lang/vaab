@@ -165,3 +165,6 @@ AQAAACoAAAA=
 BytesError.OutOfRange(200, 28)
 
 $ vaab run examples/30_server.vaab
+
+$ vaab run examples/31_socket.vaab
+socket

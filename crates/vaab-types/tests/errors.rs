@@ -838,6 +838,13 @@ fn json_error_cannot_be_redeclared() {
     assert!(rendered.contains("JsonError"), "{rendered}");
     assert_snapshot!(rendered);
 }
+
+#[test]
+fn socket_error_cannot_be_redeclared() {
+    let rendered = errors("choice SocketError { Broken }\n");
+    assert!(rendered.contains("SocketError"), "{rendered}");
+    assert_snapshot!(rendered);
+}
 // ---------------------------------------------------------------------------
 // One mistake makes one message
 // ---------------------------------------------------------------------------
@@ -1190,6 +1197,48 @@ fn a_pure_function_cannot_sleep() {
 #[test]
 fn clock_names_the_members_it_has() {
     assert_snapshot!(errors("print(Clock.seconds())\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_connect_a_socket() {
+    assert_snapshot!(errors(
+        "pure to open() returns Socket or fails SocketError = Socket.connect(\"ws://127.0.0.1\")\n"
+    ));
+}
+
+#[test]
+fn a_pure_function_cannot_send_on_a_socket() {
+    assert_snapshot!(errors(
+        "pure to push(socket: Socket) returns Nothing or fails SocketError {\n\
+         \x20   socket.send(\"hi\")\n\
+         }\n"
+    ));
+}
+
+#[test]
+fn a_pure_function_cannot_close_a_socket() {
+    assert_snapshot!(errors("pure to stop(socket: Socket) = socket.close()\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_read_why_a_socket_closed() {
+    assert_snapshot!(errors(
+        "pure to why(socket: Socket) returns maybe Text = socket.closed_because\n"
+    ));
+}
+
+#[test]
+fn socket_names_the_members_it_has() {
+    assert_snapshot!(errors("print(Socket.listen(\"ws://127.0.0.1\"))\n"));
+}
+
+#[test]
+fn a_socket_value_names_the_members_it_has() {
+    assert_snapshot!(errors(
+        "to use(socket: Socket) {\n\
+         \x20   print(socket.ping())\n\
+         }\n"
+    ));
 }
 
 #[test]

@@ -170,7 +170,7 @@ fn sleep_until_next_deadline(shared: &Parallel) -> Option<std::time::Duration> {
     if !shared.injector.is_empty() || shared.stealers.iter().any(|stealer| !stealer.is_empty()) {
         return None;
     }
-    if host.io.has_pending() {
+    if host.has_live_io() {
         return Some(std::time::Duration::from_millis(1));
     }
     if host.timeouts.is_empty() || !host.all_parked() {
@@ -417,7 +417,7 @@ fn try_finish_idle(shared: &Parallel) -> bool {
         return false;
     }
     if let Ok(host) = lock(&shared.host) {
-        if host.timeouts.is_empty() && !host.io.has_pending() && host.all_parked() {
+        if host.timeouts.is_empty() && !host.has_live_io() && host.all_parked() {
             set_outcome(shared, Run::Failed(deadlock_parallel(&host, &shared.machines)));
             return true;
         }

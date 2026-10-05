@@ -56,6 +56,7 @@ mod static_files;
 pub mod concurrency;
 pub mod error;
 mod io;
+mod socket;
 pub mod live;
 pub mod machine;
 pub mod value;

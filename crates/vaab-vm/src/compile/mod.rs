@@ -681,6 +681,10 @@ impl<'a> Compiler<'a> {
         self.variant_layout("HttpError", "Failed")
     }
 
+    pub(crate) fn socket_error_failed(&self) -> u32 {
+        self.variant_layout("SocketError", "Failed")
+    }
+
     pub(crate) fn auth_error_unauthorized(&self) -> u32 {
         self.variant_layout("AuthError", "Unauthorized")
     }

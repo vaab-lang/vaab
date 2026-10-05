@@ -49,6 +49,8 @@ pub enum Type {
     Store,
     /// A configured logger from `Logger.stdout`, `.stderr`, `.file`, `.memory` or `.multi`.
     Logger,
+    /// An open WebSocket from `Socket.connect`.
+    Socket,
     /// A fluent AREL-style relation from `db.from` / `store.from`.
     ///
     /// Terminals fail with `DbError` or `StoreError` depending on the source.
@@ -209,6 +211,7 @@ impl fmt::Display for Type {
             Type::Db => f.write_str("Db"),
             Type::Store => f.write_str("Store"),
             Type::Logger => f.write_str("Logger"),
+            Type::Socket => f.write_str("Socket"),
             Type::Query { .. } => f.write_str("Query"),
             Type::Fallible { ok, error } => write!(f, "{ok} or fails {error}"),
             Type::Tuple(items) => {
