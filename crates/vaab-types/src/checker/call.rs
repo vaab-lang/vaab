@@ -26,6 +26,9 @@ impl Checker {
         // than for a value.
         if let ExprKind::Name(name) = &callee.kind {
             if self.lookup_local(&name.text).is_none() {
+                if name.text == "from_json" {
+                    return self.from_json_call(call, callee, arguments);
+                }
                 if let Some(called) = self.call_by_name(callee, name) {
                     let (signature, shape) = called;
                     let (returns, ready) = self.apply(call, &signature, &shape, arguments);
@@ -94,11 +97,15 @@ impl Checker {
                 // `.update` is the only built-in whose argument has rules of its
                 // own, and it is checked once the argument's own `.`s are resolved.
                 let updating = resolution == Resolution::BuiltinMethod("update");
+                let json_at = resolution == Resolution::BuiltinMethod("json_at");
                 self.resolve_to(callee.id, resolution);
                 let (returns, ready) = self.apply(call, &signature, &shape, arguments);
                 self.checked.types.insert(callee.id, ready.as_type());
                 if updating {
                     self.check_update_change(arguments);
+                }
+                if json_at {
+                    self.check_json_at_argument(arguments);
                 }
                 returns
             }
@@ -273,6 +280,91 @@ impl Checker {
 
         self.checked.calls.insert(call.id, Call { arguments: sources });
         built
+    }
+
+    /// `from_json(text, as: Person)` — `as` names a type, not a value.
+    fn from_json_call(
+        &mut self,
+        call: &Expr,
+        callee: &Expr,
+        arguments: &[Argument],
+    ) -> Type {
+        self.resolve_to(callee.id, Resolution::Builtin("from_json"));
+
+        let mut text = None;
+        let mut target = None;
+        let mut sources = Vec::new();
+
+        for (position, argument) in arguments.iter().enumerate() {
+            let label = argument.name.as_ref().map(|name| name.text.as_str());
+            match label {
+                Some("as") => {
+                    target = Some((self.from_json_type_argument(&argument.value), argument.value.span));
+                }
+                Some("text") | None if text.is_none() => {
+                    self.expression(&argument.value, Wanted::Exactly(Type::Text));
+                    text = Some(position);
+                    sources.push(ArgumentSource::Given(position));
+                }
+                Some(written) => {
+                    self.report(messages::unknown_argument(
+                        "from_json",
+                        written,
+                        argument.name.as_ref().map(|name| name.span).unwrap_or(argument.span),
+                        &["text".into(), "as".into()],
+                    ));
+                    self.expression(&argument.value, Wanted::Anything);
+                }
+                None => {
+                    self.expression(&argument.value, Wanted::Anything);
+                }
+            }
+        }
+
+        if text.is_none() {
+            self.report(messages::missing_argument("from_json", "text", call.span, None));
+        }
+
+        let declared = match target {
+            Some((declared, span)) => {
+                let resolved = self.variables.resolve(&declared);
+                if !matches!(resolved, Type::Unknown | Type::Variable(_))
+                    && !can_json(&resolved, &self.checked)
+                {
+                    self.report(messages::cannot_from_json(&resolved, span));
+                }
+                declared
+            }
+            None => {
+                self.report(messages::from_json_needs_type(call.span));
+                Type::Unknown
+            }
+        };
+
+        self.checked.calls.insert(call.id, Call { arguments: sources });
+        Type::fallible(declared, Type::named("JsonError"))
+    }
+
+    /// Reads the type named by `as: Person`.
+    fn from_json_type_argument(&mut self, argument: &Expr) -> Type {
+        if let ExprKind::Name(name) = &argument.kind {
+            let named = self.resolve_named_type(name);
+            self.checked.types.insert(argument.id, named.clone());
+            return named;
+        }
+        self.report(messages::from_json_needs_type(argument.span));
+        Type::Unknown
+    }
+
+    /// `.at` accepts a Text key or an Int index, and nothing else.
+    fn check_json_at_argument(&mut self, arguments: &[Argument]) {
+        let Some(argument) = arguments.first() else { return };
+        let Some(found) = self.checked.type_of(argument.value.id).cloned() else { return };
+        let found = self.variables.resolve(&found);
+        if matches!(found, Type::Text | Type::Int | Type::Unknown | Type::Variable(_)) {
+            return;
+        }
+        self.report(messages::json_at_needs_key(&found, argument.value.span));
     }
 
     /// Reads an argument that names a type, as `Channel.new(of: Text)` does.

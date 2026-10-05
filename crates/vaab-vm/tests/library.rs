@@ -270,6 +270,79 @@ fn to_json_turns_a_map_into_text() {
 }
 
 #[test]
+fn from_json_decodes_a_record_and_missing_maybe_fields() {
+    let source = "\
+type Note {\n\
+    title: Text\n\
+    hint: maybe Text\n\
+}\n\
+match from_json(\"\\{\\\"title\\\":\\\"hi\\\"\\}\", as: Note) {\n\
+    when success note then {\n\
+        print(note.title)\n\
+        print(note.hint otherwise \"none\")\n\
+    }\n\
+    when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["hi", "none"]);
+}
+
+#[test]
+fn from_json_reports_invalid_json() {
+    let source = "\
+match from_json(\"not json\", as: Int) {\n\
+    when success n then print(n)\n\
+    when failure error then match error {\n\
+        when Failed(message) then print(message.contains(\"valid JSON\"))\n\
+    }\n\
+}\n";
+    assert_eq!(printed(source), "yes");
+}
+
+#[test]
+fn from_json_reports_when_the_value_does_not_match() {
+    let source = "\
+type Note {\n\
+    title: Text\n\
+}\n\
+match from_json(\"\\{\\\"title\\\": 1\\}\", as: Note) {\n\
+    when success note then print(note.title)\n\
+    when failure error then match error {\n\
+        when Failed(message) then print(message.contains(\"did not match\"))\n\
+    }\n\
+}\n";
+    assert_eq!(printed(source), "yes");
+}
+
+#[test]
+fn json_parse_walks_an_object_and_a_list() {
+    let source = "\
+match Json.parse(\"\\{\\\"title\\\":\\\"hi\\\",\\\"tags\\\":[\\\"home\\\"]\\}\") {\n\
+    when success doc then {\n\
+        print(doc.at(\"title\").as_text() otherwise \"\")\n\
+        let tags = doc.at(\"tags\").as_list() otherwise []\n\
+        print(tags.first.as_text() otherwise \"\")\n\
+        print(doc.at(\"missing\").as_text() otherwise \"none\")\n\
+        print(doc.at(0).as_text() otherwise \"none\")\n\
+    }\n\
+    when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["hi", "home", "none", "none"]);
+}
+
+#[test]
+fn json_parse_can_be_matched_as_a_choice() {
+    let source = "\
+match Json.parse(\"null\") {\n\
+    when success doc then match doc {\n\
+        when Json.Null then print(\"null\")\n\
+        when other then print(other)\n\
+    }\n\
+    when failure error then print(error)\n\
+}\n";
+    assert_eq!(printed(source), "null");
+}
+
+#[test]
 fn store_round_trips_text_by_key() {
     let path = std::env::temp_dir().join("vaab-store-test.kv");
     let _ = std::fs::remove_file(&path);

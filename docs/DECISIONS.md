@@ -1051,7 +1051,7 @@ structure is JSON-safe. Claiming `can Json` is optional documentation, not requi
 
 ---
 
-## Time and maths
+## Time, maths, and JSON
 
 ### D87. `Clock` and `sleep`
 
@@ -1083,4 +1083,17 @@ Lists of Int and lists of Float offer `sum`, `min`, `max`, `mean`, and
 prelude method whose receiver fits, so a `sum` registered on `list of Int`
 does not reject `list of Float`. A non-numeric list still gets the existing
 bad-receiver diagnostic. Maths is `pure`.
+
+### D89. JSON decoding
+
+`from_json(text, as: T)` decodes JSON text into a declared type, returning
+`T or fails JsonError`. `Json.parse(text)` returns `Json or fails JsonError` so
+unknown structure can be walked with `.at`, `.as_text`, `.as_int`, `.as_float`
+and `.as_list` (each a `maybe`). This supersedes D77's record that
+"deserialization is deferred".
+
+`Json` is a prelude choice (`Null | Bool | Number | Text | List | Object`).
+`JsonError.Failed(message)` joins the prelude error choices (D80); redeclaring it
+is a duplicate. Missing `maybe` fields decode to `nothing`. `from_json`,
+`Json.parse` and the walking methods are pure.
 

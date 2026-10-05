@@ -984,6 +984,63 @@ impl Machine {
                     return Ok(self.park_at(pc, WaitSite::Sleep { until }));
                 }
             }
+            Op::FromJson { shape, error } => {
+                let text = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("from_json expected text")),
+                };
+                let layout = program.variants.get(error as usize).cloned().ok_or(
+                    Fault::Confused("from_json named a variant that is not there"),
+                )?;
+                match crate::json::decode_typed(
+                    &text,
+                    shape,
+                    &program.json_shapes,
+                    &program.layouts,
+                    &program.variants,
+                ) {
+                    Ok(value) => self.stack.push(Value::success(value)),
+                    Err(message) => {
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::JsonParse(error) => {
+                let text = match self.pop()? {
+                    Value::Text(text) => text.to_string(),
+                    _ => return Err(Fault::Confused("Json.parse expected text")),
+                };
+                let layout = program.variants.get(error as usize).cloned().ok_or(
+                    Fault::Confused("Json.parse named a variant that is not there"),
+                )?;
+                match crate::json::parse_doc(&text, &program.variants) {
+                    Ok(value) => self.stack.push(Value::success(value)),
+                    Err(message) => {
+                        self.stack.push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::JsonAt => {
+                let key = self.pop()?;
+                let receiver = self.pop()?;
+                self.stack.push(crate::json::json_at(&receiver, &key));
+            }
+            Op::JsonAsText => {
+                let receiver = self.pop()?;
+                self.stack.push(crate::json::json_as_text(&receiver));
+            }
+            Op::JsonAsInt => {
+                let receiver = self.pop()?;
+                self.stack.push(crate::json::json_as_int(&receiver));
+            }
+            Op::JsonAsFloat => {
+                let receiver = self.pop()?;
+                self.stack.push(crate::json::json_as_float(&receiver));
+            }
+            Op::JsonAsList => {
+                let receiver = self.pop()?;
+                self.stack.push(crate::json::json_as_list(&receiver));
+            }
 
             Op::EnvGet => {
                 let name = match self.pop()? {

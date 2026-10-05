@@ -17,6 +17,7 @@ use vaab_syntax::span::Span;
 
 use crate::builtin::Builtin;
 use crate::error::Feature;
+use crate::json::JsonShape;
 use crate::value::{Ref, RecordLayout, Value, VariantLayout};
 
 /// One instruction.
@@ -213,6 +214,16 @@ pub enum Op {
     HttpSend(u32),
     RequestWho { user: u32, unauthorized: u32 },
 
+    /// `from_json(text, as: T)` — shape is an index into [`Program::json_shapes`].
+    FromJson { shape: u32, error: u32 },
+    /// `Json.parse(text)`.
+    JsonParse(u32),
+    JsonAt,
+    JsonAsText,
+    JsonAsInt,
+    JsonAsFloat,
+    JsonAsList,
+
     ReplyWith(bool),
     ReplyFile(bool),
     ReplyText(bool),
@@ -275,6 +286,8 @@ pub struct Program {
     pub statements: Vec<u32>,
     pub selects: Vec<SelectDescriptor>,
     pub routes: Vec<RouteHandler>,
+    /// Type shapes for `from_json(..., as: T)`, interned by the compiler.
+    pub json_shapes: Vec<JsonShape>,
 }
 
 #[derive(Clone, Debug)]
@@ -318,6 +331,7 @@ impl Program {
             statements: Vec::new(),
             selects: Vec::new(),
             routes: Vec::new(),
+            json_shapes: Vec::new(),
         }
     }
 
@@ -395,6 +409,8 @@ fn write(op: &Op, program: &Program) -> String {
         }
         Op::Builtin(builtin) => format!("Builtin {}", builtin.name()),
         Op::ReadFile(layout) => format!("ReadFile {layout}"),
+        Op::FromJson { shape, error } => format!("FromJson {shape} {error}"),
+        Op::JsonParse(error) => format!("JsonParse {error}"),
         Op::Now => "Now".to_string(),
         Op::ClockMillis => "ClockMillis".to_string(),
         Op::ClockMonotonicMillis => "ClockMonotonicMillis".to_string(),

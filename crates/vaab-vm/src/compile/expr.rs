@@ -307,6 +307,9 @@ impl<'a> Compiler<'a> {
                 let _ = count;
                 self.emit(Op::Builtin(Builtin::ToJson), span);
             }
+            Some(Resolution::Builtin("from_json")) => {
+                self.compile_from_json(call, arguments, span);
+            }
 
             Some(Resolution::Function(id))
             | Some(Resolution::UserNew { function: id, .. })
@@ -446,6 +449,43 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::Call(count), span);
             }
         }
+    }
+
+    fn compile_from_json(&mut self, call: &'a Expr, arguments: &'a [Argument], span: Span) {
+        let text = arguments.iter().find(|argument| {
+            argument
+                .name
+                .as_ref()
+                .is_some_and(|name| name.text == "text")
+        }).or_else(|| {
+            arguments.iter().find(|argument| {
+                argument
+                    .name
+                    .as_ref()
+                    .is_none_or(|name| name.text != "as")
+            })
+        });
+        match text {
+            Some(argument) => self.expression(&argument.value),
+            None => self.emit(Op::Nothing, span),
+        }
+
+        let target = arguments.iter().find_map(|argument| {
+            argument
+                .name
+                .as_ref()
+                .filter(|name| name.text == "as")
+                .and_then(|_| self.checked.type_of(argument.value.id).cloned())
+        }).unwrap_or(vaab_types::Type::Unknown);
+        let shape = self.intern_json_shape(&target);
+        self.emit(
+            Op::FromJson {
+                shape,
+                error: self.json_error_failed(),
+            },
+            span,
+        );
+        let _ = call;
     }
 
     /// The value to the left of the dot in a method call.
@@ -691,6 +731,31 @@ impl<'a> Compiler<'a> {
             "file_read" => {
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 return self.emit(Op::ReadFile(self.file_error_not_found()), span);
+            }
+            "json_parse" => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::JsonParse(self.json_error_failed()), span);
+            }
+            "json_at" => {
+                self.receiver(target, span);
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                return self.emit(Op::JsonAt, span);
+            }
+            "json_as_text" => {
+                self.receiver(target, span);
+                return self.emit(Op::JsonAsText, span);
+            }
+            "json_as_int" => {
+                self.receiver(target, span);
+                return self.emit(Op::JsonAsInt, span);
+            }
+            "json_as_float" => {
+                self.receiver(target, span);
+                return self.emit(Op::JsonAsFloat, span);
+            }
+            "json_as_list" => {
+                self.receiver(target, span);
+                return self.emit(Op::JsonAsList, span);
             }
             "log_debug" | "log_info" | "log_warn" | "log_error" => {
                 self.emit(Op::LoggerProcess, span);

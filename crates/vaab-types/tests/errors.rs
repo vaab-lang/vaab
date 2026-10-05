@@ -764,6 +764,48 @@ fn to_json_requires_a_json_type() {
     assert!(rendered.contains("cannot be turned into JSON"), "{rendered}");
     assert_snapshot!(rendered);
 }
+
+#[test]
+fn from_json_needs_the_type_to_decode_into() {
+    let rendered = errors("let text = \"\\{\\}\"\nlet note = from_json(text)\n");
+    assert!(rendered.contains("from_json"), "{rendered}");
+    assert_snapshot!(rendered);
+}
+
+#[test]
+fn from_json_as_must_be_a_type_name() {
+    let rendered = errors("let text = \"\\{\\}\"\nlet note = from_json(text, as: 1)\n");
+    assert!(rendered.contains("from_json"), "{rendered}");
+    assert_snapshot!(rendered);
+}
+
+#[test]
+fn from_json_rejects_a_type_that_cannot_be_json() {
+    let rendered = errors(
+        "type Box { inbox: channel of Int }\nlet note = from_json(\"\\{\\}\", as: Box)\n",
+    );
+    assert!(rendered.contains("cannot be read from JSON"), "{rendered}");
+    assert_snapshot!(rendered);
+}
+
+#[test]
+fn json_at_needs_a_text_key_or_an_int_index() {
+    let rendered = errors(
+        "match Json.parse(\"\\{\\}\") {\n\
+         \x20   when success doc then print(doc.at(yes))\n\
+         \x20   when failure _ then print(\"no\")\n\
+         }\n",
+    );
+    assert!(rendered.contains(".at"), "{rendered}");
+    assert_snapshot!(rendered);
+}
+
+#[test]
+fn json_error_cannot_be_redeclared() {
+    let rendered = errors("choice JsonError { Broken }\n");
+    assert!(rendered.contains("JsonError"), "{rendered}");
+    assert_snapshot!(rendered);
+}
 // ---------------------------------------------------------------------------
 // One mistake makes one message
 // ---------------------------------------------------------------------------

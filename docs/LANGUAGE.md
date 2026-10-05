@@ -693,20 +693,36 @@ The HTTP server logs every request (method, path, status, duration) to stderr.
 ### JSON
 
 Plain data types encode with `to_json` when their structure is JSON-safe.
-Claiming `can Json` is optional.
+Claiming `can Json` is optional. Decode with `from_json` into a declared type, or
+walk unknown structure with `Json.parse`. Both are pure and fail with
+`JsonError.Failed(message)`.
 
 ```vaab
-type Person {
-    name: Text
-    score: Int
+type Note {
+    title: Text
+    tags: list of Text
+    hint: maybe Text
 }
 
-print(to_json(Person.new(name: "Ada", score: 36)))
+print(to_json(Note.new(title: "packing list", tags: ["travel"], hint: nothing)))
+
+let note = try from_json(text, as: Note)
+let doc = try Json.parse(text)
+let title = doc.at("title").as_text() otherwise ""
+let tags = doc.at("tags").as_list() otherwise []
 ```
 
+`from_json(text, as: T)` needs a type name for `as`, not a value. Missing `maybe`
+fields decode to `nothing`. `Json` is a prelude choice — `Null`, `Bool`, `Number`,
+`Text`, `List`, `Object` — so a program can match `Json.Null` or `Json.Text(t)`.
+`.at` takes a Text key or an Int index; `.at`, `.as_text`, `.as_int`, `.as_float`
+and `.as_list` each return `maybe`, and the wrong kind or a missing key is
+`nothing` rather than a crash.
+
 Built-in scalars, lists, maps with `Text` keys, tuples, records, and choices whose
-parts are JSON-safe may be encoded. Functions, channels, tasks and other values
-that cannot be written as JSON are rejected by the checker.
+parts are JSON-safe may be encoded or decoded. Functions, channels, tasks and
+other values that cannot be written as JSON are rejected by the checker.
+Redeclaring `JsonError` is a duplicate, the same as `FileError`.
 
 ---
 

@@ -63,6 +63,15 @@ pub fn functions() -> Vec<Function> {
                 Type::Nothing,
             ),
         },
+        Function {
+            // `as` is a type, not a value, so the checker special-cases the call.
+            // The signature here is what `from_json` looks like as a name.
+            name: "from_json",
+            signature: Signature::new(
+                vec![Parameter::new("text", Type::Text)],
+                Type::fallible(Type::parameter("T"), Type::named("JsonError")),
+            ),
+        },
     ]
 }
 
@@ -469,7 +478,7 @@ mod tests {
     #[test]
     fn the_prelude_holds_exactly_what_the_examples_need() {
         let names: Vec<&str> = functions().iter().map(|function| function.name).collect();
-        assert_eq!(names, ["print", "read_file", "now", "to_json", "sleep"]);
+        assert_eq!(names, ["print", "read_file", "now", "to_json", "sleep", "from_json"]);
     }
 
     #[test]

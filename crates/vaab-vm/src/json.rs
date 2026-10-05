@@ -3,7 +3,34 @@
 use serde_json::{Map, Number, Value as Json};
 
 use crate::error::Fault;
-use crate::value::{Record, RecordLayout, Ref, Value};
+use crate::value::{Key, Record, RecordLayout, Ref, Value, Variant, VariantLayout};
+
+/// How `from_json(..., as: T)` should shape the decoded value.
+///
+/// Nested shapes are indexes into the same table, so a recursive type can point
+/// at the slot that is still being filled.
+#[derive(Clone, Debug)]
+pub enum JsonShape {
+    Int,
+    Float,
+    Bool,
+    Text,
+    Nothing,
+    /// The prelude `Json` choice: keep the document as a walkable value.
+    Json,
+    Maybe(u32),
+    List(u32),
+    Map(u32),
+    Tuple(Vec<u32>),
+    Record { layout: u32, fields: Vec<u32> },
+    Choice { variants: Vec<JsonChoiceVariant> },
+}
+
+#[derive(Clone, Debug)]
+pub struct JsonChoiceVariant {
+    pub name: String,
+    pub fields: Vec<(String, u32)>,
+}
 
 pub fn encode(value: &Value) -> Result<String, Fault> {
     let json = value_to_json(value)?;
@@ -24,6 +51,260 @@ pub fn decode_record(text: &str, layout: Ref<RecordLayout>) -> Result<Value, Fau
         fields.push(json_to_value(value)?);
     }
     Ok(Value::Record(Ref::new(Record { layout, fields, cells: None })))
+}
+
+/// Typed decode used by `from_json`. Reuses [`json_to_value`] for leaves and the
+/// same record-from-object walk as [`decode_record`], with `maybe` fields that
+/// may be missing.
+pub fn decode_typed(
+    text: &str,
+    shape: u32,
+    shapes: &[JsonShape],
+    layouts: &[Ref<RecordLayout>],
+    variants: &[Ref<VariantLayout>],
+) -> Result<Value, String> {
+    let json: Json = serde_json::from_str(text).map_err(|error| {
+        format!("this is not valid JSON ({error})")
+    })?;
+    decode_json(&json, shape, shapes, layouts, variants)
+}
+
+pub fn parse_doc(text: &str, variants: &[Ref<VariantLayout>]) -> Result<Value, String> {
+    let json: Json = serde_json::from_str(text).map_err(|error| {
+        format!("this is not valid JSON ({error})")
+    })?;
+    let value = json_to_value(&json).map_err(fault_message)?;
+    value_to_json_doc(&value, variants)
+}
+
+pub fn json_at(receiver: &Value, key: &Value) -> Value {
+    let Some(doc) = unwrap_json(receiver) else {
+        return Value::absent();
+    };
+    match (variant_name(doc), key) {
+        (Some("Object"), Value::Text(name)) => match object_entries(doc) {
+            Some(entries) => match entries.get(&Key(Value::Text(Ref::clone(name)))) {
+                Some(found) => Value::found(found.clone()),
+                None => Value::absent(),
+            },
+            None => Value::absent(),
+        },
+        (Some("List"), Value::Int(index)) => match list_items(doc) {
+            Some(items) if *index >= 0 => match items.get(*index as usize) {
+                Some(found) => Value::found(found.clone()),
+                None => Value::absent(),
+            },
+            _ => Value::absent(),
+        },
+        _ => Value::absent(),
+    }
+}
+
+pub fn json_as_text(receiver: &Value) -> Value {
+    match unwrap_json(receiver).and_then(|doc| variant_field(doc, "Text")) {
+        Some(Value::Text(text)) => Value::found(Value::Text(Ref::clone(text))),
+        _ => Value::absent(),
+    }
+}
+
+pub fn json_as_int(receiver: &Value) -> Value {
+    match unwrap_json(receiver).and_then(|doc| variant_field(doc, "Number")) {
+        Some(Value::Int(number)) => Value::found(Value::Int(*number)),
+        Some(Value::Float(number)) if number.is_finite() && number.fract() == 0.0 => {
+            Value::found(Value::Int(*number as i64))
+        }
+        _ => Value::absent(),
+    }
+}
+
+pub fn json_as_float(receiver: &Value) -> Value {
+    match unwrap_json(receiver).and_then(|doc| variant_field(doc, "Number")) {
+        Some(Value::Float(number)) => Value::found(Value::Float(*number)),
+        Some(Value::Int(number)) => Value::found(Value::Float(*number as f64)),
+        _ => Value::absent(),
+    }
+}
+
+pub fn json_as_list(receiver: &Value) -> Value {
+    match unwrap_json(receiver).and_then(list_items) {
+        Some(items) => Value::found(Value::list(items.clone())),
+        None => Value::absent(),
+    }
+}
+
+fn decode_json(
+    json: &Json,
+    shape: u32,
+    shapes: &[JsonShape],
+    layouts: &[Ref<RecordLayout>],
+    variants: &[Ref<VariantLayout>],
+) -> Result<Value, String> {
+    let Some(wanted) = shapes.get(shape as usize) else {
+        return Err("the JSON did not match the type".to_string());
+    };
+    match wanted {
+        JsonShape::Int => match json_to_value(json).map_err(fault_message)? {
+            Value::Int(number) => Ok(Value::Int(number)),
+            _ => Err("the JSON did not match the type (expected a whole number)".to_string()),
+        },
+        JsonShape::Float => match json {
+            Json::Number(number) => number
+                .as_f64()
+                .map(Value::Float)
+                .ok_or_else(|| "the JSON did not match the type (expected a number)".to_string()),
+            _ => Err("the JSON did not match the type (expected a number)".to_string()),
+        },
+        JsonShape::Bool => match json_to_value(json).map_err(fault_message)? {
+            Value::Bool(yes) => Ok(Value::Bool(yes)),
+            _ => Err("the JSON did not match the type (expected yes or no)".to_string()),
+        },
+        JsonShape::Text => match json_to_value(json).map_err(fault_message)? {
+            Value::Text(text) => Ok(Value::Text(text)),
+            _ => Err("the JSON did not match the type (expected text)".to_string()),
+        },
+        JsonShape::Nothing => match json {
+            Json::Null => Ok(Value::Nothing),
+            _ => Err("the JSON did not match the type (expected null)".to_string()),
+        },
+        JsonShape::Json => {
+            let value = json_to_value(json).map_err(fault_message)?;
+            value_to_json_doc(&value, variants)
+        }
+        JsonShape::Maybe(inner) => match json {
+            Json::Null => Ok(Value::absent()),
+            other => Ok(Value::found(decode_json(other, *inner, shapes, layouts, variants)?)),
+        },
+        JsonShape::List(inner) => {
+            let Json::Array(items) = json else {
+                return Err("the JSON did not match the type (expected a list)".to_string());
+            };
+            let items = items
+                .iter()
+                .map(|item| decode_json(item, *inner, shapes, layouts, variants))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::list(items))
+        }
+        JsonShape::Map(inner) => {
+            let Json::Object(entries) = json else {
+                return Err("the JSON did not match the type (expected an object)".to_string());
+            };
+            let mut map = indexmap::IndexMap::new();
+            for (key, value) in entries {
+                map.insert(
+                    Key(Value::text(key.clone())),
+                    decode_json(value, *inner, shapes, layouts, variants)?,
+                );
+            }
+            Ok(Value::map(map))
+        }
+        JsonShape::Tuple(parts) => {
+            let Json::Array(items) = json else {
+                return Err("the JSON did not match the type (expected a list)".to_string());
+            };
+            if items.len() != parts.len() {
+                return Err(format!(
+                    "the JSON did not match the type (expected {} values)",
+                    parts.len()
+                ));
+            }
+            let items = parts
+                .iter()
+                .zip(items)
+                .map(|(part, item)| decode_json(item, *part, shapes, layouts, variants))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Tuple(Ref::from(items)))
+        }
+        JsonShape::Record { layout, fields } => {
+            decode_record_shaped(json, *layout, fields, shapes, layouts, variants)
+        }
+        JsonShape::Choice { variants: wanted } => {
+            decode_choice(json, wanted, shapes, layouts, variants)
+        }
+    }
+}
+
+fn decode_record_shaped(
+    json: &Json,
+    layout: u32,
+    fields: &[u32],
+    shapes: &[JsonShape],
+    layouts: &[Ref<RecordLayout>],
+    variants: &[Ref<VariantLayout>],
+) -> Result<Value, String> {
+    let layout = layouts
+        .get(layout as usize)
+        .cloned()
+        .ok_or_else(|| "the JSON did not match the type".to_string())?;
+    let Json::Object(object) = json else {
+        return Err(format!(
+            "the JSON did not match the type (expected an object for {})",
+            layout.name
+        ));
+    };
+    let mut values = Vec::with_capacity(layout.fields.len());
+    for (index, name) in layout.fields.iter().enumerate() {
+        let field_shape = fields.get(index).copied().unwrap_or(0);
+        let optional = matches!(shapes.get(field_shape as usize), Some(JsonShape::Maybe(_)));
+        match object.get(name) {
+            None if optional => values.push(Value::absent()),
+            None => {
+                return Err(format!(
+                    "the JSON did not match the type (missing field `{name}`)"
+                ));
+            }
+            Some(Json::Null) if optional => values.push(Value::absent()),
+            Some(value) => {
+                values.push(decode_json(value, field_shape, shapes, layouts, variants)?);
+            }
+        }
+    }
+    Ok(Value::Record(Ref::new(Record {
+        layout,
+        fields: values,
+        cells: None,
+    })))
+}
+
+fn decode_choice(
+    json: &Json,
+    wanted: &[JsonChoiceVariant],
+    shapes: &[JsonShape],
+    layouts: &[Ref<RecordLayout>],
+    variants: &[Ref<VariantLayout>],
+) -> Result<Value, String> {
+    let Json::Object(object) = json else {
+        return Err("the JSON did not match the type (expected a tagged object)".to_string());
+    };
+    if object.len() != 1 {
+        return Err("the JSON did not match the type (expected a tagged object)".to_string());
+    }
+    let (name, payload) = object.iter().next().expect("one entry");
+    let variant = wanted
+        .iter()
+        .find(|variant| variant.name == *name)
+        .ok_or_else(|| format!("the JSON did not match the type (unknown variant `{name}`)"))?;
+    let layout = variants
+        .iter()
+        .find(|layout| layout.name == variant.name)
+        .cloned()
+        .ok_or_else(|| "the JSON did not match the type".to_string())?;
+    let fields = match payload {
+        Json::Object(entries) => {
+            let mut fields = Vec::with_capacity(variant.fields.len());
+            for (field, shape) in &variant.fields {
+                let value = entries.get(field).ok_or_else(|| {
+                    format!("the JSON did not match the type (missing field `{field}`)")
+                })?;
+                fields.push(decode_json(value, *shape, shapes, layouts, variants)?);
+            }
+            fields
+        }
+        _ if variant.fields.is_empty() => Vec::new(),
+        _ => {
+            return Err("the JSON did not match the type (expected variant fields)".to_string());
+        }
+    };
+    Ok(Value::Variant(Ref::new(Variant { layout, fields })))
 }
 
 fn json_to_value(value: &Json) -> Result<Value, Fault> {
@@ -50,6 +331,89 @@ fn json_to_value(value: &Json) -> Result<Value, Fault> {
             }
             Ok(Value::map(map))
         }
+    }
+}
+
+fn value_to_json_doc(value: &Value, variants: &[Ref<VariantLayout>]) -> Result<Value, String> {
+    match value {
+        Value::Nothing | Value::Maybe(None) => json_variant(variants, "Null", Vec::new()),
+        Value::Bool(yes) => json_variant(variants, "Bool", vec![Value::Bool(*yes)]),
+        Value::Int(number) => json_variant(variants, "Number", vec![Value::Float(*number as f64)]),
+        Value::Float(number) => json_variant(variants, "Number", vec![Value::Float(*number)]),
+        Value::Text(text) => json_variant(variants, "Text", vec![Value::Text(Ref::clone(text))]),
+        Value::List(items) => {
+            let items = items
+                .iter()
+                .map(|item| value_to_json_doc(item, variants))
+                .collect::<Result<Vec<_>, _>>()?;
+            json_variant(variants, "List", vec![Value::list(items)])
+        }
+        Value::Map(entries) => {
+            let mut map = indexmap::IndexMap::new();
+            for (key, value) in entries.iter() {
+                map.insert(key.clone(), value_to_json_doc(value, variants)?);
+            }
+            json_variant(variants, "Object", vec![Value::map(map)])
+        }
+        Value::Maybe(Some(held)) => value_to_json_doc(held, variants),
+        other => Err(format!("the JSON did not match the type ({other} cannot be a Json document)")),
+    }
+}
+
+fn json_variant(
+    variants: &[Ref<VariantLayout>],
+    name: &str,
+    fields: Vec<Value>,
+) -> Result<Value, String> {
+    let layout = variants
+        .iter()
+        .find(|layout| layout.choice == "Json" && layout.name == name)
+        .cloned()
+        .ok_or_else(|| format!("the Json.{name} variant is missing"))?;
+    Ok(Value::Variant(Ref::new(Variant { layout, fields })))
+}
+
+fn unwrap_json(value: &Value) -> Option<&Value> {
+    match value {
+        Value::Maybe(None) => None,
+        Value::Maybe(Some(held)) => unwrap_json(held),
+        Value::Variant(variant) if variant.layout.choice == "Json" => Some(value),
+        _ => None,
+    }
+}
+
+fn variant_name(value: &Value) -> Option<&str> {
+    match value {
+        Value::Variant(variant) => Some(variant.layout.name.as_str()),
+        _ => None,
+    }
+}
+
+fn variant_field<'a>(value: &'a Value, name: &str) -> Option<&'a Value> {
+    match value {
+        Value::Variant(variant) if variant.layout.name == name => variant.fields.first(),
+        _ => None,
+    }
+}
+
+fn object_entries(value: &Value) -> Option<&indexmap::IndexMap<Key, Value>> {
+    match variant_field(value, "Object") {
+        Some(Value::Map(entries)) => Some(entries),
+        _ => None,
+    }
+}
+
+fn list_items(value: &Value) -> Option<&Vec<Value>> {
+    match variant_field(value, "List") {
+        Some(Value::List(items)) => Some(items),
+        _ => None,
+    }
+}
+
+fn fault_message(fault: Fault) -> String {
+    match fault {
+        Fault::Confused(message) => message.to_string(),
+        _ => "the JSON did not match the type".to_string(),
     }
 }
 

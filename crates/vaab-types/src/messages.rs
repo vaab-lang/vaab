@@ -772,6 +772,34 @@ pub fn not_json(found: &Type, span: Span) -> Diagnostic {
         .with_note("numbers, text, yes/no, lists, text-keyed maps, and plain types/casts encode; channels and functions do not")
 }
 
+pub fn from_json_needs_type(span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "from-json-type",
+        "`from_json` needs the type to decode into",
+    )
+    .at(span, "Vaab expected a type name here")
+    .with_help("write `from_json(text, as: Person)`")
+}
+
+pub fn cannot_from_json(found: &Type, span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "cannot-from-json",
+        format!("{} cannot be read from JSON", a(found)),
+    )
+    .at(span, format!("this is {found}"))
+    .with_help("decode into a JSON-safe type, such as a record of numbers, text, lists or maps")
+    .with_note("functions, channels, tasks and other values that cannot be written as JSON cannot be read back either")
+}
+
+pub fn json_at_needs_key(found: &Type, span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "json-at",
+        "`.at` takes a Text key or an Int index",
+    )
+    .at(span, format!("this is {found}"))
+    .with_help("write `.at(\"name\")` or `.at(0)`")
+}
+
 pub fn undefined_ability(name: &str, span: Span, known: &[String]) -> Diagnostic {
     Diagnostic::error("undefined-ability", format!("`{name}` is not an ability"))
         .at(span, "Vaab expected the name of an ability here")
