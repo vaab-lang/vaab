@@ -708,9 +708,8 @@ closed channel.
 `.update` is synchronous with respect to the caller: it builds a one-off
 `Machine` for the closure, runs it to completion on the same thread, and writes
 the result back. It may not wait (D57); the runtime enforces that by refusing to
-park inside the nested run. Concurrent `.update` from several tasks is serialised
-by the single-threaded scheduler visiting one task at a time; phase 7 will need
-a real lock around the shared cell.
+park inside the nested run. Concurrent `.update` from several tasks is
+serialised by a lock on the shared cell (D104).
 
 ---
 
@@ -1239,4 +1238,65 @@ and `Logger`. The `server-global-must-be-handle` help names `Hub.new`.
 
 `Hub.new`, `hub.join` and `hub.broadcast` are not `pure`. Build the hub, join,
 and broadcast outside a `pure` function, and pass values in.
+
+---
+
+## Throughput
+
+### D103. `vaab serve` runs on the work-stealing pool
+
+Route bodies, `on start` tasks, and socket bodies are scheduled on the
+worker pool in `parallel.rs`. The pool size is `VAAB_WORKERS`, or the machine's
+parallelism, and is always at least 1. A size of 1 uses the same `WaitSite`
+parking as the single-thread loop (Sleep, Io, channels, select). Incoming work
+and I/O completions wake idle workers through a condvar rather than a busy
+spin.
+
+### D104. `.update` holds a mutex for the whole change
+
+This supersedes the last sentence of D68. The shared cell is a `Mutex`.
+`.update` holds that mutex while the closure runs, so two workers cannot
+interleave a read-modify-write on the same `Shared`. The closure still runs to
+completion and may not park (D57). Sequential `.update` calls on one task
+unlock between calls, so they do not deadlock. A nested `.update` on the same
+cell is refused at compile time (D57) and, if it reaches the machine, is a
+runtime fault rather than a hang. `.value` during an update on the same thread
+reads the snapshot the change was given, so it does not re-enter the mutex.
+
+### D105. `db.transaction` is one SQLite transaction; nested use is an error
+
+`db.transaction { ... }` begins `BEGIN IMMEDIATE`, runs the block on a nested
+machine, and `COMMIT`s if the block succeeds. A `try`/`fail` that produces
+`failure`, or a runtime fault, `ROLLBACK`s. The expression's type is the
+block's type, or `T or fails DbError` when the block is not already fallible.
+
+Nested `db.transaction` is a checker error and a runtime error. Vaab does not
+use savepoints: one block is one transaction, and that is easier to explain
+than a second layer of commit rules.
+
+### D106. File databases open in WAL mode
+
+`Db.connect` on a file path sets `PRAGMA journal_mode=WAL` and a 5 second busy
+timeout. `:memory:` and other in-memory URLs are left as SQLite creates them.
+Existing `Db` programs keep working; a file database reports `wal` from
+`PRAGMA journal_mode`.
+
+### D107. Replay throughput
+
+The checked-in harness is `crates/vaab-vm/benches/throughput.rs`. It generates
+a JSON-lines fixture of `{id, amount}` records, then for each line decodes
+with `from_json`, updates a rolling mean on a `Shared` value, inserts inside
+one batched `db.transaction`, and `hub.broadcast`s the encoded row.
+
+Measured on this machine (release, `cargo bench -p vaab-vm --bench throughput`,
+4,000 events, three consecutive runs after the binary was already built):
+
+* **206,000 events/s** (runs were 197,705 / 205,859 / 216,820)
+* **p99 0 ms** per event
+
+`Clock.monotonic_millis` is the finest clock the program can read, and no event
+crossed a millisecond. Wall time for the 4,000-event replay was about 19 ms
+(~5 µs per event implied). That is above the 2,000 events/s target and under
+the 5 ms p99, so no further interpreter work was applied on this path. The
+harness was not profiled with `cargo flamegraph`.
 

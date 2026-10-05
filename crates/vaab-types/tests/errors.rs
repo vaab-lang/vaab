@@ -18,8 +18,10 @@ use support::{codes, errors};
 
 #[test]
 fn reply_outside_route() {
-    assert_snapshot!(errors(r#"reply with "oops"
-"#));
+    assert_snapshot!(errors(
+        r#"reply with "oops"
+"#
+    ));
 }
 
 #[test]
@@ -42,7 +44,10 @@ fn a_server_global_that_is_not_a_handle() {
 #[test]
 fn a_maybe_where_a_plain_value_was_wanted() {
     let rendered = errors("let ages = {\"Ada\": 36}\nlet x: Int = ages.get(\"Ada\")\n");
-    assert!(rendered.contains("expected Int, found maybe Int"), "{rendered}");
+    assert!(
+        rendered.contains("expected Int, found maybe Int"),
+        "{rendered}"
+    );
     assert_snapshot!(rendered);
 }
 
@@ -55,7 +60,10 @@ fn a_constructor_missing_a_field_says_which() {
          }\n\
          let account = Account.new()\n",
     );
-    assert!(rendered.contains("Account.new is missing `owner`."), "{rendered}");
+    assert!(
+        rendered.contains("Account.new is missing `owner`."),
+        "{rendered}"
+    );
     assert_snapshot!(rendered);
 }
 
@@ -310,7 +318,9 @@ fn sending_to_something_that_is_not_a_channel() {
 
 #[test]
 fn receiving_from_something_that_is_not_a_channel() {
-    assert_snapshot!(errors("let inbox = \"ping\"\nlet message = receive from inbox\n"));
+    assert_snapshot!(errors(
+        "let inbox = \"ping\"\nlet message = receive from inbox\n"
+    ));
 }
 
 #[test]
@@ -490,7 +500,9 @@ fn otherwise_on_a_value_that_is_always_there() {
 
 #[test]
 fn a_fallback_of_the_wrong_type() {
-    assert_snapshot!(errors("let ages = {\"Ada\": 36}\nlet age = ages.get(\"Ada\") otherwise \"unknown\"\n"));
+    assert_snapshot!(errors(
+        "let ages = {\"Ada\": 36}\nlet age = ages.get(\"Ada\") otherwise \"unknown\"\n"
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -588,7 +600,10 @@ fn a_match_over_a_choice_that_misses_a_variant() {
          \x20   when AccountError.Frozen then \"frozen\"\n\
          }\n",
     );
-    assert!(rendered.contains("AccountError.InvalidAmount"), "{rendered}");
+    assert!(
+        rendered.contains("AccountError.InvalidAmount"),
+        "{rendered}"
+    );
     assert_snapshot!(rendered);
 }
 
@@ -783,18 +798,23 @@ fn an_ability_offers_only_what_it_requires() {
     ));
 }
 
-
 #[test]
 fn a_type_that_cannot_json_is_rejected() {
     let rendered = errors("type Box can Json { inbox: channel of Int }\n");
-    assert!(rendered.contains("cannot be turned into JSON"), "{rendered}");
+    assert!(
+        rendered.contains("cannot be turned into JSON"),
+        "{rendered}"
+    );
     assert_snapshot!(rendered);
 }
 
 #[test]
 fn to_json_requires_a_json_type() {
     let rendered = errors("to echo(n: Int) returns Int = n\nprint(to_json(echo))\n");
-    assert!(rendered.contains("cannot be turned into JSON"), "{rendered}");
+    assert!(
+        rendered.contains("cannot be turned into JSON"),
+        "{rendered}"
+    );
     assert_snapshot!(rendered);
 }
 
@@ -814,9 +834,8 @@ fn from_json_as_must_be_a_type_name() {
 
 #[test]
 fn from_json_rejects_a_type_that_cannot_be_json() {
-    let rendered = errors(
-        "type Box { inbox: channel of Int }\nlet note = from_json(\"\\{\\}\", as: Box)\n",
-    );
+    let rendered =
+        errors("type Box { inbox: channel of Int }\nlet note = from_json(\"\\{\\}\", as: Box)\n");
     assert!(rendered.contains("cannot be read from JSON"), "{rendered}");
     assert_snapshot!(rendered);
 }
@@ -897,14 +916,19 @@ fn a_changing_variable_captured_by_a_task() {
     let rendered = errors("let changing total = 0\nlet job = start { total + 1 }\n");
     // The specification fixes this wording, so it is asserted rather than left to
     // the snapshot alone.
-    assert!(rendered.contains("`total` can change, so a task cannot use it."), "{rendered}");
+    assert!(
+        rendered.contains("`total` can change, so a task cannot use it."),
+        "{rendered}"
+    );
     assert!(rendered.contains("Shared"), "{rendered}");
     assert_snapshot!(rendered);
 }
 
 #[test]
 fn a_changing_variable_assigned_inside_a_task() {
-    assert_snapshot!(errors("let changing total = 0\nlet job = start { total = 1 }\n"));
+    assert_snapshot!(errors(
+        "let changing total = 0\nlet job = start { total = 1 }\n"
+    ));
 }
 
 #[test]
@@ -1102,7 +1126,9 @@ fn a_pure_function_cannot_print() {
 
 #[test]
 fn a_pure_function_cannot_read_a_file() {
-    assert_snapshot!(errors("pure to load(path: Text) returns Text = try read_file(path)\n"));
+    assert_snapshot!(errors(
+        "pure to load(path: Text) returns Text = try read_file(path)\n"
+    ));
 }
 
 #[test]
@@ -1129,12 +1155,16 @@ fn a_pure_function_cannot_send_on_a_channel() {
 
 #[test]
 fn a_pure_function_cannot_build_a_channel() {
-    assert_snapshot!(errors("pure to make() returns channel of Int = Channel.new(of: Int, size: 1)\n"));
+    assert_snapshot!(errors(
+        "pure to make() returns channel of Int = Channel.new(of: Int, size: 1)\n"
+    ));
 }
 
 #[test]
 fn a_pure_function_cannot_build_a_shared_value() {
-    assert_snapshot!(errors("pure to make() returns shared Int = Shared.new(0)\n"));
+    assert_snapshot!(errors(
+        "pure to make() returns shared Int = Shared.new(0)\n"
+    ));
 }
 
 #[test]
@@ -1187,7 +1217,9 @@ fn a_pure_function_cannot_read_the_clock() {
 
 #[test]
 fn a_pure_function_cannot_read_the_monotonic_clock() {
-    assert_snapshot!(errors("pure to tick() returns Int = Clock.monotonic_millis()\n"));
+    assert_snapshot!(errors(
+        "pure to tick() returns Int = Clock.monotonic_millis()\n"
+    ));
 }
 
 #[test]
@@ -1235,7 +1267,9 @@ fn socket_names_the_members_it_has() {
 
 #[test]
 fn a_pure_function_cannot_build_a_hub() {
-    assert_snapshot!(errors("pure to make() returns hub of Text = Hub.new(of: Text)\n"));
+    assert_snapshot!(errors(
+        "pure to make() returns hub of Text = Hub.new(of: Text)\n"
+    ));
 }
 
 #[test]
@@ -1286,7 +1320,9 @@ fn a_together_with_nothing_to_wait_for() {
 
 #[test]
 fn a_select_with_no_arms_to_wait_on() {
-    assert_snapshot!(errors("select {\n\x20   otherwise { print(\"nothing ready\") }\n}\n"));
+    assert_snapshot!(errors(
+        "select {\n\x20   otherwise { print(\"nothing ready\") }\n}\n"
+    ));
 }
 
 #[test]
@@ -1327,6 +1363,29 @@ fn a_changing_value_a_nested_task_reaches_for_is_reported_once() {
         codes("let changing total = 0\nlet job = start { start { total } }\n"),
         ["changing-captured-by-task"]
     );
+}
+
+#[test]
+fn a_nested_transaction_is_refused() {
+    assert_snapshot!(errors(
+        "to work(db: Db) {\n\
+         \x20   db.transaction {\n\
+         \x20       db.transaction {\n\
+         \x20           1\n\
+         \x20       }\n\
+         \x20   }\n\
+         }\n",
+    ));
+}
+
+#[test]
+fn transaction_without_a_block_points_at_the_block_form() {
+    assert_snapshot!(errors("to work(db: Db) { db.transaction }\n"));
+}
+
+#[test]
+fn a_transaction_on_something_that_is_not_a_database() {
+    assert_snapshot!(errors("let n = 1\nn.transaction { 1 }\n"));
 }
 
 #[test]

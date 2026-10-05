@@ -27,11 +27,15 @@ impl Checker {
         id: FunctionId,
         locals_begin: usize,
     ) {
-        let Some(function) = self.checked.function(id) else { return };
+        let Some(function) = self.checked.function(id) else {
+            return;
+        };
         if !function.pure {
             return;
         }
-        let Some(body) = &declaration.body else { return };
+        let Some(body) = &declaration.body else {
+            return;
+        };
 
         let signature_span = declaration
             .returns
@@ -83,6 +87,9 @@ impl Visit for ImpureFinder<'_> {
                 Some(PureViolation::Effect("wait for a value on a channel"))
             }
             ExprKind::Start(_) => Some(PureViolation::Effect("start a task")),
+            ExprKind::Transaction { .. } => {
+                Some(PureViolation::Effect("run a database transaction"))
+            }
             ExprKind::Select(_) => {
                 Some(PureViolation::Effect("wait for something to become ready"))
             }
@@ -106,7 +113,9 @@ impl ImpureFinder<'_> {
     }
 
     fn changes_outside(&self, target: &Expr) -> bool {
-        let ExprKind::Name(_) = &target.kind else { return false };
+        let ExprKind::Name(_) = &target.kind else {
+            return false;
+        };
         let Some(Resolution::Local(found)) = self.checked.resolution(target.id) else {
             return false;
         };
@@ -165,10 +174,13 @@ impl ImpureFinder<'_> {
             Some(Resolution::NewShared) => Some(PureViolation::Effect("build a `shared` value")),
             Some(Resolution::NewDb) => Some(PureViolation::Effect("connect to a database")),
             Some(Resolution::NewStore) => Some(PureViolation::Effect("open a store")),
-            Some(Resolution::NewLoggerStdout | Resolution::NewLoggerStderr | Resolution::NewLoggerFile
-                | Resolution::NewLoggerMemory | Resolution::NewLoggerMulti) => {
-                Some(PureViolation::Effect("build a logger"))
-            }
+            Some(
+                Resolution::NewLoggerStdout
+                | Resolution::NewLoggerStderr
+                | Resolution::NewLoggerFile
+                | Resolution::NewLoggerMemory
+                | Resolution::NewLoggerMulti,
+            ) => Some(PureViolation::Effect("build a logger")),
             Some(Resolution::BuiltinMethod("env_get" | "env_required")) => {
                 Some(PureViolation::Effect("read the environment"))
             }
@@ -193,9 +205,9 @@ impl ImpureFinder<'_> {
             Some(Resolution::BuiltinMethod("execute" | "query")) => {
                 Some(PureViolation::Effect("talk to a database"))
             }
-            Some(Resolution::BuiltinMethod("store_get" | "store_set" | "store_remove" | "store_keys")) => {
-                Some(PureViolation::Effect("talk to a store"))
-            }
+            Some(Resolution::BuiltinMethod(
+                "store_get" | "store_set" | "store_remove" | "store_keys",
+            )) => Some(PureViolation::Effect("talk to a store")),
             Some(Resolution::BuiltinMethod(
                 "logger_set_level" | "logger_set_format" | "logger_debug" | "logger_info"
                 | "logger_warn" | "logger_error" | "logger_write" | "logger_lines",

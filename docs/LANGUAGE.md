@@ -16,7 +16,9 @@ time.
 Concurrency is here. The compile-time rules — which values may cross into a task
 or down a channel, and the `let changing` variable a task may never use — make a
 data race a compile error, and channels, tasks, `select`, `together` and `shared`
-run on a single-threaded scheduler with cooperative preemption.
+run on a work-stealing scheduler with cooperative preemption. `vaab serve` uses
+the same pool for route bodies, `on start` tasks, and socket bodies. A pool of
+one worker keeps the single-thread parking behaviour.
 
 Design choices this document does not explain — the ones the original
 specification left open — are recorded in [DECISIONS.md](DECISIONS.md).
@@ -413,7 +415,7 @@ select {
 }
 
 let counter = Shared.new(0)                   # shared Int
-counter.update(n -> n + 1)                    # atomic read-modify-write
+counter.update(n -> n + 1)                    # holds a lock for the change
 print(counter.value)
 ```
 
@@ -628,6 +630,20 @@ let sessions = try store
 
 Raw `db.query` / `db.execute` stay available for SQL the fluent surface cannot
 express yet.
+
+`db.transaction { ... }` runs the block inside one SQLite transaction. The
+block's value is the expression's value; a `try` or `fail` inside the block
+rolls the transaction back. Nested `db.transaction` is an error — Vaab does
+not use savepoints. File databases open in WAL mode; in-memory databases are
+unchanged.
+
+```vaab
+let empty: list of Text = []
+try db.transaction {
+    try db.execute("insert into events (id, amount) values (1, 2.5)", empty)
+    try db.execute("insert into totals (n) values (1)", empty)
+}
+```
 
 ### Bytes
 

@@ -80,9 +80,11 @@ impl<'a> Compiler<'a> {
                     span,
                 );
             }
-            ExprKind::Binary { operator, left, right } => {
-                self.binary(*operator, left, right, span)
-            }
+            ExprKind::Binary {
+                operator,
+                left,
+                right,
+            } => self.binary(*operator, left, right, span),
 
             ExprKind::Call { callee, arguments } => self.call(expression, callee, arguments),
             ExprKind::Member { target, .. } => self.member(expression, target, span),
@@ -118,6 +120,9 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::Receive, span);
             }
             ExprKind::Start(body) => self.start_task(expression, body, span),
+            ExprKind::Transaction { database, body } => {
+                self.transaction(expression, database, body, span)
+            }
             ExprKind::Select(select) => self.select(select, span),
         }
     }
@@ -342,14 +347,24 @@ impl<'a> Compiler<'a> {
                 self.receiver(target, span);
                 let defaults = self.parameters_of(function);
                 let arity = self.push_arguments(call, arguments, defaults);
-                self.emit(Op::CallMethod { body: body as u32, arity }, span);
+                self.emit(
+                    Op::CallMethod {
+                        body: body as u32,
+                        arity,
+                    },
+                    span,
+                );
             }
 
             Some(Resolution::AbilityMethod { ability, function }) => {
                 self.receiver(target, span);
                 let arity = self.push_arguments(call, arguments, Defaults::None);
                 self.emit(
-                    Op::CallAbility { ability: ability.0, slot: function as u32, arity },
+                    Op::CallAbility {
+                        ability: ability.0,
+                        slot: function as u32,
+                        arity,
+                    },
                     span,
                 );
             }
@@ -364,17 +379,28 @@ impl<'a> Compiler<'a> {
                     None => Defaults::None,
                 };
                 let fields = self.push_arguments(call, arguments, defaults);
-                self.emit(Op::Record { layout: declared.0, fields }, span);
+                self.emit(
+                    Op::Record {
+                        layout: declared.0,
+                        fields,
+                    },
+                    span,
+                );
             }
 
-            Some(Resolution::AutomaticCastNew(cast))
-            | Some(Resolution::RawCast(cast)) => {
+            Some(Resolution::AutomaticCastNew(cast)) | Some(Resolution::RawCast(cast)) => {
                 let defaults = match self.cast_fields_of(cast) {
                     Some(fields) => Defaults::Fields(fields),
                     None => Defaults::None,
                 };
                 let fields = self.push_arguments(call, arguments, defaults);
-                self.emit(Op::Record { layout: self.cast_layout(cast), fields }, span);
+                self.emit(
+                    Op::Record {
+                        layout: self.cast_layout(cast),
+                        fields,
+                    },
+                    span,
+                );
             }
 
             Some(Resolution::With(declared)) => self.with(call, target, arguments, declared, span),
@@ -393,7 +419,12 @@ impl<'a> Compiler<'a> {
             Some(Resolution::NewChannel) => {
                 if let Some(argument) = arguments
                     .iter()
-                    .find(|argument| argument.name.as_ref().is_some_and(|name| name.text == "size"))
+                    .find(|argument| {
+                        argument
+                            .name
+                            .as_ref()
+                            .is_some_and(|name| name.text == "size")
+                    })
                     .or_else(|| arguments.get(1))
                 {
                     self.expression(&argument.value);
@@ -463,31 +494,34 @@ impl<'a> Compiler<'a> {
     }
 
     fn compile_from_json(&mut self, call: &'a Expr, arguments: &'a [Argument], span: Span) {
-        let text = arguments.iter().find(|argument| {
-            argument
-                .name
-                .as_ref()
-                .is_some_and(|name| name.text == "text")
-        }).or_else(|| {
-            arguments.iter().find(|argument| {
+        let text = arguments
+            .iter()
+            .find(|argument| {
                 argument
                     .name
                     .as_ref()
-                    .is_none_or(|name| name.text != "as")
+                    .is_some_and(|name| name.text == "text")
             })
-        });
+            .or_else(|| {
+                arguments
+                    .iter()
+                    .find(|argument| argument.name.as_ref().is_none_or(|name| name.text != "as"))
+            });
         match text {
             Some(argument) => self.expression(&argument.value),
             None => self.emit(Op::Nothing, span),
         }
 
-        let target = arguments.iter().find_map(|argument| {
-            argument
-                .name
-                .as_ref()
-                .filter(|name| name.text == "as")
-                .and_then(|_| self.checked.type_of(argument.value.id).cloned())
-        }).unwrap_or(vaab_types::Type::Unknown);
+        let target = arguments
+            .iter()
+            .find_map(|argument| {
+                argument
+                    .name
+                    .as_ref()
+                    .filter(|name| name.text == "as")
+                    .and_then(|_| self.checked.type_of(argument.value.id).cloned())
+            })
+            .unwrap_or(vaab_types::Type::Unknown);
         let shape = self.intern_json_shape(&target);
         self.emit(
             Op::FromJson {
@@ -526,8 +560,11 @@ impl<'a> Compiler<'a> {
         arguments: &'a [Argument],
         defaults: Defaults<'a>,
     ) -> u32 {
-        let Some(sources) =
-            self.checked.calls.get(&call.id).map(|wanted| wanted.arguments.clone())
+        let Some(sources) = self
+            .checked
+            .calls
+            .get(&call.id)
+            .map(|wanted| wanted.arguments.clone())
         else {
             for argument in arguments {
                 self.expression(&argument.value);
@@ -552,9 +589,9 @@ impl<'a> Compiler<'a> {
     /// The expression written as a parameter's or a field's default.
     fn default(&mut self, defaults: Defaults<'a>, slot: usize, span: Span) {
         let written = match defaults {
-            Defaults::Parameters(parameters) => {
-                parameters.get(slot).and_then(|parameter| parameter.default.as_ref())
-            }
+            Defaults::Parameters(parameters) => parameters
+                .get(slot)
+                .and_then(|parameter| parameter.default.as_ref()),
             Defaults::Fields(fields) => fields.get(slot).and_then(|field| field.default.as_ref()),
             Defaults::None => None,
         };
@@ -597,7 +634,13 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        self.emit(Op::Record { layout: declared.0, fields: sources.len() as u32 }, span);
+        self.emit(
+            Op::Record {
+                layout: declared.0,
+                fields: sources.len() as u32,
+            },
+            span,
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -964,7 +1007,13 @@ impl<'a> Compiler<'a> {
         if let Some(op) = bytes_op {
             self.receiver(target, span);
             self.push_arguments(call, arguments, Defaults::None);
-            return self.emit(Op::Bytes { op, errors: self.bytes_errors() }, span);
+            return self.emit(
+                Op::Bytes {
+                    op,
+                    errors: self.bytes_errors(),
+                },
+                span,
+            );
         }
 
         let builtin = match name {
@@ -1070,11 +1119,16 @@ impl<'a> Compiler<'a> {
         };
 
         let index = self.builders.len();
-        self.builders.push(Builder::new(Ref::from(CLOSURE_NAME), closure.frame));
+        self.builders
+            .push(Builder::new(Ref::from(CLOSURE_NAME), closure.frame));
 
         // `pairs.map((a, b) -> a + b)` is handed one pair and names both halves, so
         // it takes one argument and pulls the rest of its slots out of it.
-        let arity = if closure.unpacks { 1 } else { closure.parameters.len() };
+        let arity = if closure.unpacks {
+            1
+        } else {
+            closure.parameters.len()
+        };
         self.open_body(index, closure.frame, arity);
 
         if closure.unpacks {
@@ -1190,12 +1244,15 @@ impl<'a> Compiler<'a> {
         let current_frame = self.current_frame().unwrap_or(Checked::TOP_LEVEL);
 
         let index = self.builders.len();
-        self.builders.push(Builder::new(Ref::from(TASK_NAME), current_frame));
+        self.builders
+            .push(Builder::new(Ref::from(TASK_NAME), current_frame));
         self.open_body(index, current_frame, 0);
 
         let depth = self.open.len().saturating_sub(1);
         for local in &task.captures {
-            let Some(held) = self.checked.local(*local) else { continue };
+            let Some(held) = self.checked.local(*local) else {
+                continue;
+            };
             if held.frame == Checked::TOP_LEVEL {
                 continue;
             }
@@ -1207,6 +1264,49 @@ impl<'a> Compiler<'a> {
         self.open.pop();
 
         self.emit(Op::Start(index as u32), span);
+    }
+
+    fn transaction(
+        &mut self,
+        expression: &'a Expr,
+        database: &'a Expr,
+        body: &'a Block,
+        span: Span,
+    ) {
+        let Some(task) = self.checked.transactions.get(&expression.id) else {
+            return self.emit(Op::Nothing, span);
+        };
+        let frame = task.frame;
+        let captures = task.captures.clone();
+
+        let index = self.builders.len();
+        self.builders
+            .push(Builder::new(Ref::from(TRANSACTION_NAME), frame));
+        self.open_body(index, frame, 0);
+
+        let depth = self.open.len().saturating_sub(1);
+        for local in &captures {
+            let Some(held) = self.checked.local(*local) else {
+                continue;
+            };
+            if held.frame == Checked::TOP_LEVEL {
+                continue;
+            }
+            self.capture(depth, *local);
+        }
+
+        self.block_value(body);
+        self.emit(Op::Return, span);
+        self.open.pop();
+
+        self.expression(database);
+        self.emit(
+            Op::DbTransaction {
+                body: index as u32,
+                error: self.db_error_failed(),
+            },
+            span,
+        );
     }
 
     fn select(&mut self, select: &'a SelectExpr, span: Span) {
@@ -1239,9 +1339,14 @@ impl<'a> Compiler<'a> {
                     }
                     self.block_discard(body);
                 }
-                SelectArm::Timeout { amount, unit, body, .. } => {
+                SelectArm::Timeout {
+                    amount, unit, body, ..
+                } => {
                     let milliseconds = self.timeout_milliseconds(amount, unit);
-                    compiled_arms.push(CompiledSelectArm::Timeout { milliseconds, body: body_pc });
+                    compiled_arms.push(CompiledSelectArm::Timeout {
+                        milliseconds,
+                        body: body_pc,
+                    });
                     self.block_discard(body);
                 }
             }
@@ -1344,3 +1449,6 @@ const CLOSURE_NAME: &str = "a closure";
 
 /// What a trace calls a `start` body, which has no name of its own.
 const TASK_NAME: &str = "a task";
+
+/// What a trace calls a `db.transaction` body.
+const TRANSACTION_NAME: &str = "a transaction";

@@ -150,7 +150,9 @@ to first_of(items: list of T) returns maybe T {
 
 #[test]
 fn a_function_with_no_result_returns_nothing() {
-    assert_snapshot!(tree("to announce(message: Text) {\n    print(message)\n}\n"));
+    assert_snapshot!(tree(
+        "to announce(message: Text) {\n    print(message)\n}\n"
+    ));
 }
 
 #[test]
@@ -466,4 +468,16 @@ greet(
 #[test]
 fn comments_are_ignored() {
     assert_snapshot!(tree("# a note\nlet a = 1 # another note\n"));
+}
+
+#[test]
+fn a_database_transaction_is_a_trailing_block() {
+    assert_snapshot!(tree(
+        r#"
+let db = Db.connect("sqlite::memory:")
+db.transaction {
+    db.execute("insert into items (id) values (1)", [])
+}
+"#
+    ));
 }

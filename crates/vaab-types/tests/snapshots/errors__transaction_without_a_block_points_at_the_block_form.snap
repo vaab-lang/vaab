@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"to work(db: Db) { db.transaction }\\n\")"
+---
+[transaction-needs-block] Error: `transaction` is written as a block
+   ╭─[ example.vaab:1:22 ]
+   │
+ 1 │ to work(db: Db) { db.transaction }
+   │                      ─────┬─────  
+   │                           ╰─────── Vaab expected `{ ... }` after `.transaction`
+   │ 
+   │ Help: write `db.transaction { ... }`
+───╯

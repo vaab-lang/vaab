@@ -122,7 +122,10 @@ impl<'src> Parser<'src> {
                     let end = self.expression_from(POWER_RANGE + 1)?;
                     let span = left.span.to(end.span);
                     left = self.expression_node(
-                        ExprKind::Range { start: Box::new(left), end: Box::new(end) },
+                        ExprKind::Range {
+                            start: Box::new(left),
+                            end: Box::new(end),
+                        },
                         span,
                     );
                     previous_operator = None;
@@ -178,7 +181,10 @@ impl<'src> Parser<'src> {
                 let operand = self.expression_from(POWER_COMPARISON)?;
                 let span = start.to(operand.span);
                 self.expression_node(
-                    ExprKind::Unary { operator: UnaryOp::Not, operand: Box::new(operand) },
+                    ExprKind::Unary {
+                        operator: UnaryOp::Not,
+                        operand: Box::new(operand),
+                    },
                     span,
                 )
             }
@@ -187,7 +193,10 @@ impl<'src> Parser<'src> {
                 let operand = self.prefix_expression()?;
                 let span = start.to(operand.span);
                 self.expression_node(
-                    ExprKind::Unary { operator: UnaryOp::Negate, operand: Box::new(operand) },
+                    ExprKind::Unary {
+                        operator: UnaryOp::Negate,
+                        operand: Box::new(operand),
+                    },
                     span,
                 )
             }
@@ -216,19 +225,19 @@ impl<'src> Parser<'src> {
                 self.expect_word(From, "the word `from`, as in `receive from inbox`")?;
                 let channel = self.prefix_expression()?;
                 let span = start.to(channel.span);
-                self.expression_node(ExprKind::Receive { channel: Box::new(channel) }, span)
+                self.expression_node(
+                    ExprKind::Receive {
+                        channel: Box::new(channel),
+                    },
+                    span,
+                )
             }
             _ => self.postfix_expression()?,
         })
     }
 
     /// Builds one of the prefix forms that simply wraps the expression after it.
-    fn wrapping(
-        &mut self,
-        start: Span,
-        operand: Expr,
-        build: fn(Box<Expr>) -> ExprKind,
-    ) -> Expr {
+    fn wrapping(&mut self, start: Span, operand: Expr, build: fn(Box<Expr>) -> ExprKind) -> Expr {
         let span = start.to(operand.span);
         self.expression_node(build(Box::new(operand)), span)
     }
@@ -243,15 +252,35 @@ impl<'src> Parser<'src> {
                     // Any word may follow a `.`, so `value.with(...)` works even
                     // though `with` would be a poor variable name.
                     let name = self.any_word_as_name("a field or function name after `.`")?;
-                    let span = expr.span.to(name.span);
-                    expr = self
-                        .expression_node(ExprKind::Member { target: Box::new(expr), name }, span);
+                    if name.text == "transaction" && self.check(TokenKind::OpenBrace) {
+                        let body = self.block()?;
+                        let span = expr.span.to(body.span);
+                        expr = self.expression_node(
+                            ExprKind::Transaction {
+                                database: Box::new(expr),
+                                body: Box::new(body),
+                            },
+                            span,
+                        );
+                    } else {
+                        let span = expr.span.to(name.span);
+                        expr = self.expression_node(
+                            ExprKind::Member {
+                                target: Box::new(expr),
+                                name,
+                            },
+                            span,
+                        );
+                    }
                 }
                 TokenKind::OpenParen => {
                     let (arguments, span) = self.call_arguments()?;
                     let span = expr.span.to(span);
                     expr = self.expression_node(
-                        ExprKind::Call { callee: Box::new(expr), arguments },
+                        ExprKind::Call {
+                            callee: Box::new(expr),
+                            arguments,
+                        },
                         span,
                     );
                 }
@@ -261,7 +290,10 @@ impl<'src> Parser<'src> {
                     let close = self.expect(TokenKind::CloseBracket, "a `]` to close the index")?;
                     let span = expr.span.to(close.span);
                     expr = self.expression_node(
-                        ExprKind::Index { target: Box::new(expr), index: Box::new(index) },
+                        ExprKind::Index {
+                            target: Box::new(expr),
+                            index: Box::new(index),
+                        },
                         span,
                     );
                 }
@@ -380,12 +412,14 @@ impl<'src> Parser<'src> {
             parser.skip_newlines();
 
             if !parser.check(TokenKind::Comma) {
-                let close =
-                    parser.expect(TokenKind::CloseParen, "a `)` to close this group")?;
+                let close = parser.expect(TokenKind::CloseParen, "a `)` to close this group")?;
                 // Grouping parentheses do not survive into the tree, but the span
                 // covers them so error messages underline what was written. The
                 // inner node's id comes along, because there is only one node here.
-                return Ok(Expr { span: open.span.to(close.span), ..first });
+                return Ok(Expr {
+                    span: open.span.to(close.span),
+                    ..first
+                });
             }
 
             let mut items = vec![first];
@@ -473,7 +507,11 @@ impl<'src> Parser<'src> {
                 };
 
                 let value = parser.expression()?;
-                arguments.push(Argument { name, span: start.to(value.span), value });
+                arguments.push(Argument {
+                    name,
+                    span: start.to(value.span),
+                    value,
+                });
 
                 parser.skip_newlines();
                 if !parser.eat(TokenKind::Comma) {
@@ -509,7 +547,13 @@ impl<'src> Parser<'src> {
             FunctionBody::Expr(expr) => expr.span,
         };
         let span = start.to(end);
-        Ok(self.expression_node(ExprKind::Closure { parameters, body: Box::new(body) }, span))
+        Ok(self.expression_node(
+            ExprKind::Closure {
+                parameters,
+                body: Box::new(body),
+            },
+            span,
+        ))
     }
 
     /// Reinterprets the expression on the left of `->` as parameter names.
@@ -564,7 +608,11 @@ impl<'src> Parser<'src> {
             None
         };
 
-        Ok(IfExpr { condition, then_block, else_branch })
+        Ok(IfExpr {
+            condition,
+            then_block,
+            else_branch,
+        })
     }
 
     /// `match value { when pattern then result ... }`
@@ -623,9 +671,16 @@ impl<'src> Parser<'src> {
         };
 
         // `when n if n < 0 then ...`
-        let guard = if self.eat(TokenKind::If) { Some(self.expression()?) } else { None };
+        let guard = if self.eat(TokenKind::If) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
 
-        self.expect(TokenKind::Then, "the word `then`, followed by this arm's result")?;
+        self.expect(
+            TokenKind::Then,
+            "the word `then`, followed by this arm's result",
+        )?;
 
         // As after `->`, a `{` here opens a block rather than a map literal.
         let body = if self.check(TokenKind::OpenBrace) {
@@ -638,7 +693,12 @@ impl<'src> Parser<'src> {
             ArmBody::Block(block) => block.span,
             ArmBody::Expr(expr) => expr.span,
         };
-        Ok(MatchArm { pattern, guard, body, span: start.to(end) })
+        Ok(MatchArm {
+            pattern,
+            guard,
+            body,
+            span: start.to(end),
+        })
     }
 
     /// `select { when receive from inbox as message { ... } otherwise { ... } }`
@@ -684,7 +744,10 @@ impl<'src> Parser<'src> {
         })?;
 
         let span = start.to(end);
-        Ok(self.expression_node(ExprKind::Select(Box::new(SelectExpr { arms, otherwise })), span))
+        Ok(self.expression_node(
+            ExprKind::Select(Box::new(SelectExpr { arms, otherwise })),
+            span,
+        ))
     }
 
     fn select_arm(&mut self) -> Parse<SelectArm> {
@@ -693,7 +756,10 @@ impl<'src> Parser<'src> {
             .span;
 
         if self.eat(TokenKind::Receive) {
-            self.expect_word(TokenKind::From, "the word `from`, as in `receive from inbox`")?;
+            self.expect_word(
+                TokenKind::From,
+                "the word `from`, as in `receive from inbox`",
+            )?;
             let channel = self.prefix_expression()?;
             let binding = if self.eat(TokenKind::As) {
                 Some(self.name("a name for the received value")?)
@@ -702,16 +768,29 @@ impl<'src> Parser<'src> {
             };
             let body = self.block()?;
             let span = start.to(body.span);
-            return Ok(SelectArm::Receive { channel, binding, body, span });
+            return Ok(SelectArm::Receive {
+                channel,
+                binding,
+                body,
+                span,
+            });
         }
 
         if self.eat(TokenKind::Timeout) {
-            self.expect_word(TokenKind::After, "the word `after`, as in `timeout after 2 seconds`")?;
+            self.expect_word(
+                TokenKind::After,
+                "the word `after`, as in `timeout after 2 seconds`",
+            )?;
             let amount = self.expression_before_block()?;
             let unit = self.name("a unit of time, such as `seconds`")?;
             let body = self.block()?;
             let span = start.to(body.span);
-            return Ok(SelectArm::Timeout { amount, unit, body, span });
+            return Ok(SelectArm::Timeout {
+                amount,
+                unit,
+                body,
+                span,
+            });
         }
 
         Err(self.unexpected("`receive from ...` or `timeout after ...` after `when`"))
@@ -744,7 +823,10 @@ impl<'src> Parser<'src> {
                 if parser.at_end() {
                     parser.report(
                         Diagnostic::error("unclosed-block", "this block is never closed")
-                            .at(Span::empty_at(parser.current().span.start), "the file ends here")
+                            .at(
+                                Span::empty_at(parser.current().span.start),
+                                "the file ends here",
+                            )
                             .also_at(open.span, "the block opened here")
                             .with_help("add a `}` to close it"),
                     );
@@ -769,7 +851,10 @@ impl<'src> Parser<'src> {
             parser.expect(TokenKind::CloseBrace, "a `}` to close this block")
         })?;
 
-        Ok(Block { statements, span: open.span.to(close.span) })
+        Ok(Block {
+            statements,
+            span: open.span.to(close.span),
+        })
     }
 }
 
@@ -782,7 +867,10 @@ fn not_a_parameter(span: Span) -> Diagnostic {
 fn comparison_cannot_chain(operator: BinaryOp, span: Span) -> Diagnostic {
     let symbol = operator.spelling();
     Diagnostic::error("chained-comparison", "comparisons cannot be chained")
-        .at(span, format!("this `{symbol}` compares the result of the comparison before it"))
+        .at(
+            span,
+            format!("this `{symbol}` compares the result of the comparison before it"),
+        )
         .with_help("write the two comparisons separately, joined with `and`")
         .with_note("for example, `low < value and value < high`")
 }

@@ -13,6 +13,7 @@
 //! here — `Rc` becomes `Arc`, and [`Captured`]'s cell becomes a lock — rather than
 //! a rewrite of the value representation and everything that touches it.
 
+use std::cell::RefCell;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
@@ -87,12 +88,35 @@ pub enum Value {
 #[derive(Default)]
 pub struct Captured(Mutex<Value>);
 
+thread_local! {
+    /// Shared cells this thread is already updating. A nested `.update` on the
+    /// same cell would deadlock a non-reentrant mutex; `.value` during an update
+    /// would too. The list lets both reuse the snapshot without taking the lock
+    /// again, and lets a nested update fail instead of hanging.
+    static UPDATING: RefCell<Vec<(usize, Value)>> = RefCell::new(Vec::new());
+}
+
 impl Captured {
     pub fn new(value: Value) -> Captured {
         Captured(Mutex::new(value))
     }
 
+    fn id(&self) -> usize {
+        self as *const Captured as usize
+    }
+
     pub fn get(&self) -> Value {
+        let id = self.id();
+        if let Some(held) = UPDATING.with(|stack| {
+            stack
+                .borrow()
+                .iter()
+                .rev()
+                .find(|(seen, _)| *seen == id)
+                .map(|(_, value)| value.clone())
+        }) {
+            return held;
+        }
         match self.0.lock() {
             Ok(held) => held.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
@@ -103,6 +127,36 @@ impl Captured {
         match self.0.lock() {
             Ok(mut held) => *held = value,
             Err(poisoned) => *poisoned.into_inner() = value,
+        }
+    }
+
+    /// Whether this thread is already inside `.update` on this cell.
+    pub fn updating_here(&self) -> bool {
+        let id = self.id();
+        UPDATING.with(|stack| stack.borrow().iter().any(|(seen, _)| *seen == id))
+    }
+
+    /// Holds the cell lock while `change` runs, so two workers cannot update the
+    /// same shared value at once. Sequential updates on one task unlock between
+    /// calls. A nested update on the same cell is refused rather than deadlocked.
+    pub fn replace<E>(&self, change: impl FnOnce(Value) -> Result<Value, E>) -> Result<Value, E> {
+        let id = self.id();
+        let mut held = match self.0.lock() {
+            Ok(held) => held,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let current = held.clone();
+        UPDATING.with(|stack| stack.borrow_mut().push((id, current.clone())));
+        let result = change(current);
+        UPDATING.with(|stack| {
+            stack.borrow_mut().pop();
+        });
+        match result {
+            Ok(next) => {
+                *held = next;
+                Ok(Value::Nothing)
+            }
+            Err(error) => Err(error),
         }
     }
 }
@@ -321,7 +375,11 @@ impl fmt::Display for Value {
 }
 
 fn joined(values: &[Value]) -> String {
-    values.iter().map(Value::quoted).collect::<Vec<String>>().join(", ")
+    values
+        .iter()
+        .map(Value::quoted)
+        .collect::<Vec<String>>()
+        .join(", ")
 }
 
 /// Text inside a container, with the escapes Vaab knows put back in.
@@ -364,12 +422,17 @@ fn compare(left: &Value, right: &Value, floats: Floats) -> bool {
         (Value::Bytes(left), Value::Bytes(right)) => left.as_ref() == right.as_ref(),
         (Value::List(left), Value::List(right)) | (Value::Tuple(left), Value::Tuple(right)) => {
             left.len() == right.len()
-                && left.iter().zip(right.iter()).all(|(a, b)| compare(a, b, floats))
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(a, b)| compare(a, b, floats))
         }
         (Value::Map(left), Value::Map(right)) => {
             left.len() == right.len()
                 && left.iter().all(|(key, value)| {
-                    right.get(key).is_some_and(|other| compare(value, other, floats))
+                    right
+                        .get(key)
+                        .is_some_and(|other| compare(value, other, floats))
                 })
         }
         (Value::Maybe(None), Value::Maybe(None)) => true,
@@ -502,7 +565,10 @@ mod tests {
     #[test]
     fn text_is_bare_on_its_own_and_quoted_inside_a_list() {
         assert_eq!(Value::text("hello").show(), "hello");
-        assert_eq!(Value::list(vec![Value::text("hello")]).show(), "[\"hello\"]");
+        assert_eq!(
+            Value::list(vec![Value::text("hello")]).show(),
+            "[\"hello\"]"
+        );
     }
 
     #[test]

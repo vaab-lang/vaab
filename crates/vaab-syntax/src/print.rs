@@ -54,7 +54,11 @@ impl Printer {
     fn statement(&mut self, statement: &Stmt) {
         match &statement.kind {
             StmtKind::Let(declaration) => {
-                let word = if declaration.changing { "let changing" } else { "let" };
+                let word = if declaration.changing {
+                    "let changing"
+                } else {
+                    "let"
+                };
                 self.node(format!("{word} {}", declaration.name.text), |printer| {
                     if let Some(declared) = &declaration.declared_type {
                         printer.node("declared type", |printer| printer.type_expression(declared));
@@ -88,9 +92,7 @@ impl Printer {
                 printer.node("value", |printer| printer.expression(&send.value));
                 printer.node("to", |printer| printer.expression(&send.channel));
             }),
-            StmtKind::Close(channel) => {
-                self.node("close", |printer| printer.expression(channel))
-            }
+            StmtKind::Close(channel) => self.node("close", |printer| printer.expression(channel)),
             StmtKind::Together(body) => self.node("together", |printer| printer.block(body)),
             StmtKind::Function(function) => self.function(function),
             StmtKind::Type(declaration) => self.type_declaration(declaration),
@@ -196,33 +198,39 @@ impl Printer {
     fn function(&mut self, function: &FunctionDecl) {
         let purity = if function.pure { "pure " } else { "" };
         let receiver = if function.class_method { "self." } else { "" };
-        self.node(format!("{purity}to {receiver}{}", function.name.text), |printer| {
-            for parameter in &function.parameters {
-                printer.node(format!("parameter {}", parameter.name.text), |printer| {
-                    printer.type_expression(&parameter.declared_type);
-                    if let Some(default) = &parameter.default {
-                        printer.node("default", |printer| printer.expression(default));
-                    }
-                });
-            }
-            if let Some(returns) = &function.returns {
-                printer.node("returns", |printer| printer.type_expression(returns));
-            }
-            match &function.body {
-                Some(FunctionBody::Block(block)) => printer.block(block),
-                Some(FunctionBody::Expr(expression)) => {
-                    printer.node("body", |printer| printer.expression(expression))
+        self.node(
+            format!("{purity}to {receiver}{}", function.name.text),
+            |printer| {
+                for parameter in &function.parameters {
+                    printer.node(format!("parameter {}", parameter.name.text), |printer| {
+                        printer.type_expression(&parameter.declared_type);
+                        if let Some(default) = &parameter.default {
+                            printer.node("default", |printer| printer.expression(default));
+                        }
+                    });
                 }
-                None => printer.line("required (no body)"),
-            }
-        });
+                if let Some(returns) = &function.returns {
+                    printer.node("returns", |printer| printer.type_expression(returns));
+                }
+                match &function.body {
+                    Some(FunctionBody::Block(block)) => printer.block(block),
+                    Some(FunctionBody::Expr(expression)) => {
+                        printer.node("body", |printer| printer.expression(expression))
+                    }
+                    None => printer.line("required (no body)"),
+                }
+            },
+        );
     }
 
     fn type_declaration(&mut self, declaration: &TypeDecl) {
         let mut label = format!("type {}", declaration.name.text);
         if !declaration.abilities.is_empty() {
-            let abilities: Vec<&str> =
-                declaration.abilities.iter().map(|name| name.text.as_str()).collect();
+            let abilities: Vec<&str> = declaration
+                .abilities
+                .iter()
+                .map(|name| name.text.as_str())
+                .collect();
             let _ = write!(label, " can {}", abilities.join(", "));
         }
         self.node(label, |printer| {
@@ -238,13 +246,19 @@ impl Printer {
     fn cast_declaration(&mut self, declaration: &CastDecl) {
         let mut label = format!("cast {}", declaration.name.text);
         if !declaration.entertains.is_empty() {
-            let parents: Vec<&str> =
-                declaration.entertains.iter().map(|name| name.text.as_str()).collect();
+            let parents: Vec<&str> = declaration
+                .entertains
+                .iter()
+                .map(|name| name.text.as_str())
+                .collect();
             let _ = write!(label, " entertains {}", parents.join(", "));
         }
         if !declaration.abilities.is_empty() {
-            let abilities: Vec<&str> =
-                declaration.abilities.iter().map(|name| name.text.as_str()).collect();
+            let abilities: Vec<&str> = declaration
+                .abilities
+                .iter()
+                .map(|name| name.text.as_str())
+                .collect();
             let _ = write!(label, " can {}", abilities.join(", "));
         }
         self.node(label, |printer| {
@@ -304,7 +318,9 @@ impl Printer {
         match &expression.kind {
             ExprKind::Int(value) => self.line(format!("int {value}")),
             ExprKind::Float(value) => self.line(format!("float {value}")),
-            ExprKind::Bool(value) => self.line(format!("bool {}", if *value { "yes" } else { "no" })),
+            ExprKind::Bool(value) => {
+                self.line(format!("bool {}", if *value { "yes" } else { "no" }))
+            }
             ExprKind::Nothing => self.line("nothing"),
             ExprKind::Name(name) => self.line(format!("name {}", name.text)),
             ExprKind::SelfValue => self.line("self"),
@@ -337,17 +353,18 @@ impl Printer {
                 printer.expression(end);
             }),
 
-            ExprKind::Unary { operator, operand } => {
-                self.node(format!("unary {}", operator.spelling()), |printer| {
+            ExprKind::Unary { operator, operand } => self
+                .node(format!("unary {}", operator.spelling()), |printer| {
                     printer.expression(operand)
-                })
-            }
-            ExprKind::Binary { operator, left, right } => {
-                self.node(format!("binary {}", operator.spelling()), |printer| {
-                    printer.expression(left);
-                    printer.expression(right);
-                })
-            }
+                }),
+            ExprKind::Binary {
+                operator,
+                left,
+                right,
+            } => self.node(format!("binary {}", operator.spelling()), |printer| {
+                printer.expression(left);
+                printer.expression(right);
+            }),
 
             ExprKind::Call { callee, arguments } => self.node("call", |printer| {
                 printer.node("callee", |printer| printer.expression(callee));
@@ -359,9 +376,10 @@ impl Printer {
                     printer.node(label, |printer| printer.expression(&argument.value));
                 }
             }),
-            ExprKind::Member { target, name } => {
-                self.node(format!("member .{}", name.text), |printer| printer.expression(target))
-            }
+            ExprKind::Member { target, name } => self
+                .node(format!("member .{}", name.text), |printer| {
+                    printer.expression(target)
+                }),
             ExprKind::Index { target, index } => self.node("index", |printer| {
                 printer.node("of", |printer| printer.expression(target));
                 printer.node("at", |printer| printer.expression(index));
@@ -369,10 +387,13 @@ impl Printer {
 
             ExprKind::Closure { parameters, body } => {
                 let names: Vec<&str> = parameters.iter().map(|name| name.text.as_str()).collect();
-                self.node(format!("closure ({})", names.join(", ")), |printer| match &**body {
-                    FunctionBody::Block(block) => printer.block(block),
-                    FunctionBody::Expr(expression) => printer.expression(expression),
-                });
+                self.node(
+                    format!("closure ({})", names.join(", ")),
+                    |printer| match &**body {
+                        FunctionBody::Block(block) => printer.block(block),
+                        FunctionBody::Expr(expression) => printer.expression(expression),
+                    },
+                );
             }
 
             ExprKind::If(branch) => self.if_expression(branch),
@@ -396,10 +417,19 @@ impl Printer {
                 self.node("receive from", |printer| printer.expression(channel))
             }
             ExprKind::Start(body) => self.node("start", |printer| printer.block(body)),
+            ExprKind::Transaction { database, body } => self.node("transaction", |printer| {
+                printer.node("database", |printer| printer.expression(database));
+                printer.block(body);
+            }),
             ExprKind::Select(expression) => self.node("select", |printer| {
                 for arm in &expression.arms {
                     match arm {
-                        SelectArm::Receive { channel, binding, body, .. } => {
+                        SelectArm::Receive {
+                            channel,
+                            binding,
+                            body,
+                            ..
+                        } => {
                             let label = match binding {
                                 Some(name) => format!("when receive as {}", name.text),
                                 None => "when receive".to_string(),
@@ -409,11 +439,16 @@ impl Printer {
                                 printer.block(body);
                             });
                         }
-                        SelectArm::Timeout { amount, unit, body, .. } => {
-                            printer.node(format!("when timeout after ({})", unit.text), |printer| {
-                                printer.expression(amount);
-                                printer.block(body);
-                            });
+                        SelectArm::Timeout {
+                            amount, unit, body, ..
+                        } => {
+                            printer.node(
+                                format!("when timeout after ({})", unit.text),
+                                |printer| {
+                                    printer.expression(amount);
+                                    printer.block(body);
+                                },
+                            );
                         }
                     }
                 }
@@ -502,7 +537,11 @@ impl Printer {
                 }
             }
             PatternKind::List { elements, rest } => {
-                let label = if *rest { "list pattern (and the rest)" } else { "list pattern" };
+                let label = if *rest {
+                    "list pattern (and the rest)"
+                } else {
+                    "list pattern"
+                };
                 if elements.is_empty() {
                     self.line(label);
                 } else {
@@ -541,7 +580,10 @@ impl Printer {
                     printer.type_expression(item);
                 }
             }),
-            TypeKind::Function { parameters, returns } => self.node("function type", |printer| {
+            TypeKind::Function {
+                parameters,
+                returns,
+            } => self.node("function type", |printer| {
                 for parameter in parameters {
                     printer.node("takes", |printer| printer.type_expression(parameter));
                 }

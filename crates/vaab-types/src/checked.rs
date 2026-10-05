@@ -90,6 +90,8 @@ pub struct Checked {
     pub closures: HashMap<NodeId, Closure>,
     /// Every `start { ... }`, by the id of the expression that wrote it.
     pub tasks: HashMap<NodeId, Task>,
+    /// Every `db.transaction { ... }`, by the id of the expression that wrote it.
+    pub transactions: HashMap<NodeId, Transaction>,
     pub serves: HashMap<NodeId, Serve>,
 }
 
@@ -178,39 +180,66 @@ pub enum Resolution {
     /// `self`, inside a type's own function.
     SelfValue,
     /// `account.balance`: field number `field` of `declared`.
-    Field { declared: TypeId, field: usize },
+    Field {
+        declared: TypeId,
+        field: usize,
+    },
     /// `account.deposit(...)`: a function in a type's body, dispatched statically
     /// because the receiver's type is known.
-    Method { declared: TypeId, function: FunctionId },
+    Method {
+        declared: TypeId,
+        function: FunctionId,
+    },
     /// `thing.describe()` where `thing` is typed as an ability. The function to run
     /// is only known once the value is in hand, so this is a dynamic dispatch on
     /// slot `function` of the ability's table.
-    AbilityMethod { ability: AbilityId, function: usize },
+    AbilityMethod {
+        ability: AbilityId,
+        function: usize,
+    },
     /// A method from the built-in prelude, such as `.map`, by its name.
     BuiltinMethod(&'static str),
     /// `Account.new(...)` for a type that declares no `to new`: build it field by
     /// field, filling in defaults.
     AutomaticNew(TypeId),
     /// `Email.new(...)` where `Email` declares its own validated `to new`.
-    UserNew { declared: TypeId, function: FunctionId },
+    UserNew {
+        declared: TypeId,
+        function: FunctionId,
+    },
     /// `Email.raw(...)`: the field-by-field constructor, legal only inside `Email`.
     Raw(TypeId),
     /// `account.with(field: value)`: copy, replacing the fields given.
     With(TypeId),
     /// `self.count` or `counter.count` on a cast with a `changing` field.
-    CastField { cast: CastId, field: usize },
+    CastField {
+        cast: CastId,
+        field: usize,
+    },
     /// `counter.bump()` on a cast instance.
-    CastMethod { cast: CastId, function: FunctionId },
+    CastMethod {
+        cast: CastId,
+        function: FunctionId,
+    },
     /// `Counter.new(...)` for a cast with no validated `to new`.
     AutomaticCastNew(CastId),
     /// A cast's own validated `to new`.
-    UserCastNew { cast: CastId, function: FunctionId },
+    UserCastNew {
+        cast: CastId,
+        function: FunctionId,
+    },
     /// `Counter.raw(...)`, legal only inside the cast's body.
     RawCast(CastId),
     /// `Counter.zero(...)`, a class method on the cast itself.
-    CastClassMethod { cast: CastId, function: FunctionId },
+    CastClassMethod {
+        cast: CastId,
+        function: FunctionId,
+    },
     /// `AccountError.Frozen`, whether constructed or matched against.
-    Variant { choice: ChoiceId, variant: usize },
+    Variant {
+        choice: ChoiceId,
+        variant: usize,
+    },
     /// `Channel.new(of: Text, size: 4)`.
     NewChannel,
     /// `Hub.new(of: Text)`.
@@ -279,6 +308,8 @@ pub enum FrameKind {
     Route(NodeId),
     /// The `on start` block of a `serve`, run once after the listener binds.
     OnStart(NodeId),
+    /// A `db.transaction { ... }` body, identified by the expression that wrote it.
+    Transaction(NodeId),
 }
 
 /// How to fill each parameter of a call, once names, order and defaults have been
@@ -355,6 +386,13 @@ pub struct Task {
     pub captures: Vec<LocalId>,
 }
 
+/// A `db.transaction { ... }` body: its own frame, plus the outer locals it reads.
+#[derive(Clone, Debug)]
+pub struct Transaction {
+    pub frame: FrameId,
+    pub captures: Vec<LocalId>,
+}
+
 /// A declared `type`.
 #[derive(Clone, Debug)]
 pub struct DeclaredType {
@@ -370,7 +408,10 @@ pub struct DeclaredType {
 
 impl DeclaredType {
     pub fn field(&self, name: &str) -> Option<(usize, &Field)> {
-        self.fields.iter().enumerate().find(|(_, field)| field.name == name)
+        self.fields
+            .iter()
+            .enumerate()
+            .find(|(_, field)| field.name == name)
     }
 }
 
@@ -379,7 +420,8 @@ impl Checked {
     pub fn method(&self, declared: TypeId, name: &str) -> Option<FunctionId> {
         let holder = self.declared_type(declared)?;
         holder.methods.iter().copied().find(|function| {
-            self.function(*function).is_some_and(|function| function.name == name && !function.class_method)
+            self.function(*function)
+                .is_some_and(|function| function.name == name && !function.class_method)
         })
     }
 
@@ -387,7 +429,8 @@ impl Checked {
     pub fn cast_method(&self, cast: CastId, name: &str) -> Option<FunctionId> {
         let holder = self.declared_cast(cast)?;
         holder.methods.iter().copied().find(|function| {
-            self.function(*function).is_some_and(|function| function.name == name && !function.class_method)
+            self.function(*function)
+                .is_some_and(|function| function.name == name && !function.class_method)
         })
     }
 
@@ -395,7 +438,8 @@ impl Checked {
     pub fn cast_class_method(&self, cast: CastId, name: &str) -> Option<FunctionId> {
         let holder = self.declared_cast(cast)?;
         holder.methods.iter().copied().find(|function| {
-            self.function(*function).is_some_and(|function| function.name == name && function.class_method)
+            self.function(*function)
+                .is_some_and(|function| function.name == name && function.class_method)
         })
     }
 }
@@ -435,7 +479,10 @@ pub struct DeclaredCast {
 
 impl DeclaredCast {
     pub fn field(&self, name: &str) -> Option<(usize, &CastField)> {
-        self.fields.iter().enumerate().find(|(_, field)| field.name == name)
+        self.fields
+            .iter()
+            .enumerate()
+            .find(|(_, field)| field.name == name)
     }
 }
 
@@ -462,7 +509,10 @@ pub struct Choice {
 
 impl Choice {
     pub fn variant(&self, name: &str) -> Option<(usize, &Variant)> {
-        self.variants.iter().enumerate().find(|(_, variant)| variant.name == name)
+        self.variants
+            .iter()
+            .enumerate()
+            .find(|(_, variant)| variant.name == name)
     }
 }
 
@@ -486,7 +536,10 @@ pub struct Ability {
 
 impl Ability {
     pub fn required(&self, name: &str) -> Option<(usize, &Required)> {
-        self.functions.iter().enumerate().find(|(_, function)| function.name == name)
+        self.functions
+            .iter()
+            .enumerate()
+            .find(|(_, function)| function.name == name)
     }
 }
 

@@ -63,7 +63,11 @@ impl Checker {
             }
 
             ExprKind::Unary { operator, operand } => self.unary(*operator, operand),
-            ExprKind::Binary { operator, left, right } => self.binary(*operator, left, right),
+            ExprKind::Binary {
+                operator,
+                left,
+                right,
+            } => self.binary(*operator, left, right),
 
             ExprKind::Call { callee, arguments } => self.call(expression, callee, arguments),
             ExprKind::Member { target, name } => self.member(expression, target, name),
@@ -151,6 +155,10 @@ impl Checker {
                 Type::task(value)
             }
 
+            ExprKind::Transaction { database, body } => {
+                self.transaction_block(expression, database, body)
+            }
+
             ExprKind::Select(select) => self.select_expression(select, expression.span),
         }
     }
@@ -174,8 +182,10 @@ impl Checker {
                 .unwrap_or(Type::Unknown);
         }
 
-        if let Some(builtin) =
-            self.builtin_functions.iter().find(|builtin| builtin.name == name.text)
+        if let Some(builtin) = self
+            .builtin_functions
+            .iter()
+            .find(|builtin| builtin.name == name.text)
         {
             let signature = builtin.signature.clone();
             let builtin = builtin.name;
@@ -197,12 +207,14 @@ impl Checker {
 
     fn self_expression(&mut self, span: Span) -> Type {
         let name = match self.inside {
-            Some(super::Inside::Type(id)) => {
-                self.checked.declared_type(id).map(|declared| declared.name.clone())
-            }
-            Some(super::Inside::Cast(id)) => {
-                self.checked.declared_cast(id).map(|declared| declared.name.clone())
-            }
+            Some(super::Inside::Type(id)) => self
+                .checked
+                .declared_type(id)
+                .map(|declared| declared.name.clone()),
+            Some(super::Inside::Cast(id)) => self
+                .checked
+                .declared_cast(id)
+                .map(|declared| declared.name.clone()),
             None => None,
         };
         match name {
@@ -229,8 +241,10 @@ impl Checker {
         }
 
         let Some((first, rest)) = items.split_first() else {
-            let what =
-                Undecidable::Empty { what: "list", example: "let items: list of Int = []" };
+            let what = Undecidable::Empty {
+                what: "list",
+                example: "let items: list of Int = []",
+            };
             return Type::list(self.undecided(what, span));
         };
 
@@ -247,7 +261,8 @@ impl Checker {
     }
 
     fn map_literal(&mut self, span: Span, entries: &[MapEntry], wanted: &Wanted) -> Type {
-        if let Some(Type::Map { key, value }) = wanted.as_type().map(|w| self.variables.resolve(w)) {
+        if let Some(Type::Map { key, value }) = wanted.as_type().map(|w| self.variables.resolve(w))
+        {
             for entry in entries {
                 self.expression(&entry.key, Wanted::Exactly(*key.clone()));
                 self.expression(&entry.value, Wanted::Exactly(*value.clone()));
@@ -312,7 +327,12 @@ impl Checker {
             }
         }
 
-        Type::Tuple(items.iter().map(|item| self.expression(item, Wanted::Anything)).collect())
+        Type::Tuple(
+            items
+                .iter()
+                .map(|item| self.expression(item, Wanted::Anything))
+                .collect(),
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -339,7 +359,13 @@ impl Checker {
             UnaryOp::Negate => match resolved {
                 Type::Int | Type::Float | Type::Unknown => resolved,
                 other => {
-                    self.report(messages::bad_operand("-", "a number", &other, operand.span, None));
+                    self.report(messages::bad_operand(
+                        "-",
+                        "a number",
+                        &other,
+                        operand.span,
+                        None,
+                    ));
                     Type::Unknown
                 }
             },
@@ -360,10 +386,11 @@ impl Checker {
                 (!matches!(resolved, Type::Int | Type::Float | Type::Unknown))
                     .then_some("two numbers of the same type")
             }
-            Less | LessOrEqual | Greater | GreaterOrEqual => {
-                (!matches!(resolved, Type::Int | Type::Float | Type::Text | Type::Unknown))
-                    .then_some("two numbers, or two pieces of text")
-            }
+            Less | LessOrEqual | Greater | GreaterOrEqual => (!matches!(
+                resolved,
+                Type::Int | Type::Float | Type::Text | Type::Unknown
+            ))
+            .then_some("two numbers, or two pieces of text"),
             // Anything at all may be compared with itself.
             Equals | NotEquals => None,
         };
@@ -432,9 +459,13 @@ impl Checker {
         body: &FunctionBody,
         wanted: &Wanted,
     ) -> Type {
-        let Some(Type::Function(shape)) = wanted.as_type().map(|w| self.variables.resolve(w)) else {
+        let Some(Type::Function(shape)) = wanted.as_type().map(|w| self.variables.resolve(w))
+        else {
             // Without somewhere to be, a closure has no way to know what it takes.
-            let first = parameters.first().map(|name| name.text.as_str()).unwrap_or("n");
+            let first = parameters
+                .first()
+                .map(|name| name.text.as_str())
+                .unwrap_or("n");
             self.report(messages::closure_needs_context(first, expression.span));
             self.check_closure_body(expression, parameters, body, &[], &Wanted::Anything, false);
             return Type::Unknown;
@@ -480,7 +511,11 @@ impl Checker {
             }
         }
 
-        self.report(messages::closure_parameter_count(given.len(), parameters.len(), span));
+        self.report(messages::closure_parameter_count(
+            given.len(),
+            parameters.len(),
+            span,
+        ));
         (vec![Type::Unknown; parameters.len()], false)
     }
 
@@ -510,9 +545,7 @@ impl Checker {
 
         let result = match body {
             FunctionBody::Expr(inner) => self.expression(inner, returns.clone()),
-            FunctionBody::Block(block) => {
-                self.block_statements(block, returns.clone()).declared
-            }
+            FunctionBody::Block(block) => self.block_statements(block, returns.clone()).declared,
         };
 
         self.leave_frame();
@@ -521,7 +554,12 @@ impl Checker {
         let signature = Signature::new(declared, result);
         self.checked.closures.insert(
             expression.id,
-            Closure { frame, parameters: locals, signature: signature.clone(), unpacks },
+            Closure {
+                frame,
+                parameters: locals,
+                signature: signature.clone(),
+                unpacks,
+            },
         );
         signature
     }
@@ -541,7 +579,9 @@ impl Checker {
             None => {
                 // With no `else` there is a way through that produces nothing, so the
                 // `if` can only be used for its effect.
-                let Some(wanted) = wanted.as_type() else { return (Type::Nothing, then_span) };
+                let Some(wanted) = wanted.as_type() else {
+                    return (Type::Nothing, then_span);
+                };
                 if matches!(wanted, Type::Nothing | Type::Unknown) {
                     return (Type::Nothing, then_span);
                 }
@@ -610,8 +650,7 @@ impl Checker {
             result = Some(match result {
                 None => (found, span),
                 Some((first, first_span)) => {
-                    let agreed =
-                        self.agree("arms", first, first_span, found, span, wanted);
+                    let agreed = self.agree("arms", first, first_span, found, span, wanted);
                     (agreed, first_span)
                 }
             });
@@ -650,7 +689,13 @@ impl Checker {
 
         let first = self.variables.resolve(&first);
         let second = self.variables.resolve(&second);
-        self.report(messages::branches_differ(what, &first, first_span, &second, second_span));
+        self.report(messages::branches_differ(
+            what,
+            &first,
+            first_span,
+            &second,
+            second_span,
+        ));
         Type::Unknown
     }
 
@@ -660,7 +705,11 @@ impl Checker {
 
     fn try_expression(&mut self, inner: &Expr) -> Type {
         let enclosing = self.enclosing.last().map(|enclosing| {
-            (enclosing.name.clone(), enclosing.returns.clone(), enclosing.signature)
+            (
+                enclosing.name.clone(),
+                enclosing.returns.clone(),
+                enclosing.signature,
+            )
         });
 
         let found = self.expression(inner, Wanted::Anything);
@@ -700,10 +749,7 @@ impl Checker {
                     let error = self.variables.resolve(&error);
                     let wanted = self.variables.resolve(&wanted);
                     self.report(messages::try_error_mismatch(
-                        &error,
-                        &wanted,
-                        inner.span,
-                        signature,
+                        &error, &wanted, inner.span, signature,
                     ));
                 }
                 let _ = name;
@@ -725,6 +771,32 @@ impl Checker {
     // Tasks and channels
     // -----------------------------------------------------------------------
 
+    /// `db.transaction { ... }` runs the block against one open connection.
+    fn transaction_block(&mut self, expression: &Expr, database: &Expr, body: &Block) -> Type {
+        let found = self.expression(database, Wanted::Anything);
+        match self.variables.resolve(&found) {
+            Type::Db => {}
+            Type::Unknown => {}
+            other => {
+                self.report(messages::not_a_database(&other, database.span));
+            }
+        }
+
+        self.reject_nested_transaction(body, expression.span);
+
+        let frame = self.new_frame(FrameKind::Transaction(expression.id));
+        self.enter_frame(frame);
+        let locals_begin = self.checked.locals.len();
+        let value = self.block(body, Wanted::Anything).declared;
+        self.leave_frame();
+        self.record_transaction(expression.id, frame, body, locals_begin);
+
+        match self.variables.resolve(&value) {
+            Type::Fallible { ok, error } => Type::Fallible { ok, error },
+            other => Type::fallible(other, Type::named("DbError")),
+        }
+    }
+
     /// The value a `start { ... }` block produces, which becomes the task's result.
     ///
     /// A task runs on its own, so once the body has a type the sendability rules
@@ -735,7 +807,13 @@ impl Checker {
         let task_locals_begin = self.checked.locals.len();
 
         let value = self.block(body, Wanted::Anything).declared;
-        self.check_task(expression.id, body, expression.span, &value, task_locals_begin);
+        self.check_task(
+            expression.id,
+            body,
+            expression.span,
+            &value,
+            task_locals_begin,
+        );
         value
     }
 
@@ -746,7 +824,12 @@ impl Checker {
 
         for arm in &select.arms {
             match arm {
-                SelectArm::Receive { channel, binding, body, .. } => {
+                SelectArm::Receive {
+                    channel,
+                    binding,
+                    body,
+                    ..
+                } => {
                     let found = self.expression(channel, Wanted::Anything);
                     let carries = match self.variables.resolve(&found) {
                         // An arm only runs when something arrived, so the value is
@@ -754,11 +837,7 @@ impl Checker {
                         Type::Channel(carries) => *carries,
                         Type::Unknown => Type::Unknown,
                         other => {
-                            self.report(messages::not_a_channel(
-                                "receive",
-                                &other,
-                                channel.span,
-                            ));
+                            self.report(messages::not_a_channel("receive", &other, channel.span));
                             Type::Unknown
                         }
                     };
@@ -770,7 +849,9 @@ impl Checker {
                     self.block_statements(body, Wanted::Discarded);
                     self.pop_scope();
                 }
-                SelectArm::Timeout { amount, unit, body, .. } => {
+                SelectArm::Timeout {
+                    amount, unit, body, ..
+                } => {
                     self.expression(amount, Wanted::Exactly(Type::Int));
                     self.check_time_unit(unit);
                     self.block(body, Wanted::Discarded);

@@ -3,19 +3,24 @@
 use std::collections::HashSet;
 
 use vaab_syntax::ast::{
-    AbilityDecl, ArmBody, Argument, AssignStmt, Block, ChoiceDecl, ElseBranch, ExpectingDecl, Expr,
-    ExprKind, Field, ForEachStmt, FunctionBody, FunctionDecl, IfExpr, LetStmt, MapEntry, MatchArm,
-    MatchExpr, Module, Name, Parameter, Pattern, PatternKind, RepeatStmt, ReplyKind, ReplyStmt,
-    RouteDecl, SelectArm, SelectExpr, SendStmt, ServeDecl, ServeErrorHandler, SocketRouteDecl,
-    Stmt, StmtKind,
-    TextPart, CastDecl, TypeDecl, TypeExpr, TypeKind, Variant, VariantField, WhileStmt,
+    AbilityDecl, Argument, ArmBody, AssignStmt, Block, CastDecl, ChoiceDecl, ElseBranch,
+    ExpectingDecl, Expr, ExprKind, Field, ForEachStmt, FunctionBody, FunctionDecl, IfExpr, LetStmt,
+    MapEntry, MatchArm, MatchExpr, Module, Name, Parameter, Pattern, PatternKind, RepeatStmt,
+    ReplyKind, ReplyStmt, RouteDecl, SelectArm, SelectExpr, SendStmt, ServeDecl, ServeErrorHandler,
+    SocketRouteDecl, Stmt, StmtKind, TextPart, TypeDecl, TypeExpr, TypeKind, Variant, VariantField,
+    WhileStmt,
 };
 
 use crate::link::{exports_of, LoadedRiff};
 
 enum Mode {
-    Prefix { prefix: String, exports: HashSet<String> },
-    Qualify { aliases: HashSet<String> },
+    Prefix {
+        prefix: String,
+        exports: HashSet<String>,
+    },
+    Qualify {
+        aliases: HashSet<String>,
+    },
 }
 
 /// One module containing every riff plus the entry file.
@@ -27,7 +32,10 @@ pub fn merge(entry: Module, riffs: &[LoadedRiff]) -> Module {
     }
     let entry = map_module(entry, Mode::Qualify { aliases });
     statements.extend(entry.statements);
-    Module { statements, span: entry.span }
+    Module {
+        statements,
+        span: entry.span,
+    }
 }
 
 fn select_riff_statements(riff: &LoadedRiff) -> Vec<Stmt> {
@@ -42,11 +50,7 @@ fn select_riff_statements(riff: &LoadedRiff) -> Vec<Stmt> {
             .collect(),
         crate::link::RiffImports::Qualified => {
             let prefix = format!("{}__", riff.alias);
-            map_module(
-                riff.module.clone(),
-                Mode::Prefix { prefix, exports },
-            )
-            .statements
+            map_module(riff.module.clone(), Mode::Prefix { prefix, exports }).statements
         }
     }
 }
@@ -94,7 +98,9 @@ fn map_stmt_kind(kind: StmtKind, mode: &Mode) -> StmtKind {
             target: map_expr(assign.target, mode),
             value: map_expr(assign.value, mode),
         }),
-        StmtKind::Return(value) => StmtKind::Return(value.map(|expression| map_expr(expression, mode))),
+        StmtKind::Return(value) => {
+            StmtKind::Return(value.map(|expression| map_expr(expression, mode)))
+        }
         StmtKind::Fail(value) => StmtKind::Fail(map_expr(value, mode)),
         StmtKind::ForEach(for_each) => StmtKind::ForEach(ForEachStmt {
             pattern: map_pattern(for_each.pattern, mode),
@@ -118,9 +124,7 @@ fn map_stmt_kind(kind: StmtKind, mode: &Mode) -> StmtKind {
         StmtKind::Function(function) => StmtKind::Function(Box::new(map_function(*function, mode))),
         StmtKind::Type(declaration) => StmtKind::Type(Box::new(map_type(*declaration, mode))),
         StmtKind::Cast(declaration) => StmtKind::Cast(Box::new(map_cast(*declaration, mode))),
-        StmtKind::Choice(declaration) => {
-            StmtKind::Choice(Box::new(map_choice(*declaration, mode)))
-        }
+        StmtKind::Choice(declaration) => StmtKind::Choice(Box::new(map_choice(*declaration, mode))),
         StmtKind::Ability(declaration) => {
             StmtKind::Ability(Box::new(map_ability(*declaration, mode)))
         }
@@ -231,7 +235,9 @@ fn map_parameter(parameter: Parameter, mode: &Mode) -> Parameter {
     Parameter {
         name: parameter.name,
         declared_type: map_type_expr(parameter.declared_type, mode),
-        default: parameter.default.map(|expression| map_expr(expression, mode)),
+        default: parameter
+            .default
+            .map(|expression| map_expr(expression, mode)),
         span: parameter.span,
     }
 }
@@ -356,10 +362,16 @@ fn map_type_kind(kind: TypeKind, mode: &Mode) -> TypeKind {
         TypeKind::Hub(inner) => TypeKind::Hub(Box::new(map_type_expr(*inner, mode))),
         TypeKind::Task(inner) => TypeKind::Task(Box::new(map_type_expr(*inner, mode))),
         TypeKind::Shared(inner) => TypeKind::Shared(Box::new(map_type_expr(*inner, mode))),
-        TypeKind::Tuple(items) => {
-            TypeKind::Tuple(items.into_iter().map(|item| map_type_expr(item, mode)).collect())
-        }
-        TypeKind::Function { parameters, returns } => TypeKind::Function {
+        TypeKind::Tuple(items) => TypeKind::Tuple(
+            items
+                .into_iter()
+                .map(|item| map_type_expr(item, mode))
+                .collect(),
+        ),
+        TypeKind::Function {
+            parameters,
+            returns,
+        } => TypeKind::Function {
             parameters: parameters
                 .into_iter()
                 .map(|parameter| map_type_expr(parameter, mode))
@@ -451,7 +463,9 @@ fn map_expr(expression: Expr, mode: &Mode) -> Expr {
                 })
                 .collect(),
         ),
-        ExprKind::List(items) => ExprKind::List(items.into_iter().map(|item| map_expr(item, mode)).collect()),
+        ExprKind::List(items) => {
+            ExprKind::List(items.into_iter().map(|item| map_expr(item, mode)).collect())
+        }
         ExprKind::Map(entries) => ExprKind::Map(
             entries
                 .into_iter()
@@ -473,7 +487,11 @@ fn map_expr(expression: Expr, mode: &Mode) -> Expr {
             operator,
             operand: Box::new(map_expr(*operand, mode)),
         },
-        ExprKind::Binary { operator, left, right } => ExprKind::Binary {
+        ExprKind::Binary {
+            operator,
+            left,
+            right,
+        } => ExprKind::Binary {
             operator,
             left: Box::new(map_expr(*left, mode)),
             right: Box::new(map_expr(*right, mode)),
@@ -511,10 +529,18 @@ fn map_expr(expression: Expr, mode: &Mode) -> Expr {
             channel: Box::new(map_expr(*channel, mode)),
         },
         ExprKind::Start(body) => ExprKind::Start(Box::new(map_block(*body, mode))),
+        ExprKind::Transaction { database, body } => ExprKind::Transaction {
+            database: Box::new(map_expr(*database, mode)),
+            body: Box::new(map_block(*body, mode)),
+        },
         ExprKind::Select(select) => ExprKind::Select(Box::new(map_select(*select, mode))),
         other => other,
     };
-    Expr { id: expression.id, kind, span: expression.span }
+    Expr {
+        id: expression.id,
+        kind,
+        span: expression.span,
+    }
 }
 
 fn map_name(name: Name, mode: &Mode) -> Name {
@@ -540,7 +566,7 @@ fn map_if(branch: IfExpr, mode: &Mode) -> IfExpr {
 fn map_match(subject: MatchExpr, mode: &Mode) -> MatchExpr {
     MatchExpr {
         subject: map_expr(subject.subject, mode),
-            arms: subject
+        arms: subject
             .arms
             .into_iter()
             .map(|arm| MatchArm {
@@ -562,13 +588,23 @@ fn map_select(select: SelectExpr, mode: &Mode) -> SelectExpr {
             .arms
             .into_iter()
             .map(|arm| match arm {
-                SelectArm::Receive { channel, binding, body, span } => SelectArm::Receive {
+                SelectArm::Receive {
+                    channel,
+                    binding,
+                    body,
+                    span,
+                } => SelectArm::Receive {
                     channel: map_expr(channel, mode),
                     binding,
                     body: map_block(body, mode),
                     span,
                 },
-                SelectArm::Timeout { amount, unit, body, span } => SelectArm::Timeout {
+                SelectArm::Timeout {
+                    amount,
+                    unit,
+                    body,
+                    span,
+                } => SelectArm::Timeout {
                     amount: map_expr(amount, mode),
                     unit,
                     body: map_block(body, mode),
@@ -580,7 +616,10 @@ fn map_select(select: SelectExpr, mode: &Mode) -> SelectExpr {
     }
 }
 
-fn map_arm_pattern(pattern: vaab_syntax::ast::ArmPattern, mode: &Mode) -> vaab_syntax::ast::ArmPattern {
+fn map_arm_pattern(
+    pattern: vaab_syntax::ast::ArmPattern,
+    mode: &Mode,
+) -> vaab_syntax::ast::ArmPattern {
     match pattern {
         vaab_syntax::ast::ArmPattern::Pattern(pattern) => {
             vaab_syntax::ast::ArmPattern::Pattern(map_pattern(pattern, mode))

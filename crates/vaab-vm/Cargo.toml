@@ -34,3 +34,7 @@ vaab-types.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+
+[[bench]]
+name = "throughput"
+harness = false

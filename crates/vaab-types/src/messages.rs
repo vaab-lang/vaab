@@ -115,11 +115,9 @@ fn did_you_mean(written: &str, candidates: &[String], fallback: String) -> Strin
 
 /// The general mismatch: "expected Int, found maybe Int".
 pub fn mismatch(wanted: &Type, found: &Type, span: Span) -> Diagnostic {
-    let diagnostic = Diagnostic::error(
-        "type-mismatch",
-        format!("expected {wanted}, found {found}"),
-    )
-    .at(span, format!("this is {found}"));
+    let diagnostic =
+        Diagnostic::error("type-mismatch", format!("expected {wanted}, found {found}"))
+            .at(span, format!("this is {found}"));
 
     match (wanted, found) {
         (wanted, Type::Maybe(held)) if **held == *wanted => diagnostic
@@ -157,19 +155,25 @@ pub fn branches_differ(
     second_span: Span,
 ) -> Diagnostic {
     let form = if what == "arms" { "match" } else { "if" };
-    Diagnostic::error("branches-differ", format!("these {what} give different types"))
-        .at(second_span, format!("this one gives {second}"))
-        .also_at(first_span, format!("the first gives {first}"))
-        .with_help(format!("make every one of the {what} give the same type"))
-        .with_note(format!(
-            "`{form}` is an expression in Vaab, so whichever way it goes the answer has one type"
-        ))
+    Diagnostic::error(
+        "branches-differ",
+        format!("these {what} give different types"),
+    )
+    .at(second_span, format!("this one gives {second}"))
+    .also_at(first_span, format!("the first gives {first}"))
+    .with_help(format!("make every one of the {what} give the same type"))
+    .with_note(format!(
+        "`{form}` is an expression in Vaab, so whichever way it goes the answer has one type"
+    ))
 }
 
 pub fn if_without_else(span: Span, wanted: &Type) -> Diagnostic {
-    Diagnostic::error("if-without-else", "this `if` has no `else`, so it sometimes has no value")
-        .at(span, format!("a {wanted} is expected here"))
-        .with_help("add `else { ... }` giving a value for the other case")
+    Diagnostic::error(
+        "if-without-else",
+        "this `if` has no `else`, so it sometimes has no value",
+    )
+    .at(span, format!("a {wanted} is expected here"))
+    .with_help("add `else { ... }` giving a value for the other case")
 }
 
 // ---------------------------------------------------------------------------
@@ -197,16 +201,22 @@ pub fn undefined_type(name: &str, span: Span, known: &[String]) -> Diagnostic {
 }
 
 pub fn type_used_as_value(name: &str, span: Span) -> Diagnostic {
-    Diagnostic::error("type-used-as-value", format!("`{name}` is a type, not a value"))
-        .at(span, "this names a type")
-        .with_help(format!("build one with `{name}.new(...)`"))
+    Diagnostic::error(
+        "type-used-as-value",
+        format!("`{name}` is a type, not a value"),
+    )
+    .at(span, "this names a type")
+    .with_help(format!("build one with `{name}.new(...)`"))
 }
 
 pub fn duplicate_declaration(name: &str, span: Span, first: Span) -> Diagnostic {
-    Diagnostic::error("duplicate-declaration", format!("`{name}` is declared twice"))
-        .at(span, "this declaration repeats an earlier one")
-        .also_at(first, "first declared here")
-        .with_help("give one of them a different name, or remove it")
+    Diagnostic::error(
+        "duplicate-declaration",
+        format!("`{name}` is declared twice"),
+    )
+    .at(span, "this declaration repeats an earlier one")
+    .also_at(first, "first declared here")
+    .with_help("give one of them a different name, or remove it")
 }
 
 pub fn nested_declaration(what: &str, name: &str, span: Span) -> Diagnostic {
@@ -215,16 +225,21 @@ pub fn nested_declaration(what: &str, name: &str, span: Span) -> Diagnostic {
         format!("a {what} has to be declared at the top level of a file"),
     )
     .at(span, format!("`{name}` is declared inside a block"))
-    .with_help(format!("move `{what} {name} {{ ... }}` out to the top level"))
+    .with_help(format!(
+        "move `{what} {name} {{ ... }}` out to the top level"
+    ))
     .with_note(format!(
         "a {what}'s name can be used anywhere in the file, so it cannot belong to one block"
     ))
 }
 
 pub fn self_outside_type(span: Span) -> Diagnostic {
-    Diagnostic::error("self-outside-type", "`self` only means something inside a type")
-        .at(span, "there is no value for `self` to be here")
-        .with_help("move this into a `type`'s body, or take what it needs as a parameter")
+    Diagnostic::error(
+        "self-outside-type",
+        "`self` only means something inside a type",
+    )
+    .at(span, "there is no value for `self` to be here")
+    .with_help("move this into a `type`'s body, or take what it needs as a parameter")
 }
 
 // ---------------------------------------------------------------------------
@@ -234,16 +249,22 @@ pub fn self_outside_type(span: Span) -> Diagnostic {
 pub fn not_changing(name: &str, span: Span, declared: Span) -> Diagnostic {
     Diagnostic::error("not-changing", format!("`{name}` cannot be changed"))
         .at(span, "this assignment needs a value that may change")
-        .also_at(declared, format!("`{name}` is fixed when it is declared here"))
+        .also_at(
+            declared,
+            format!("`{name}` is fixed when it is declared here"),
+        )
         .with_help(format!("declare it as `let changing {name} = ...`"))
 }
 
 pub fn cannot_assign_field(owner: &str, span: Span) -> Diagnostic {
     let owner = a(&Type::named(owner));
-    Diagnostic::error("cannot-assign-part", format!("{owner} cannot be changed in place"))
-        .at(span, "this is one of its fields")
-        .with_help("make a changed copy instead, with `.with(field: value)`")
-        .with_note("every `type` in Vaab is immutable, which is what makes it safe to share")
+    Diagnostic::error(
+        "cannot-assign-part",
+        format!("{owner} cannot be changed in place"),
+    )
+    .at(span, "this is one of its fields")
+    .with_help("make a changed copy instead, with `.with(field: value)`")
+    .with_note("every `type` in Vaab is immutable, which is what makes it safe to share")
 }
 
 pub fn cannot_assign_item(span: Span) -> Diagnostic {
@@ -270,9 +291,11 @@ pub fn unknown_field(owner: &str, field: &str, span: Span, known: &[String]) -> 
 
 pub fn unknown_member(owner: &Type, member: &str, span: Span, known: &[String]) -> Diagnostic {
     let owner = a(owner);
-    let diagnostic =
-        Diagnostic::error("unknown-member", format!("{owner} has nothing called `{member}`"))
-            .at(span, format!("this asks {owner} for `{member}`"));
+    let diagnostic = Diagnostic::error(
+        "unknown-member",
+        format!("{owner} has nothing called `{member}`"),
+    )
+    .at(span, format!("this asks {owner} for `{member}`"));
     if known.is_empty() {
         diagnostic
     } else {
@@ -286,9 +309,11 @@ pub fn unknown_member(owner: &Type, member: &str, span: Span, known: &[String]) 
 
 /// A missing `Bytes` constructor or method, with what to type instead.
 pub fn unknown_bytes_member(member: &str, span: Span, known: &[String]) -> Diagnostic {
-    let diagnostic =
-        Diagnostic::error("unknown-member", format!("a Bytes has nothing called `{member}`"))
-            .at(span, format!("this asks a Bytes for `{member}`"));
+    let diagnostic = Diagnostic::error(
+        "unknown-member",
+        format!("a Bytes has nothing called `{member}`"),
+    )
+    .at(span, format!("this asks a Bytes for `{member}`"));
     match nearest(member, known.iter().map(String::as_str)) {
         Some(close) => diagnostic.with_help(format!("did you mean `{close}`?")),
         None => diagnostic.with_help(
@@ -299,15 +324,17 @@ pub fn unknown_bytes_member(member: &str, span: Span, known: &[String]) -> Diagn
 }
 
 pub fn needs_call(member: &str, span: Span) -> Diagnostic {
-    Diagnostic::error("needs-call", format!("`{member}` is a function, so it has to be called"))
-        .at(span, "this reads it without calling it")
-        .with_help(format!("add the brackets: `{member}()`"))
+    Diagnostic::error(
+        "needs-call",
+        format!("`{member}` is a function, so it has to be called"),
+    )
+    .at(span, "this reads it without calling it")
+    .with_help(format!("add the brackets: `{member}()`"))
 }
 
 pub fn bad_receiver(member: &str, wanted: &Type, found: &Type, span: Span) -> Diagnostic {
-    let diagnostic =
-        Diagnostic::error("bad-receiver", format!("`{member}` needs {wanted}"))
-            .at(span, format!("this is {found}"));
+    let diagnostic = Diagnostic::error("bad-receiver", format!("`{member}` needs {wanted}"))
+        .at(span, format!("this is {found}"));
     if member == "join" {
         diagnostic.with_help("turn each item into text first, with `.map(item -> \"{item}\")`")
     } else {
@@ -322,12 +349,7 @@ pub fn bad_receiver(member: &str, wanted: &Type, found: &Type, span: Span) -> Di
 /// One report for a half-filled constructor, however many fields are missing: it is
 /// one mistake, not four. `callable` is written as it was called — `Account.new` —
 /// because that is the thing that is incomplete.
-pub fn missing_fields(
-    callable: &str,
-    owner: &str,
-    missing: &[String],
-    span: Span,
-) -> Diagnostic {
+pub fn missing_fields(callable: &str, owner: &str, missing: &[String], span: Span) -> Diagnostic {
     let diagnostic = Diagnostic::error(
         "missing-field",
         format!("{callable} is missing {}.", listed(missing)),
@@ -335,11 +357,17 @@ pub fn missing_fields(
     .at(span, format!("this leaves out {}", listed(missing)))
     .with_help(format!(
         "add {}",
-        missing.iter().map(|name| format!("`{name}: ...`")).collect::<Vec<String>>().join(", ")
+        missing
+            .iter()
+            .map(|name| format!("`{name}: ...`"))
+            .collect::<Vec<String>>()
+            .join(", ")
     ));
 
     if missing.len() == 1 {
-        let Some(only) = missing.first() else { return diagnostic };
+        let Some(only) = missing.first() else {
+            return diagnostic;
+        };
         diagnostic.with_note(format!(
             "`{only}` has no default, so every `{owner}` has to be given one"
         ))
@@ -359,12 +387,17 @@ pub fn new_needs_names(callable: &str, first_field: Option<&str>, span: Span) ->
 }
 
 pub fn raw_outside_type(owner: &str, span: Span) -> Diagnostic {
-    Diagnostic::error("raw-outside-type", format!("`{owner}.raw` can only be used inside `{owner}`"))
-        .at(span, format!("this is outside `{owner}`'s body"))
-        .with_help(format!("build one with `{owner}.new(...)`, which checks it first"))
-        .with_note(format!(
-            "`raw` skips the checks in `{owner}`'s own `to new`, so only `{owner}` may use it"
-        ))
+    Diagnostic::error(
+        "raw-outside-type",
+        format!("`{owner}.raw` can only be used inside `{owner}`"),
+    )
+    .at(span, format!("this is outside `{owner}`'s body"))
+    .with_help(format!(
+        "build one with `{owner}.new(...)`, which checks it first"
+    ))
+    .with_note(format!(
+        "`raw` skips the checks in `{owner}`'s own `to new`, so only `{owner}` may use it"
+    ))
 }
 
 pub fn cast_entertains_type(name: &str, span: Span) -> Diagnostic {
@@ -373,13 +406,18 @@ pub fn cast_entertains_type(name: &str, span: Span) -> Diagnostic {
         format!("a cast can only entertain another cast, not the type `{name}`"),
     )
     .at(span, "`entertains` expects a cast name here")
-    .with_help(format!("declare `cast {name}` instead, or pick a cast to entertain"))
+    .with_help(format!(
+        "declare `cast {name}` instead, or pick a cast to entertain"
+    ))
 }
 
 pub fn needs_a_type_name(span: Span) -> Diagnostic {
-    Diagnostic::error("needs-a-type-name", "`Channel.new` needs the type of what it carries")
-        .at(span, "Vaab expected a type here")
-        .with_help("write `Channel.new(of: Text, size: 4)`")
+    Diagnostic::error(
+        "needs-a-type-name",
+        "`Channel.new` needs the type of what it carries",
+    )
+    .at(span, "Vaab expected a type here")
+    .with_help("write `Channel.new(of: Text, size: 4)`")
 }
 
 // ---------------------------------------------------------------------------
@@ -408,30 +446,34 @@ pub fn missing_argument(
 /// A function reached through a value knows the types of its parameters but not
 /// their names, so there is nothing for an argument to be named after.
 pub fn names_need_a_declaration(written: &str, span: Span) -> Diagnostic {
-    Diagnostic::error("names-need-a-declaration", "this call cannot name its arguments")
-        .at(span, format!("this names `{written}`"))
-        .with_help("pass the arguments in order instead")
-        .with_note(
-            "argument names come from a declaration, and a function held in a value \
+    Diagnostic::error(
+        "names-need-a-declaration",
+        "this call cannot name its arguments",
+    )
+    .at(span, format!("this names `{written}`"))
+    .with_help("pass the arguments in order instead")
+    .with_note(
+        "argument names come from a declaration, and a function held in a value \
              carries only its types",
-        )
+    )
 }
 
 pub fn too_few_arguments(callee: &str, takes: usize, given: usize, span: Span) -> Diagnostic {
     Diagnostic::error(
         "wrong-argument-count",
-        format!("`{callee}` takes {}, but this call gives {given}", counted(takes, "argument")),
+        format!(
+            "`{callee}` takes {}, but this call gives {given}",
+            counted(takes, "argument")
+        ),
     )
-    .at(span, format!("this call gives {}", counted(given, "argument")))
+    .at(
+        span,
+        format!("this call gives {}", counted(given, "argument")),
+    )
     .with_help("pass the rest, in order")
 }
 
-pub fn unknown_argument(
-    callee: &str,
-    written: &str,
-    span: Span,
-    known: &[String],
-) -> Diagnostic {
+pub fn unknown_argument(callee: &str, written: &str, span: Span, known: &[String]) -> Diagnostic {
     let fallback = if known.is_empty() {
         format!("`{callee}` takes no arguments")
     } else {
@@ -488,11 +530,7 @@ pub fn not_callable(found: &Type, span: Span) -> Diagnostic {
         .with_help("only a function can be called with `(...)`")
 }
 
-pub fn closure_parameter_count(
-    wanted: usize,
-    written: usize,
-    span: Span,
-) -> Diagnostic {
+pub fn closure_parameter_count(wanted: usize, written: usize, span: Span) -> Diagnostic {
     Diagnostic::error(
         "closure-parameter-count",
         format!(
@@ -501,7 +539,10 @@ pub fn closure_parameter_count(
             counted(wanted, "value")
         ),
     )
-    .at(span, format!("this closure names {}", counted(written, "parameter")))
+    .at(
+        span,
+        format!("this closure names {}", counted(written, "parameter")),
+    )
     .with_help(format!("write {} before the `->`", counted(wanted, "name")))
 }
 
@@ -542,27 +583,35 @@ pub fn not_iterable(found: &Type, span: Span) -> Diagnostic {
 }
 
 pub fn return_outside_function(span: Span) -> Diagnostic {
-    Diagnostic::error("return-outside-function", "`return` is only allowed inside a function")
-        .at(span, "there is nothing here to return from")
-        .with_help("put this in a function, with `to something() { ... }`")
+    Diagnostic::error(
+        "return-outside-function",
+        "`return` is only allowed inside a function",
+    )
+    .at(span, "there is nothing here to return from")
+    .with_help("put this in a function, with `to something() { ... }`")
 }
 
 pub fn missing_return(callee: &str, returns: &Type, span: Span) -> Diagnostic {
-    Diagnostic::error("missing-return", format!("`{callee}` does not always return {returns}"))
-        .at(span, "this body can reach its end without returning")
-        .with_help(format!("finish it with `return ...`, or with {returns} as its last expression"))
+    Diagnostic::error(
+        "missing-return",
+        format!("`{callee}` does not always return {returns}"),
+    )
+    .at(span, "this body can reach its end without returning")
+    .with_help(format!(
+        "finish it with `return ...`, or with {returns} as its last expression"
+    ))
 }
 
 // ---------------------------------------------------------------------------
 // Missing values and failures
 // ---------------------------------------------------------------------------
 
-pub fn try_outside_fallible(
-    span: Span,
-    inside: Option<(&str, &Type)>,
-) -> Diagnostic {
-    let diagnostic = Diagnostic::error("try-outside-fallible", "`try` needs a function that can fail")
-        .at(span, "there is nowhere for this failure to go");
+pub fn try_outside_fallible(span: Span, inside: Option<(&str, &Type)>) -> Diagnostic {
+    let diagnostic = Diagnostic::error(
+        "try-outside-fallible",
+        "`try` needs a function that can fail",
+    )
+    .at(span, "there is nowhere for this failure to go");
 
     match inside {
         Some((name, returns)) => diagnostic
@@ -574,19 +623,17 @@ pub fn try_outside_fallible(
     }
 }
 
-pub fn try_error_mismatch(
-    found: &Type,
-    wanted: &Type,
-    span: Span,
-    signature: Span,
-) -> Diagnostic {
-    Diagnostic::error("try-error-mismatch", "`try` needs the two failures to be the same type")
-        .at(span, format!("this fails with {found}"))
-        .also_at(signature, format!("but this function fails with {wanted}"))
-        .with_help(format!(
-            "take it apart with `match` and fail with a {wanted}, or declare `or fails {found}`"
-        ))
-        .with_note("Vaab does not convert one error type into another on its own")
+pub fn try_error_mismatch(found: &Type, wanted: &Type, span: Span, signature: Span) -> Diagnostic {
+    Diagnostic::error(
+        "try-error-mismatch",
+        "`try` needs the two failures to be the same type",
+    )
+    .at(span, format!("this fails with {found}"))
+    .also_at(signature, format!("but this function fails with {wanted}"))
+    .with_help(format!(
+        "take it apart with `match` and fail with a {wanted}, or declare `or fails {found}`"
+    ))
+    .with_note("Vaab does not convert one error type into another on its own")
 }
 
 pub fn try_needs_fallible(found: &Type, span: Span) -> Diagnostic {
@@ -603,10 +650,13 @@ pub fn try_needs_fallible(found: &Type, span: Span) -> Diagnostic {
 }
 
 pub fn otherwise_on_plain(found: &Type, span: Span) -> Diagnostic {
-    Diagnostic::error("otherwise-on-plain", "`otherwise` needs something that might not be there")
-        .at(span, format!("this is {found}, which is always there"))
-        .with_help("remove the `otherwise`")
-        .with_note("`otherwise` supplies the fallback for a `maybe` or for something that can fail")
+    Diagnostic::error(
+        "otherwise-on-plain",
+        "`otherwise` needs something that might not be there",
+    )
+    .at(span, format!("this is {found}, which is always there"))
+    .with_help("remove the `otherwise`")
+    .with_note("`otherwise` supplies the fallback for a `maybe` or for something that can fail")
 }
 
 // ---------------------------------------------------------------------------
@@ -639,7 +689,9 @@ pub fn mixed_list(first: &Type, first_span: Span, found: &Type, span: Span) -> D
         .at(span, format!("this item is {found}"))
         .also_at(first_span, format!("the first item is {first}"))
         .with_help("make every item the same type")
-        .with_note("a `list of Int` is a different type from a `list of Text`, so a list cannot be both")
+        .with_note(
+            "a `list of Int` is a different type from a `list of Text`, so a list cannot be both",
+        )
 }
 
 pub fn mixed_map(
@@ -649,18 +701,27 @@ pub fn mixed_map(
     found: &Type,
     span: Span,
 ) -> Diagnostic {
-    Diagnostic::error("mixed-map", format!("this map's {part}s are not all the same type"))
-        .at(span, format!("this {part} is {found}"))
-        .also_at(first_span, format!("the first {part} is {first}"))
-        .with_help(format!("make every {part} the same type"))
+    Diagnostic::error(
+        "mixed-map",
+        format!("this map's {part}s are not all the same type"),
+    )
+    .at(span, format!("this {part} is {found}"))
+    .also_at(first_span, format!("the first {part} is {first}"))
+    .with_help(format!("make every {part} the same type"))
 }
 
 /// A bare `nothing` says a value is absent without saying what sort of value.
 pub fn cannot_infer_nothing(span: Span) -> Diagnostic {
-    Diagnostic::error("cannot-infer-empty", "Vaab cannot tell what this `nothing` stands for")
-        .at(span, "this says a value is absent, but not what sort of value")
-        .with_help("say so with an annotation: `let age: maybe Int = nothing`")
-        .with_note("`nothing` is the empty half of a `maybe T`, so Vaab needs to know the `T`")
+    Diagnostic::error(
+        "cannot-infer-empty",
+        "Vaab cannot tell what this `nothing` stands for",
+    )
+    .at(
+        span,
+        "this says a value is absent, but not what sort of value",
+    )
+    .with_help("say so with an annotation: `let age: maybe Int = nothing`")
+    .with_note("`nothing` is the empty half of a `maybe T`, so Vaab needs to know the `T`")
 }
 
 pub fn cannot_infer_empty(what: &str, example: &str, span: Span) -> Diagnostic {
@@ -697,9 +758,12 @@ pub fn bad_index(found: &Type, span: Span) -> Diagnostic {
 // ---------------------------------------------------------------------------
 
 pub fn pattern_mismatch(found: &Type, describes: &str, span: Span) -> Diagnostic {
-    Diagnostic::error("pattern-mismatch", format!("this pattern cannot match {found}"))
-        .at(span, format!("this pattern is for {describes}"))
-        .with_help(format!("match on the {found} itself"))
+    Diagnostic::error(
+        "pattern-mismatch",
+        format!("this pattern cannot match {found}"),
+    )
+    .at(span, format!("this pattern is for {describes}"))
+    .with_help(format!("match on the {found} itself"))
 }
 
 pub fn not_exhaustive(uncovered: &[String], subject: &Type, span: Span) -> Diagnostic {
@@ -707,7 +771,10 @@ pub fn not_exhaustive(uncovered: &[String], subject: &Type, span: Span) -> Diagn
         "not-exhaustive",
         format!("this `match` does not cover {}", listed(uncovered)),
     )
-    .at(span, format!("this is {subject}, which can also be {}", listed(uncovered)))
+    .at(
+        span,
+        format!("this is {subject}, which can also be {}", listed(uncovered)),
+    )
     .with_help(format!(
         "add {}, or finish with `otherwise then ...`",
         uncovered
@@ -724,7 +791,10 @@ pub fn not_exhaustive_open(subject: &Type, span: Span) -> Diagnostic {
         "not-exhaustive",
         format!("this `match` does not cover every {subject}"),
     )
-    .at(span, format!("this is {subject}, which has more values than there are arms"))
+    .at(
+        span,
+        format!("this is {subject}, which has more values than there are arms"),
+    )
     .with_help("finish with `otherwise then ...`")
 }
 
@@ -739,27 +809,20 @@ pub fn not_a_choice(name: &str, span: Span, known: &[String]) -> Diagnostic {
         .with_help(did_you_mean(name, known, fallback))
 }
 
-pub fn unknown_variant(
-    choice: &str,
-    variant: &str,
-    span: Span,
-    known: &[String],
-) -> Diagnostic {
-    Diagnostic::error("unknown-variant", format!("`{choice}` has no variant `{variant}`"))
-        .at(span, "this is not one of its variants")
-        .with_help(did_you_mean(
-            variant,
-            known,
-            format!("the variants of `{choice}` are {}", listed(known)),
-        ))
+pub fn unknown_variant(choice: &str, variant: &str, span: Span, known: &[String]) -> Diagnostic {
+    Diagnostic::error(
+        "unknown-variant",
+        format!("`{choice}` has no variant `{variant}`"),
+    )
+    .at(span, "this is not one of its variants")
+    .with_help(did_you_mean(
+        variant,
+        known,
+        format!("the variants of `{choice}` are {}", listed(known)),
+    ))
 }
 
-pub fn wrong_variant_parts(
-    variant: &str,
-    carries: usize,
-    given: usize,
-    span: Span,
-) -> Diagnostic {
+pub fn wrong_variant_parts(variant: &str, carries: usize, given: usize, span: Span) -> Diagnostic {
     Diagnostic::error(
         "wrong-variant-parts",
         format!(
@@ -806,12 +869,9 @@ pub fn cannot_from_json(found: &Type, span: Span) -> Diagnostic {
 }
 
 pub fn json_at_needs_key(found: &Type, span: Span) -> Diagnostic {
-    Diagnostic::error(
-        "json-at",
-        "`.at` takes a Text key or an Int index",
-    )
-    .at(span, format!("this is {found}"))
-    .with_help("write `.at(\"name\")` or `.at(0)`")
+    Diagnostic::error("json-at", "`.at` takes a Text key or an Int index")
+        .at(span, format!("this is {found}"))
+        .with_help("write `.at(\"name\")` or `.at(0)`")
 }
 
 pub fn undefined_ability(name: &str, span: Span, known: &[String]) -> Diagnostic {
@@ -855,7 +915,10 @@ pub fn ability_signature_mismatch(
         format!("`{provider}`'s `{name}` does not match `{ability}`"),
     )
     .at(span, format!("this is `{}`", found.describe(name)))
-    .also_at(required_at, format!("`{ability}` asks for `{}`", required.describe(name)))
+    .also_at(
+        required_at,
+        format!("`{ability}` asks for `{}`", required.describe(name)),
+    )
     .with_help("change the signature so the two match exactly")
     .with_note(format!(
         "anything holding a `{ability}` calls through the signature `{ability}` promised, \
@@ -866,6 +929,31 @@ pub fn ability_signature_mismatch(
 // ---------------------------------------------------------------------------
 // Channels and tasks
 // ---------------------------------------------------------------------------
+
+pub fn not_a_database(found: &Type, span: Span) -> Diagnostic {
+    Diagnostic::error("not-a-database", "a transaction needs a database")
+        .at(span, format!("this is {}", spelled(found)))
+        .with_help("write `db.transaction { ... }` on a value from `Db.connect`")
+}
+
+pub fn nested_transaction(span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "nested-transaction",
+        "a transaction cannot start another transaction",
+    )
+    .at(span, "this block already runs inside a transaction")
+    .with_help("do the extra work in this block, or finish this transaction first")
+    .with_note("Vaab does not use savepoints: one `db.transaction` is one SQLite transaction")
+}
+
+pub fn transaction_needs_block(span: Span) -> Diagnostic {
+    Diagnostic::error(
+        "transaction-needs-block",
+        "`transaction` is written as a block",
+    )
+    .at(span, "Vaab expected `{ ... }` after `.transaction`")
+    .with_help("write `db.transaction { ... }`")
+}
 
 pub fn not_a_channel(what: &str, found: &Type, span: Span) -> Diagnostic {
     let diagnostic = Diagnostic::error("not-a-channel", format!("`{what}` needs a channel"))
@@ -894,12 +982,7 @@ pub enum PureViolation {
 }
 
 /// A `pure` function did something the promise rules out.
-pub fn not_pure(
-    function: &str,
-    why: PureViolation,
-    at: Span,
-    declared_at: Span,
-) -> Diagnostic {
+pub fn not_pure(function: &str, why: PureViolation, at: Span, declared_at: Span) -> Diagnostic {
     let (message, at_label, help) = match why {
         PureViolation::Effect(effect) => (
             format!("`{function}` is declared `pure`, so it cannot {effect}"),
@@ -970,9 +1053,7 @@ fn pure_effect_help(effect: &str) -> String {
         "read the clock" => {
             "read the clock before calling the `pure` function, and pass the number in"
         }
-        "connect a socket" => {
-            "open the socket before calling the `pure` function, and pass it in"
-        }
+        "connect a socket" => "open the socket before calling the `pure` function, and pass it in",
         "send on a socket" => "send on the socket outside the `pure` function",
         "close a socket" => "close the socket outside the `pure` function",
         "read why a socket closed" => {
@@ -1099,7 +1180,10 @@ pub fn changing_captured_by_task(
         "changing-captured-by-task",
         format!("`{name}` can change, so a task cannot use it."),
     )
-    .at(used_at, format!("this task uses `{name}`, which lives outside it"))
+    .at(
+        used_at,
+        format!("this task uses `{name}`, which lives outside it"),
+    )
     .also_at(declared_at, format!("`{name}` is declared `changing` here"))
     .with_help(instead_of_changing(name, declared))
     .with_note(why_changing_is_unsafe(name, declared))
@@ -1119,7 +1203,10 @@ pub fn changing_captured_through(
         "changing-captured-by-task",
         format!("`{name}` can change, so a task cannot use it."),
     )
-    .at(used_at, format!("this task uses `{holder}`, which holds on to `{name}`"))
+    .at(
+        used_at,
+        format!("this task uses `{holder}`, which holds on to `{name}`"),
+    )
     .also_at(read_at, format!("`{holder}` reads `{name}` here"))
     .also_at(declared_at, format!("`{name}` is declared `changing` here"))
     .with_help(instead_of_changing(name, declared))
@@ -1169,11 +1256,17 @@ pub fn unsendable_capture(
     used_at: Span,
     declared_at: Span,
 ) -> Diagnostic {
-    Diagnostic::error("unsendable-capture", format!("a task cannot be given `{name}`"))
-        .at(used_at, format!("this task uses `{name}`, which is {}", spelled(found)))
-        .also_at(declared_at, format!("`{name}` is declared here"))
-        .with_help(pass_something_else(culprit, reached_by))
-        .with_note(in_the_way(culprit, reached_by))
+    Diagnostic::error(
+        "unsendable-capture",
+        format!("a task cannot be given `{name}`"),
+    )
+    .at(
+        used_at,
+        format!("this task uses `{name}`, which is {}", spelled(found)),
+    )
+    .also_at(declared_at, format!("`{name}` is declared here"))
+    .with_help(pass_something_else(culprit, reached_by))
+    .with_note(in_the_way(culprit, reached_by))
 }
 
 /// `self` inside a task, where the type `self` stands for cannot cross.
@@ -1184,7 +1277,10 @@ pub fn unsendable_self(
     used_at: Span,
 ) -> Diagnostic {
     Diagnostic::error("unsendable-capture", "a task cannot be given `self`")
-        .at(used_at, format!("this task uses `self`, which is {}", spelled(found)))
+        .at(
+            used_at,
+            format!("this task uses `self`, which is {}", spelled(found)),
+        )
         .with_help("take the parts the task needs out of `self` first, and let it use those")
         .with_note(in_the_way(culprit, reached_by))
 }
@@ -1217,10 +1313,13 @@ pub fn unsendable_sent_value(
     reached_by: Option<&str>,
     span: Span,
 ) -> Diagnostic {
-    Diagnostic::error("unsendable-value", format!("{} cannot be sent", spelled(found)))
-        .at(span, format!("this is {}", spelled(found)))
-        .with_help(pass_something_else(culprit, reached_by))
-        .with_note(in_the_way(culprit, reached_by))
+    Diagnostic::error(
+        "unsendable-value",
+        format!("{} cannot be sent", spelled(found)),
+    )
+    .at(span, format!("this is {}", spelled(found)))
+    .with_help(pass_something_else(culprit, reached_by))
+    .with_note(in_the_way(culprit, reached_by))
 }
 
 pub fn unsendable_shared_value(
@@ -1233,7 +1332,13 @@ pub fn unsendable_shared_value(
         "unsendable-value",
         format!("a `shared` cannot hold {}", spelled(found)),
     )
-    .at(span, format!("this is {}, which every task sharing it would hold", spelled(found)))
+    .at(
+        span,
+        format!(
+            "this is {}, which every task sharing it would hold",
+            spelled(found)
+        ),
+    )
     .with_help(pass_something_else(culprit, reached_by))
     .with_note(in_the_way(culprit, reached_by))
 }
@@ -1269,8 +1374,10 @@ fn spelled(declared: &Type) -> String {
 /// type is judged by what it holds, so the walk ends at a function or at nothing.
 fn in_the_way(culprit: &Type, reached_by: Option<&str>) -> String {
     let because = match culprit {
-        Type::Function(_) => "a function value holds on to whatever was around it when it was \
-             written, which Vaab has no way to look inside",
+        Type::Function(_) => {
+            "a function value holds on to whatever was around it when it was \
+             written, which Vaab has no way to look inside"
+        }
         _ => "that cannot be shared between tasks",
     };
 
@@ -1323,23 +1430,32 @@ pub fn update_cannot_wait(what: &str, span: Span) -> Diagnostic {
 // ---------------------------------------------------------------------------
 
 pub fn together_waits_for_nothing(span: Span) -> Diagnostic {
-    Diagnostic::error("together-waits-for-nothing", "this `together` has nothing to wait for")
-        .at(span, "nothing in here starts a task or calls anything that could")
-        .with_help("start the work inside it, with `start { ... }`")
-        .with_note(
-            "`together` is how a group of tasks is waited for, and it cancels the rest if one \
+    Diagnostic::error(
+        "together-waits-for-nothing",
+        "this `together` has nothing to wait for",
+    )
+    .at(
+        span,
+        "nothing in here starts a task or calls anything that could",
+    )
+    .with_help("start the work inside it, with `start { ... }`")
+    .with_note(
+        "`together` is how a group of tasks is waited for, and it cancels the rest if one \
              of them fails; with no task to watch it does nothing at all",
-        )
+    )
 }
 
 pub fn select_with_no_arms(span: Span) -> Diagnostic {
-    Diagnostic::error("select-with-no-arms", "this `select` has nothing to wait for")
-        .at(span, "there are no `when` arms here")
-        .with_help("add an arm, as in `when receive from inbox as message { ... }`")
-        .with_note(
-            "`select` waits for whichever of its arms is ready first, so with no arms there is \
+    Diagnostic::error(
+        "select-with-no-arms",
+        "this `select` has nothing to wait for",
+    )
+    .at(span, "there are no `when` arms here")
+    .with_help("add an arm, as in `when receive from inbox as message { ... }`")
+    .with_note(
+        "`select` waits for whichever of its arms is ready first, so with no arms there is \
              nothing that could ever become ready",
-        )
+    )
 }
 
 /// `known` holds both spellings of every unit, so that a near miss on either is
@@ -1377,8 +1493,14 @@ mod tests {
     #[test]
     fn a_near_miss_is_suggested_and_a_wild_guess_is_not() {
         let known = ["balance", "owner"];
-        assert_eq!(nearest("blance", known.into_iter()), Some("balance".to_string()));
-        assert_eq!(nearest("ownr", known.into_iter()), Some("owner".to_string()));
+        assert_eq!(
+            nearest("blance", known.into_iter()),
+            Some("balance".to_string())
+        );
+        assert_eq!(
+            nearest("ownr", known.into_iter()),
+            Some("owner".to_string())
+        );
         assert_eq!(nearest("telephone", known.into_iter()), None);
     }
 
@@ -1394,20 +1516,23 @@ mod tests {
         let mismatch = mismatch(&Type::Int, &Type::maybe(Type::Int), Span::new(0, 1));
         assert_eq!(mismatch.message, "expected Int, found maybe Int");
 
-        let missing =
-            missing_fields("Account.new", "Account", &["owner".to_string()], Span::new(0, 1));
+        let missing = missing_fields(
+            "Account.new",
+            "Account",
+            &["owner".to_string()],
+            Span::new(0, 1),
+        );
         assert_eq!(missing.message, "Account.new is missing `owner`.");
     }
 
     #[test]
     fn the_specifications_wording_for_a_captured_changing_value_is_word_for_word() {
-        let captured = changing_captured_by_task(
-            "total",
-            &Type::Int,
-            Span::new(0, 1),
-            Span::new(2, 3),
+        let captured =
+            changing_captured_by_task("total", &Type::Int, Span::new(0, 1), Span::new(2, 3));
+        assert_eq!(
+            captured.message,
+            "`total` can change, so a task cannot use it."
         );
-        assert_eq!(captured.message, "`total` can change, so a task cannot use it.");
         // The specification's second sentence, "Use `Shared` instead.", is the help.
         let help = captured.help.unwrap_or_default();
         assert!(help.contains("Shared"), "{help}");
@@ -1416,7 +1541,10 @@ mod tests {
     #[test]
     fn a_function_type_is_named_as_the_code_it_is() {
         let function = Type::function(vec![Type::Int], Type::Int);
-        assert_eq!(spelled(&function), "the function value `to(Int) returns Int`");
+        assert_eq!(
+            spelled(&function),
+            "the function value `to(Int) returns Int`"
+        );
         // Everything else keeps the article it already reads best with.
         assert_eq!(spelled(&Type::Int), "an Int");
         assert_eq!(spelled(&Type::named("Job")), "a `Job`");
@@ -1426,10 +1554,16 @@ mod tests {
     fn the_way_to_an_unsendable_value_is_spelled_out_when_there_is_one() {
         let function = Type::function(vec![Type::Int], Type::Int);
         let direct = in_the_way(&function, None);
-        assert!(direct.starts_with("a function value holds on to"), "{direct}");
+        assert!(
+            direct.starts_with("a function value holds on to"),
+            "{direct}"
+        );
 
         let buried = in_the_way(&function, Some("`Job`'s field `work`"));
-        assert!(buried.starts_with("`Job`'s field `work` is `to(Int) returns Int`;"), "{buried}");
+        assert!(
+            buried.starts_with("`Job`'s field `work` is `to(Int) returns Int`;"),
+            "{buried}"
+        );
     }
 
     #[test]
@@ -1438,7 +1572,10 @@ mod tests {
         assert!(plain.contains("Shared.new"), "{plain}");
 
         let already_shared = instead_of_changing("counter", &Type::shared(Type::Int));
-        assert!(already_shared.contains("drop the `changing`"), "{already_shared}");
+        assert!(
+            already_shared.contains("drop the `changing`"),
+            "{already_shared}"
+        );
         assert!(!already_shared.contains("Shared.new"), "{already_shared}");
     }
 

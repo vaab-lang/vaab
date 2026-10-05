@@ -29,7 +29,10 @@ fn print_shows_text_as_it_is_and_quotes_it_inside_a_list() {
 
 #[test]
 fn upper_and_lower_change_the_case() {
-    assert_eq!(output("print(\"ada\".upper())\nprint(\"ADA\".lower())\n"), ["ADA", "ada"]);
+    assert_eq!(
+        output("print(\"ada\".upper())\nprint(\"ADA\".lower())\n"),
+        ["ADA", "ada"]
+    );
 }
 
 #[test]
@@ -40,7 +43,10 @@ fn contains_says_whether_one_piece_of_text_is_inside_another() {
 
 #[test]
 fn text_is_empty_when_it_has_no_characters() {
-    assert_eq!(output("print(\"\".is_empty)\nprint(\"a\".is_empty)\n"), ["yes", "no"]);
+    assert_eq!(
+        output("print(\"\".is_empty)\nprint(\"a\".is_empty)\n"),
+        ["yes", "no"]
+    );
 }
 
 #[test]
@@ -59,7 +65,10 @@ fn map_gives_back_a_list_the_same_length_as_the_one_it_walked() {
 
 #[test]
 fn map_over_an_empty_list_gives_an_empty_list() {
-    assert_eq!(printed("let items: list of Int = []\nprint(items.map(n -> n * 2))\n"), "[]");
+    assert_eq!(
+        printed("let items: list of Int = []\nprint(items.map(n -> n * 2))\n"),
+        "[]"
+    );
 }
 
 #[test]
@@ -86,7 +95,10 @@ fn the_first_of_a_list_is_a_maybe_because_the_list_may_be_empty() {
 
 #[test]
 fn join_puts_a_separator_between_every_piece_of_text() {
-    assert_eq!(printed("print([\"a\", \"b\", \"c\"].join(\", \"))\n"), "a, b, c");
+    assert_eq!(
+        printed("print([\"a\", \"b\", \"c\"].join(\", \"))\n"),
+        "a, b, c"
+    );
 }
 
 #[test]
@@ -118,12 +130,18 @@ fn count_says_how_many_entries_a_map_holds() {
 
 #[test]
 fn keys_come_back_in_the_order_they_were_first_put_in() {
-    assert_eq!(printed("print({\"b\": 1, \"a\": 2}.keys)\n"), "[\"b\", \"a\"]");
+    assert_eq!(
+        printed("print({\"b\": 1, \"a\": 2}.keys)\n"),
+        "[\"b\", \"a\"]"
+    );
 }
 
 #[test]
 fn a_map_can_be_keyed_by_something_other_than_text() {
-    assert_eq!(printed("let names = {1: \"one\"}\nprint(names.get(1) otherwise \"?\")\n"), "one");
+    assert_eq!(
+        printed("let names = {1: \"one\"}\nprint(names.get(1) otherwise \"?\")\n"),
+        "one"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +152,10 @@ fn a_map_can_be_keyed_by_something_other_than_text() {
 fn abs_drops_the_sign_of_a_whole_number_and_of_a_decimal() {
     // A method binds tighter than a minus sign, so the brackets are the ones
     // anyone writing this would have to put in.
-    assert_eq!(output("print((-7).abs())\nprint((-1.5).abs())\n"), ["7", "1.5"]);
+    assert_eq!(
+        output("print((-7).abs())\nprint((-1.5).abs())\n"),
+        ["7", "1.5"]
+    );
 }
 
 #[test]
@@ -149,12 +170,18 @@ fn a_whole_number_becomes_a_decimal_only_when_asked() {
 
 #[test]
 fn rounding_goes_to_the_nearest_whole_number() {
-    assert_eq!(output("print(2.4.round())\nprint(2.6.round())\n"), ["2", "3"]);
+    assert_eq!(
+        output("print(2.4.round())\nprint(2.6.round())\n"),
+        ["2", "3"]
+    );
 }
 
 #[test]
 fn a_half_rounds_away_from_zero_the_way_it_is_taught_at_school() {
-    assert_eq!(output("print(2.5.round())\nprint((-2.5).round())\n"), ["3", "-3"]);
+    assert_eq!(
+        output("print(2.5.round())\nprint((-2.5).round())\n"),
+        ["3", "-3"]
+    );
 }
 
 #[test]
@@ -260,7 +287,9 @@ print(if elapsed >= 20 { \"yes\" } else { \"no\" })\n\
 
 #[test]
 fn now_returns_seconds_since_1970() {
-    let seconds = printed("print(now())\n").parse::<i64>().expect("a whole number");
+    let seconds = printed("print(now())\n")
+        .parse::<i64>()
+        .expect("a whole number");
     assert!(seconds > 1_600_000_000);
 }
 
@@ -474,6 +503,58 @@ fn store_delete_after_insert_does_not_deadlock() {
 }
 
 #[test]
+fn a_transaction_commits_on_success_and_rolls_back_on_failure() {
+    let source = "\
+to demo() returns Text or fails DbError {\n\
+    let db = try Db.connect(\"sqlite::memory:\")\n\
+    let empty: list of Text = []\n\
+    try db.execute(\"create table items (id integer primary key)\", empty)\n\
+    match db.transaction {\n\
+        try db.execute(\"insert into items (id) values (1)\", empty)\n\
+        fail DbError.Failed(message: \"boom\")\n\
+    } {\n\
+        when success _ then {}\n\
+        when failure _ then {}\n\
+    }\n\
+    let rows = try db.query(\"select count(*) as n from items\", empty)\n\
+    match rows.first {\n\
+        when found row then row.get(\"n\") otherwise \"missing\"\n\
+        when nothing then \"empty\"\n\
+    }\n\
+}\n\
+match demo() {\n\
+    when success n then print(n)\n\
+    when failure error then print(error)\n\
+}\n";
+    assert_eq!(printed(source), "0");
+}
+
+#[test]
+fn a_file_database_opens_in_wal_mode() {
+    let path = std::env::temp_dir().join("vaab-wal-mode-test.sqlite");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+    let path = path.display();
+    let source = format!(
+        "match Db.connect(\"sqlite:{path}\") {{\n\
+         when success db then {{\n\
+             let empty: list of Text = []\n\
+             match db.query(\"PRAGMA journal_mode\", empty) {{\n\
+                 when success rows then match rows.first {{\n\
+                     when found row then print(row.get(\"journal_mode\") otherwise \"missing\")\n\
+                     when nothing then print(\"empty\")\n\
+                 }}\n\
+                 when failure _ then print(\"query failed\")\n\
+             }}\n\
+         }}\n\
+         when failure _ then print(\"connect failed\")\n\
+         }}\n"
+    );
+    assert_eq!(printed(&source).to_ascii_lowercase(), "wal");
+}
+
+#[test]
 fn bytes_decode_and_read_little_endian_integers() {
     let source = "\
 to peek() returns Int or fails BytesError {\n\
@@ -668,4 +749,3 @@ fn a_file_logger_appends_and_multi_fans_out() {
         .expect("log file");
     assert!(contents.contains("hello"), "{contents}");
 }
-

@@ -18,7 +18,7 @@ use vaab_syntax::span::Span;
 use crate::builtin::Builtin;
 use crate::error::Feature;
 use crate::json::JsonShape;
-use crate::value::{Ref, RecordLayout, Value, VariantLayout};
+use crate::value::{RecordLayout, Ref, Value, VariantLayout};
 
 /// One instruction.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -86,8 +86,14 @@ pub enum Op {
     Range,
     /// Joins the top `n` values into one piece of text.
     Text(u32),
-    Record { layout: u32, fields: u32 },
-    Variant { layout: u32, fields: u32 },
+    Record {
+        layout: u32,
+        fields: u32,
+    },
+    Variant {
+        layout: u32,
+        fields: u32,
+    },
 
     // -- Reaching inside ---------------------------------------------------
     Field(u32),
@@ -115,7 +121,10 @@ pub enum Op {
     TupleItem(u32),
     /// Whether the list on top is the right length for a list pattern.
     /// `[first, ...]` asks for at least one; `[a, b]` asks for exactly two.
-    ListLengthIs { length: u32, at_least: bool },
+    ListLengthIs {
+        length: u32,
+        at_least: bool,
+    },
 
     // -- Control -----------------------------------------------------------
     Jump(u32),
@@ -128,10 +137,17 @@ pub enum Op {
     Call(u32),
     /// A method on a declared type, which the checker resolved statically. The
     /// receiver sits below the arguments.
-    CallMethod { body: u32, arity: u32 },
+    CallMethod {
+        body: u32,
+        arity: u32,
+    },
     /// A method reached through an ability, so which body runs is only known once
     /// the receiver is in hand.
-    CallAbility { ability: u32, slot: u32, arity: u32 },
+    CallAbility {
+        ability: u32,
+        slot: u32,
+        arity: u32,
+    },
     Builtin(Builtin),
     /// Builds a function value, taking a cell for each of the body's captures.
     MakeFunction(u32),
@@ -157,13 +173,22 @@ pub enum Op {
     Sleep,
     /// A Bytes constructor or method. Error layouts are looked up at compile time
     /// so a bad offset becomes `failure BytesError` rather than a stop.
-    Bytes { op: BytesOp, errors: BytesErrors },
+    Bytes {
+        op: BytesOp,
+        errors: BytesErrors,
+    },
 
     EnvGet,
     EnvRequired(u32),
     DbConnect(u32),
     DbExecute(u32),
     DbQuery(u32),
+    /// Runs a compiled block inside one SQLite transaction. The body index is
+    /// the nested machine; the u32 is `DbError.Failed`.
+    DbTransaction {
+        body: u32,
+        error: u32,
+    },
     StoreOpen(u32),
     StoreGet,
     StoreSet(u32),
@@ -224,10 +249,16 @@ pub enum Op {
     HubNew,
     HubJoin,
     HubBroadcast,
-    RequestWho { user: u32, unauthorized: u32 },
+    RequestWho {
+        user: u32,
+        unauthorized: u32,
+    },
 
     /// `from_json(text, as: T)` — shape is an index into [`Program::json_shapes`].
-    FromJson { shape: u32, error: u32 },
+    FromJson {
+        shape: u32,
+        error: u32,
+    },
     /// `Json.parse(text)`.
     JsonParse(u32),
     JsonAt,
@@ -302,7 +333,14 @@ pub struct Body {
 
 impl Body {
     fn empty(name: Ref<str>) -> Body {
-        Body { name, code: Vec::new(), spans: Vec::new(), slots: 0, parameters: 0, captures: Vec::new() }
+        Body {
+            name,
+            code: Vec::new(),
+            spans: Vec::new(),
+            slots: 0,
+            parameters: 0,
+            captures: Vec::new(),
+        }
     }
 }
 

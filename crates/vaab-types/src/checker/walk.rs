@@ -229,6 +229,10 @@ pub(super) fn expression(node: &Expr, visitor: &mut impl Visit) {
 
         ExprKind::Receive { channel } => expression(channel, visitor),
         ExprKind::Start(body) => block(body, visitor),
+        ExprKind::Transaction { database, body } => {
+            expression(database, visitor);
+            block(body, visitor);
+        }
         ExprKind::Select(select) => select_expression(select, visitor),
     }
 }

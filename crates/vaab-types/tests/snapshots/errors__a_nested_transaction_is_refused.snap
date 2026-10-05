@@ -1,0 +1,17 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"to work(db: Db) {\\n\\\n         \\x20   db.transaction {\\n\\\n         \\x20       db.transaction {\\n\\\n         \\x20           1\\n\\\n         \\x20       }\\n\\\n         \\x20   }\\n\\\n         }\\n\",)"
+---
+[nested-transaction] Error: a transaction cannot start another transaction
+   ╭─[ example.vaab:2:5 ]
+   │
+ 2 │ ╭─▶     db.transaction {
+   ┆ ┆   
+ 6 │ ├─▶     }
+   │ │           
+   │ ╰─────────── this block already runs inside a transaction
+   │     
+   │     Help: do the extra work in this block, or finish this transaction first
+   │     
+   │     Note: Vaab does not use savepoints: one `db.transaction` is one SQLite transaction
+───╯

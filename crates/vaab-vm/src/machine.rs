@@ -112,11 +112,27 @@ pub struct World {
 
 impl World {
     pub fn new(program: Ref<Program>, output: Output) -> World {
-        Self::with_app_io(program, output, Databases::shared(), Stores::shared(), Loggers::shared())
+        Self::with_app_io(
+            program,
+            output,
+            Databases::shared(),
+            Stores::shared(),
+            Loggers::shared(),
+        )
     }
 
-    pub fn with_databases(program: Ref<Program>, output: Output, databases: Arc<Databases>) -> World {
-        Self::with_app_io(program, output, databases, Stores::shared(), Loggers::shared())
+    pub fn with_databases(
+        program: Ref<Program>,
+        output: Output,
+        databases: Arc<Databases>,
+    ) -> World {
+        Self::with_app_io(
+            program,
+            output,
+            databases,
+            Stores::shared(),
+            Loggers::shared(),
+        )
     }
 
     pub fn with_app_io(
@@ -143,7 +159,8 @@ impl World {
     /// has. A REPL line adds statements to the end of a file, so the top-level
     /// slots it already filled keep their numbers.
     pub fn reload(&mut self, program: Ref<Program>) {
-        self.globals.resize(program.globals.max(self.globals.len()), Value::Nothing);
+        self.globals
+            .resize(program.globals.max(self.globals.len()), Value::Nothing);
         self.program = program;
     }
 }
@@ -196,15 +213,23 @@ enum TickAction {
 
 #[derive(Clone, Debug)]
 enum Pending {
-    Send { channel: u32, value: Value, span: Span },
+    Send {
+        channel: u32,
+        value: Value,
+        span: Span,
+    },
     Select {
         descriptor: usize,
         channels: Vec<Value>,
         resume_pc: usize,
         span: Span,
     },
-    Sleep { until: Instant },
-    Io { ticket: u64 },
+    Sleep {
+        until: Instant,
+    },
+    Io {
+        ticket: u64,
+    },
 }
 
 /// A running Vaab program.
@@ -240,7 +265,10 @@ impl Machine {
     }
 
     pub fn entering(program: &Program, body: usize, pc: usize) -> Machine {
-        let slots = program.body(body).map(|body| body.slots).unwrap_or_default();
+        let slots = program
+            .body(body)
+            .map(|body| body.slots)
+            .unwrap_or_default();
         Machine {
             stack: vec![Value::Nothing; slots],
             frames: vec![Frame {
@@ -327,29 +355,40 @@ impl Machine {
         host: &mut crate::concurrency::Host,
     ) -> Option<Step> {
         match self.pending.clone() {
-            Some(Pending::Send { channel, value, span }) => {
+            Some(Pending::Send {
+                channel,
+                value,
+                span,
+            }) => {
                 if host.take_completed_send(host.current()) {
                     self.pending = None;
                     return None;
                 }
                 match host.send(channel, value.clone(), span) {
-                OpResult::Done => {
-                    self.pending = None;
-                    None
-                }
-                OpResult::Park(site) => Some(Step::Parked(site)),
-                OpResult::Stop(fault) => Some(Step::Failed(Box::new(RuntimeError {
-                    fault,
-                    trace: self.trace(&world.program),
-                }))),
-                OpResult::Ready(_) | OpResult::Failed(_) => Some(Step::Failed(Box::new(RuntimeError {
-                    fault: Fault::Confused("a send named an impossible outcome"),
-                    trace: self.trace(&world.program),
-                }))),
+                    OpResult::Done => {
+                        self.pending = None;
+                        None
+                    }
+                    OpResult::Park(site) => Some(Step::Parked(site)),
+                    OpResult::Stop(fault) => Some(Step::Failed(Box::new(RuntimeError {
+                        fault,
+                        trace: self.trace(&world.program),
+                    }))),
+                    OpResult::Ready(_) | OpResult::Failed(_) => {
+                        Some(Step::Failed(Box::new(RuntimeError {
+                            fault: Fault::Confused("a send named an impossible outcome"),
+                            trace: self.trace(&world.program),
+                        })))
+                    }
                 }
             }
             Some(Pending::Sleep { .. } | Pending::Io { .. }) => None,
-            Some(Pending::Select { descriptor, channels, resume_pc, span }) => {
+            Some(Pending::Select {
+                descriptor,
+                channels,
+                resume_pc,
+                span,
+            }) => {
                 let Some(meta) = world.program.selects.get(descriptor) else {
                     return Some(Step::Failed(Box::new(RuntimeError {
                         fault: Fault::Confused("a select named a descriptor that is not there"),
@@ -451,11 +490,17 @@ impl Machine {
         match result {
             Ok(body) => self.stack.push(Value::success(Value::text(body))),
             Err(message) => {
-                let layout = program.variants.get(layout as usize).cloned().ok_or(
-                    Fault::Confused("an HTTP call named a variant that is not there"),
-                )?;
+                let layout =
+                    program
+                        .variants
+                        .get(layout as usize)
+                        .cloned()
+                        .ok_or(Fault::Confused(
+                            "an HTTP call named a variant that is not there",
+                        ))?;
                 let _ = name;
-                self.stack.push(crate::app_io::failure_message(layout, message));
+                self.stack
+                    .push(crate::app_io::failure_message(layout, message));
             }
         }
         Ok(())
@@ -480,7 +525,9 @@ impl Machine {
         host: &mut crate::concurrency::Host,
     ) -> Result<TickAction, Fault> {
         let Some(frame) = self.frames.last_mut() else {
-            return Err(Fault::Confused("the machine was asked to run with no frame"));
+            return Err(Fault::Confused(
+                "the machine was asked to run with no frame",
+            ));
         };
         let body = frame.body;
         let base = frame.base;
@@ -498,7 +545,9 @@ impl Machine {
             // -- Values ----------------------------------------------------
             Op::Constant(index) => {
                 let Some(value) = program.constants.get(index as usize) else {
-                    return Err(Fault::Confused("an instruction named a constant that is not there"));
+                    return Err(Fault::Confused(
+                        "an instruction named a constant that is not there",
+                    ));
                 };
                 self.stack.push(value.clone());
             }
@@ -531,14 +580,18 @@ impl Machine {
             // -- Where values live -----------------------------------------
             Op::LoadGlobal(slot) => {
                 let Some(value) = world.globals.get(slot as usize) else {
-                    return Err(Fault::Confused("a top-level value was read before it existed"));
+                    return Err(Fault::Confused(
+                        "a top-level value was read before it existed",
+                    ));
                 };
                 self.stack.push(value.clone());
             }
             Op::StoreGlobal(slot) => {
                 let value = self.pop()?;
                 let Some(held) = world.globals.get_mut(slot as usize) else {
-                    return Err(Fault::Confused("a top-level value was written out of range"));
+                    return Err(Fault::Confused(
+                        "a top-level value was written out of range",
+                    ));
                 };
                 *held = value;
             }
@@ -598,14 +651,19 @@ impl Machine {
                         None => return Err(Fault::Overflowed(Operation::Negation)),
                     },
                     Value::Float(number) => Value::Float(-number),
-                    _ => return Err(Fault::Confused("`-` reached something that is not a number")),
+                    _ => {
+                        return Err(Fault::Confused(
+                            "`-` reached something that is not a number",
+                        ))
+                    }
                 });
             }
             Op::Equal | Op::NotEqual => {
                 let right = self.pop()?;
                 let left = self.pop()?;
                 let same = left.equals(&right);
-                self.stack.push(Value::Bool(if op == Op::Equal { same } else { !same }));
+                self.stack
+                    .push(Value::Bool(if op == Op::Equal { same } else { !same }));
             }
             Op::Less | Op::LessOrEqual | Op::Greater | Op::GreaterOrEqual => {
                 let right = self.pop()?;
@@ -616,7 +674,11 @@ impl Machine {
                 let value = self.pop()?;
                 match value {
                     Value::Bool(held) => self.stack.push(Value::Bool(!held)),
-                    _ => return Err(Fault::Confused("`not` reached something that is not a Bool")),
+                    _ => {
+                        return Err(Fault::Confused(
+                            "`not` reached something that is not a Bool",
+                        ))
+                    }
                 }
             }
 
@@ -646,7 +708,9 @@ impl Machine {
             Op::Record { layout, fields } => {
                 let values = self.take(fields as usize)?;
                 let Some(layout) = program.layouts.get(layout as usize) else {
-                    return Err(Fault::Confused("a value was built from a type that is not there"));
+                    return Err(Fault::Confused(
+                        "a value was built from a type that is not there",
+                    ));
                 };
                 let record = if layout.mutable {
                     Record {
@@ -655,17 +719,25 @@ impl Machine {
                         cells: Some(Ref::new(values.into_iter().map(Captured::new).collect())),
                     }
                 } else {
-                    Record { layout: Ref::clone(layout), fields: values, cells: None }
+                    Record {
+                        layout: Ref::clone(layout),
+                        fields: values,
+                        cells: None,
+                    }
                 };
                 self.stack.push(Value::Record(Ref::new(record)));
             }
             Op::Variant { layout, fields } => {
                 let fields = self.take(fields as usize)?;
                 let Some(layout) = program.variants.get(layout as usize) else {
-                    return Err(Fault::Confused("a variant was built from a choice that is not there"));
+                    return Err(Fault::Confused(
+                        "a variant was built from a choice that is not there",
+                    ));
                 };
-                self.stack
-                    .push(Value::Variant(Ref::new(Variant { layout: Ref::clone(layout), fields })));
+                self.stack.push(Value::Variant(Ref::new(Variant {
+                    layout: Ref::clone(layout),
+                    fields,
+                })));
             }
 
             // -- Reaching inside -------------------------------------------
@@ -683,7 +755,9 @@ impl Machine {
                 let target = self.pop()?;
                 let value = self.pop()?;
                 let Value::Record(record) = target else {
-                    return Err(Fault::Confused("a field was written to something with none"));
+                    return Err(Fault::Confused(
+                        "a field was written to something with none",
+                    ));
                 };
                 if !record.set_field(index as usize, value) {
                     return Err(Fault::Confused("a field was written out of range"));
@@ -705,13 +779,13 @@ impl Machine {
             Op::Entries => {
                 let value = self.pop()?;
                 let Value::Map(entries) = value else {
-                    return Err(Fault::Confused("a map was expected and something else arrived"));
+                    return Err(Fault::Confused(
+                        "a map was expected and something else arrived",
+                    ));
                 };
                 let pairs = entries
                     .iter()
-                    .map(|(key, value)| {
-                        Value::Tuple(Ref::new(vec![key.0.clone(), value.clone()]))
-                    })
+                    .map(|(key, value)| Value::Tuple(Ref::new(vec![key.0.clone(), value.clone()])))
                     .collect();
                 self.stack.push(Value::list(pairs));
             }
@@ -723,15 +797,18 @@ impl Machine {
             // -- Taking apart ----------------------------------------------
             Op::IsFound => {
                 let value = self.pop()?;
-                self.stack.push(Value::Bool(matches!(value, Value::Maybe(Some(_)))));
+                self.stack
+                    .push(Value::Bool(matches!(value, Value::Maybe(Some(_)))));
             }
             Op::IsSuccess => {
                 let value = self.pop()?;
-                self.stack.push(Value::Bool(matches!(value, Value::Success(_))));
+                self.stack
+                    .push(Value::Bool(matches!(value, Value::Success(_))));
             }
             Op::IsFailure => {
                 let value = self.pop()?;
-                self.stack.push(Value::Bool(matches!(value, Value::Failure(_))));
+                self.stack
+                    .push(Value::Bool(matches!(value, Value::Failure(_))));
             }
             Op::IsVariant(index) => {
                 let value = self.pop()?;
@@ -753,7 +830,9 @@ impl Machine {
             Op::VariantField(index) => {
                 let value = self.pop()?;
                 let Value::Variant(variant) = value else {
-                    return Err(Fault::Confused("a variant's part was read from something else"));
+                    return Err(Fault::Confused(
+                        "a variant's part was read from something else",
+                    ));
                 };
                 let Some(field) = variant.fields.get(index as usize) else {
                     return Err(Fault::Confused("a variant's part was read out of range"));
@@ -763,7 +842,9 @@ impl Machine {
             Op::TupleItem(index) => {
                 let value = self.pop()?;
                 let Value::Tuple(parts) = value else {
-                    return Err(Fault::Confused("part of a group was read from something else"));
+                    return Err(Fault::Confused(
+                        "part of a group was read from something else",
+                    ));
                 };
                 let Some(part) = parts.get(index as usize) else {
                     return Err(Fault::Confused("part of a group was read out of range"));
@@ -773,8 +854,11 @@ impl Machine {
             Op::ListLengthIs { length, at_least } => {
                 let value = self.pop()?;
                 let held = length_of(&value)?;
-                let matched =
-                    if at_least { held >= length as usize } else { held == length as usize };
+                let matched = if at_least {
+                    held >= length as usize
+                } else {
+                    held == length as usize
+                };
                 self.stack.push(Value::Bool(matched));
             }
 
@@ -830,14 +914,22 @@ impl Machine {
                         self.enter(program, body, arity as usize, Value::Nothing, Some(closure))?;
                     }
                     Value::Builtin(builtin) => self.apply(builtin, arity as usize, world)?,
-                    _ => return Err(Fault::Confused("a call reached something that is not a function")),
+                    _ => {
+                        return Err(Fault::Confused(
+                            "a call reached something that is not a function",
+                        ))
+                    }
                 }
             }
             Op::CallMethod { body, arity } => {
                 let receiver = self.lift(arity as usize)?;
                 self.enter(program, body as usize, arity as usize, receiver, None)?;
             }
-            Op::CallAbility { ability, slot, arity } => {
+            Op::CallAbility {
+                ability,
+                slot,
+                arity,
+            } => {
                 let receiver = self.lift(arity as usize)?;
                 let body = ability_body(&receiver, ability, slot)?;
                 self.enter(program, body, arity as usize, receiver, None)?;
@@ -866,12 +958,18 @@ impl Machine {
                 let channel_value = self.pop()?;
                 let value = self.pop()?;
                 let Some(channel) = crate::concurrency::Host::channel_id(&channel_value) else {
-                    return Err(Fault::Confused("a send reached something that is not a channel"));
+                    return Err(Fault::Confused(
+                        "a send reached something that is not a channel",
+                    ));
                 };
                 match host.send(channel, value.clone(), span) {
                     OpResult::Done => {}
                     OpResult::Park(site) => {
-                        self.pending = Some(Pending::Send { channel, value, span });
+                        self.pending = Some(Pending::Send {
+                            channel,
+                            value,
+                            span,
+                        });
                         return Ok(TickAction::Park(site));
                     }
                     OpResult::Stop(fault) => return Err(fault),
@@ -885,7 +983,9 @@ impl Machine {
                     "a receive was reached with nothing on the stack",
                 ))?;
                 let Some(channel) = crate::concurrency::Host::channel_id(channel_value) else {
-                    return Err(Fault::Confused("a receive reached something that is not a channel"));
+                    return Err(Fault::Confused(
+                        "a receive reached something that is not a channel",
+                    ));
                 };
                 match host.receive(channel, span) {
                     OpResult::Ready(value) => {
@@ -902,7 +1002,9 @@ impl Machine {
             Op::Close => {
                 let channel_value = self.pop()?;
                 let Some(channel) = crate::concurrency::Host::channel_id(&channel_value) else {
-                    return Err(Fault::Confused("a close reached something that is not a channel"));
+                    return Err(Fault::Confused(
+                        "a close reached something that is not a channel",
+                    ));
                 };
                 match host.close(channel) {
                     OpResult::Done => {}
@@ -925,7 +1027,11 @@ impl Machine {
                 ))?;
                 let task = match task_value {
                     Value::Task(id) => *id,
-                    _ => return Err(Fault::Confused("a wait reached something that is not a task")),
+                    _ => {
+                        return Err(Fault::Confused(
+                            "a wait reached something that is not a task",
+                        ))
+                    }
                 };
                 match host.wait_task(task, span) {
                     OpResult::Ready(value) => {
@@ -935,13 +1041,17 @@ impl Machine {
                     OpResult::Park(site) => return Ok(self.park_at(pc, site)),
                     OpResult::Stop(fault) => return Err(fault),
                     OpResult::Failed(error) => return Err(error.fault),
-                    OpResult::Done => return Err(Fault::Confused("a wait named an impossible outcome")),
+                    OpResult::Done => {
+                        return Err(Fault::Confused("a wait named an impossible outcome"))
+                    }
                 }
             }
             Op::SharedRead => {
                 let shared = self.pop()?;
                 let Value::Shared(held) = shared else {
-                    return Err(Fault::Confused("`.value` reached something that is not shared"));
+                    return Err(Fault::Confused(
+                        "`.value` reached something that is not shared",
+                    ));
                 };
                 self.stack.push(held.get().clone());
             }
@@ -973,14 +1083,20 @@ impl Machine {
             Op::Select(index) => {
                 let descriptor = index as usize;
                 let Some(meta) = program.selects.get(descriptor) else {
-                    return Err(Fault::Confused("a select named a descriptor that is not there"));
+                    return Err(Fault::Confused(
+                        "a select named a descriptor that is not there",
+                    ));
                 };
                 let receive_count = meta
                     .arms
                     .iter()
                     .filter(|arm| matches!(arm, SelectArm::Receive { .. }))
                     .count();
-                let channels = if receive_count > 0 { self.take(receive_count)? } else { Vec::new() };
+                let channels = if receive_count > 0 {
+                    self.take(receive_count)?
+                } else {
+                    Vec::new()
+                };
                 return self.run_select(meta, descriptor, channels, pc, span, host);
             }
             Op::ReadFile(layout) => {
@@ -995,8 +1111,10 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("read_file named a variant that is not there"),
                         )?;
-                        let variant =
-                            Value::Variant(Ref::new(Variant { layout, fields: vec![path] }));
+                        let variant = Value::Variant(Ref::new(Variant {
+                            layout,
+                            fields: vec![path],
+                        }));
                         self.stack.push(Value::failure(variant));
                     }
                     Err(_) => return Err(Fault::Confused("could not read the file")),
@@ -1047,9 +1165,14 @@ impl Machine {
                     Value::Text(text) => text.to_string(),
                     _ => return Err(Fault::Confused("from_json expected text")),
                 };
-                let layout = program.variants.get(error as usize).cloned().ok_or(
-                    Fault::Confused("from_json named a variant that is not there"),
-                )?;
+                let layout =
+                    program
+                        .variants
+                        .get(error as usize)
+                        .cloned()
+                        .ok_or(Fault::Confused(
+                            "from_json named a variant that is not there",
+                        ))?;
                 match crate::json::decode_typed(
                     &text,
                     shape,
@@ -1059,7 +1182,8 @@ impl Machine {
                 ) {
                     Ok(value) => self.stack.push(Value::success(value)),
                     Err(message) => {
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1068,13 +1192,19 @@ impl Machine {
                     Value::Text(text) => text.to_string(),
                     _ => return Err(Fault::Confused("Json.parse expected text")),
                 };
-                let layout = program.variants.get(error as usize).cloned().ok_or(
-                    Fault::Confused("Json.parse named a variant that is not there"),
-                )?;
+                let layout =
+                    program
+                        .variants
+                        .get(error as usize)
+                        .cloned()
+                        .ok_or(Fault::Confused(
+                            "Json.parse named a variant that is not there",
+                        ))?;
                 match crate::json::parse_doc(&text, &program.variants) {
                     Ok(value) => self.stack.push(Value::success(value)),
                     Err(message) => {
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1115,9 +1245,14 @@ impl Machine {
                     Value::Text(text) => text.to_string(),
                     _ => return Err(Fault::Confused("env.required expected a name")),
                 };
-                let layout = program.variants.get(layout as usize).cloned().ok_or(
-                    Fault::Confused("env.required named a variant that is not there"),
-                )?;
+                let layout =
+                    program
+                        .variants
+                        .get(layout as usize)
+                        .cloned()
+                        .ok_or(Fault::Confused(
+                            "env.required named a variant that is not there",
+                        ))?;
                 self.stack.push(crate::app_io::env_required(&name, layout));
             }
             Op::DbConnect(layout) => {
@@ -1131,7 +1266,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("Db.connect named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1154,7 +1290,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("db.execute named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1177,7 +1314,64 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("db.query named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
+                    }
+                }
+            }
+            Op::DbTransaction { body, error } => {
+                let handle = match self.pop()? {
+                    Value::Db(handle) => handle,
+                    _ => return Err(Fault::Confused("db.transaction expected a database")),
+                };
+                let layout =
+                    program
+                        .variants
+                        .get(error as usize)
+                        .cloned()
+                        .ok_or(Fault::Confused(
+                            "db.transaction named a variant that is not there",
+                        ))?;
+                let function = self.make_function(program, body as usize, base)?;
+                let Value::Function(closure) = function else {
+                    return Err(Fault::Confused("a transaction body was not a function"));
+                };
+                if let Err(message) = world.databases.begin_transaction(handle) {
+                    self.stack
+                        .push(crate::app_io::failure_message(layout, message));
+                    return Ok(TickAction::Continue);
+                }
+                let mut nested = match Machine::for_body(
+                    program,
+                    body as usize,
+                    0,
+                    Some(Ref::clone(&closure)),
+                ) {
+                    Ok(machine) => machine,
+                    Err(fault) => {
+                        let _ = world.databases.rollback_transaction(handle);
+                        return Err(fault);
+                    }
+                };
+                match nested.run_alone(world, host) {
+                    Ok(Value::Failure(held)) => {
+                        let _ = world.databases.rollback_transaction(handle);
+                        self.stack.push(Value::Failure(held));
+                    }
+                    Ok(value) => {
+                        if let Err(message) = world.databases.commit_transaction(handle) {
+                            let _ = world.databases.rollback_transaction(handle);
+                            self.stack
+                                .push(crate::app_io::failure_message(layout, message));
+                        } else if matches!(value, Value::Success(_)) {
+                            self.stack.push(value);
+                        } else {
+                            self.stack.push(Value::success(value));
+                        }
+                    }
+                    Err(error) => {
+                        let _ = world.databases.rollback_transaction(handle);
+                        return Err(error.fault);
                     }
                 }
             }
@@ -1192,7 +1386,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("Store.open named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1229,7 +1424,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("store.set named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1251,7 +1447,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("store.remove named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1265,26 +1462,23 @@ impl Machine {
                     _ => return Err(Fault::Confused("store.keys expected a store")),
                 };
                 match world.stores.keys(handle, &prefix) {
-                    Ok(keys) => {
-                        self.stack.push(Value::success(Value::list(
-                            keys.into_iter().map(Value::text).collect(),
-                        )))
-                    }
+                    Ok(keys) => self.stack.push(Value::success(Value::list(
+                        keys.into_iter().map(Value::text).collect(),
+                    ))),
                     Err(message) => {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("store.keys named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
             Op::LoggerStdout => {
-                self.stack
-                    .push(Value::Logger(world.loggers.stdout()));
+                self.stack.push(Value::Logger(world.loggers.stdout()));
             }
             Op::LoggerStderr => {
-                self.stack
-                    .push(Value::Logger(world.loggers.stderr()));
+                self.stack.push(Value::Logger(world.loggers.stderr()));
             }
             Op::LoggerFile(layout) => {
                 let path = match self.pop()? {
@@ -1297,13 +1491,13 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("Logger.file named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
             Op::LoggerMemory => {
-                self.stack
-                    .push(Value::Logger(world.loggers.memory()));
+                self.stack.push(Value::Logger(world.loggers.memory()));
             }
             Op::LoggerMulti => {
                 let handles = match self.pop()? {
@@ -1375,7 +1569,9 @@ impl Machine {
                     Value::Logger(handle) => handle,
                     _ => return Err(Fault::Confused("logger expected a logger")),
                 };
-                let _ = world.loggers.write(handle, level, &message, &indexmap::IndexMap::new());
+                let _ = world
+                    .loggers
+                    .write(handle, level, &message, &indexmap::IndexMap::new());
                 self.stack.push(Value::Nothing);
             }
             Op::LoggerWrite => {
@@ -1431,16 +1627,14 @@ impl Machine {
                     _ => return Err(Fault::Confused("logger.lines expected a logger")),
                 };
                 match world.loggers.lines(handle) {
-                    Ok(lines) => {
-                        self.stack
-                            .push(Value::list(lines.into_iter().map(Value::text).collect()))
-                    }
+                    Ok(lines) => self
+                        .stack
+                        .push(Value::list(lines.into_iter().map(Value::text).collect())),
                     Err(_) => return Err(Fault::Confused("logger.lines could not read")),
                 }
             }
             Op::LoggerProcess => {
-                self.stack
-                    .push(Value::Logger(world.loggers.process()));
+                self.stack.push(Value::Logger(world.loggers.process()));
             }
             Op::QueryFromDb => {
                 let table = match self.pop()? {
@@ -1452,7 +1646,9 @@ impl Machine {
                     _ => return Err(Fault::Confused("db.from expected a database")),
                 };
                 self.stack
-                    .push(crate::query::wrap(crate::query::Query::from_db(handle, table)));
+                    .push(crate::query::wrap(crate::query::Query::from_db(
+                        handle, table,
+                    )));
             }
             Op::QueryFromStore => {
                 let prefix = match self.pop()? {
@@ -1464,7 +1660,9 @@ impl Machine {
                     _ => return Err(Fault::Confused("store.from expected a store")),
                 };
                 self.stack
-                    .push(crate::query::wrap(crate::query::Query::from_store(handle, prefix)));
+                    .push(crate::query::wrap(crate::query::Query::from_store(
+                        handle, prefix,
+                    )));
             }
             Op::QueryWhereEq
             | Op::QueryWhereNot
@@ -1487,7 +1685,13 @@ impl Machine {
                     Value::Text(text) => text.to_string(),
                     Value::Int(number) => number.to_string(),
                     Value::Float(number) => number.to_string(),
-                    Value::Bool(yes) => if yes { "1".into() } else { "0".into() },
+                    Value::Bool(yes) => {
+                        if yes {
+                            "1".into()
+                        } else {
+                            "0".into()
+                        }
+                    }
                     _ => {
                         return Err(Fault::Confused(
                             "query.where_* values must be text, numbers, or yes/no",
@@ -1502,7 +1706,9 @@ impl Machine {
                     Value::Query(query) => query.as_ref().clone(),
                     _ => return Err(Fault::Confused("query.where_* expected a Query")),
                 };
-                self.stack.push(crate::query::wrap(query.with_predicate(column, compare, value)));
+                self.stack.push(crate::query::wrap(
+                    query.with_predicate(column, compare, value),
+                ));
             }
             Op::QueryWhereColumn => {
                 let column = match self.pop()? {
@@ -1537,7 +1743,13 @@ impl Machine {
                     Value::Text(text) => text.to_string(),
                     Value::Int(number) => number.to_string(),
                     Value::Float(number) => number.to_string(),
-                    Value::Bool(yes) => if yes { "1".into() } else { "0".into() },
+                    Value::Bool(yes) => {
+                        if yes {
+                            "1".into()
+                        } else {
+                            "0".into()
+                        }
+                    }
                     _ => {
                         return Err(Fault::Confused(
                             "query.is values must be text, numbers, or yes/no",
@@ -1551,9 +1763,7 @@ impl Machine {
                 match query.with_pending_compare(compare, value) {
                     Ok(next) => self.stack.push(crate::query::wrap(next)),
                     Err(_) => {
-                        return Err(Fault::Confused(
-                            "query.is needs `.where(\"column\")` first",
-                        ))
+                        return Err(Fault::Confused("query.is needs `.where(\"column\")` first"))
                     }
                 }
             }
@@ -1601,7 +1811,8 @@ impl Machine {
                     Value::Query(query) => query.as_ref().clone(),
                     _ => return Err(Fault::Confused("query.select expected a Query")),
                 };
-                self.stack.push(crate::query::wrap(query.with_columns(columns)));
+                self.stack
+                    .push(crate::query::wrap(query.with_columns(columns)));
             }
             Op::QueryAll(layout) => {
                 let query = match self.pop()? {
@@ -1614,7 +1825,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("query.all named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1629,7 +1841,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("query.first named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1644,7 +1857,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("query.count named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1663,7 +1877,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("query.insert named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1682,7 +1897,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("query.update named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1697,7 +1913,8 @@ impl Machine {
                         let layout = program.variants.get(layout as usize).cloned().ok_or(
                             Fault::Confused("query.delete named a variant that is not there"),
                         )?;
-                        self.stack.push(crate::app_io::failure_message(layout, message));
+                        self.stack
+                            .push(crate::app_io::failure_message(layout, message));
                     }
                 }
             }
@@ -1733,9 +1950,11 @@ impl Machine {
                 }
             }
             Op::HttpSend(layout) => {
-                let headers_value = self.stack.last().cloned().ok_or(Fault::Confused(
-                    "http.send expected headers",
-                ))?;
+                let headers_value = self
+                    .stack
+                    .last()
+                    .cloned()
+                    .ok_or(Fault::Confused("http.send expected headers"))?;
                 let headers = crate::app_io::headers_from_value(&headers_value)?;
                 let body = match self.stack.get(self.stack.len().saturating_sub(2)) {
                     Some(Value::Text(text)) => text.to_string(),
@@ -1800,9 +2019,12 @@ impl Machine {
                             }
                             Err(message) => {
                                 let layout = program.variants.get(layout as usize).cloned().ok_or(
-                                    Fault::Confused("Socket.connect named a variant that is not there"),
+                                    Fault::Confused(
+                                        "Socket.connect named a variant that is not there",
+                                    ),
                                 )?;
-                                self.stack.push(crate::app_io::failure_message(layout, message));
+                                self.stack
+                                    .push(crate::app_io::failure_message(layout, message));
                             }
                         }
                     }
@@ -1847,11 +2069,12 @@ impl Machine {
                             match result {
                                 Ok(()) => self.stack.push(Value::success(Value::Nothing)),
                                 Err(message) => {
-                                    let layout = program.variants.get(layout as usize).cloned().ok_or(
-                                        Fault::Confused(
-                                            "socket.send named a variant that is not there",
-                                        ),
-                                    )?;
+                                    let layout =
+                                        program.variants.get(layout as usize).cloned().ok_or(
+                                            Fault::Confused(
+                                                "socket.send named a variant that is not there",
+                                            ),
+                                        )?;
                                     self.stack
                                         .push(crate::app_io::failure_message(layout, message));
                                 }
@@ -1950,9 +2173,11 @@ impl Machine {
                     }
                     _ => return Err(Fault::Confused("request.who needs request headers")),
                 };
-                let layout = program.layouts.get(user as usize).cloned().ok_or(
-                    Fault::Confused("request.who needs a User type"),
-                )?;
+                let layout = program
+                    .layouts
+                    .get(user as usize)
+                    .cloned()
+                    .ok_or(Fault::Confused("request.who needs a User type"))?;
                 match crate::app_io::verify_bearer(&headers, layout) {
                     Ok(record) => self.stack.push(Value::success(record)),
                     Err(()) => {
@@ -2055,7 +2280,9 @@ impl Machine {
                         self.stack.push(Value::absent());
                     }
                 }
-                if let Some(SelectArm::Receive { body } | SelectArm::Timeout { body, .. }) = meta.arms.get(arm) {
+                if let Some(SelectArm::Receive { body } | SelectArm::Timeout { body, .. }) =
+                    meta.arms.get(arm)
+                {
                     if let Some(frame) = self.frames.last_mut() {
                         frame.pc = *body as usize;
                     }
@@ -2078,7 +2305,10 @@ impl Machine {
                     resume_pc,
                     span,
                 });
-                Ok(TickAction::Park(WaitSite::Select { descriptor, resume_pc }))
+                Ok(TickAction::Park(WaitSite::Select {
+                    descriptor,
+                    resume_pc,
+                }))
             }
         }
     }
@@ -2088,11 +2318,16 @@ impl Machine {
     // -----------------------------------------------------------------------
 
     fn pop(&mut self) -> Result<Value, Fault> {
-        self.stack.pop().ok_or(Fault::Confused("the value stack ran dry"))
+        self.stack
+            .pop()
+            .ok_or(Fault::Confused("the value stack ran dry"))
     }
 
     fn peek(&self) -> Result<Value, Fault> {
-        self.stack.last().cloned().ok_or(Fault::Confused("the value stack ran dry"))
+        self.stack
+            .last()
+            .cloned()
+            .ok_or(Fault::Confused("the value stack ran dry"))
     }
 
     /// Takes the top `count` values, in the order they were pushed.
@@ -2186,17 +2421,28 @@ impl Machine {
         closure: Option<Ref<Closure>>,
     ) -> Result<(), Fault> {
         if self.frames.len() >= MOST_CALLS {
-            return Err(Fault::TooManyCalls { depth: self.frames.len() });
+            return Err(Fault::TooManyCalls {
+                depth: self.frames.len(),
+            });
         }
         let Some(shape) = program.body(body) else {
             return Err(Fault::Confused("a call named a body that is not there"));
         };
         let Some(base) = self.stack.len().checked_sub(arity) else {
-            return Err(Fault::Confused("a call was made with too few arguments on the stack"));
+            return Err(Fault::Confused(
+                "a call was made with too few arguments on the stack",
+            ));
         };
         // Whatever the arguments did not fill is a slot the body has yet to use.
-        self.stack.resize(base + shape.slots.max(arity), Value::Nothing);
-        self.frames.push(Frame { body, pc: 0, base, receiver, closure });
+        self.stack
+            .resize(base + shape.slots.max(arity), Value::Nothing);
+        self.frames.push(Frame {
+            body,
+            pc: 0,
+            base,
+            receiver,
+            closure,
+        });
         Ok(())
     }
 
@@ -2222,7 +2468,9 @@ impl Machine {
         base: usize,
     ) -> Result<Value, Fault> {
         let Some(shape) = program.body(body) else {
-            return Err(Fault::Confused("a function was built from a body that is not there"));
+            return Err(Fault::Confused(
+                "a function was built from a body that is not there",
+            ));
         };
         let mut captures = Vec::with_capacity(shape.captures.len());
         for capture in &shape.captures {
@@ -2247,7 +2495,9 @@ fn truth(value: &Value) -> Result<bool, Fault> {
     match value {
         Value::Bool(held) => Ok(*held),
         // Vaab has no truthiness, so a jump only ever tests a real `Bool`.
-        _ => Err(Fault::Confused("a decision was made on something that is not a Bool")),
+        _ => Err(Fault::Confused(
+            "a decision was made on something that is not a Bool",
+        )),
     }
 }
 
@@ -2255,7 +2505,9 @@ fn arithmetic(op: Op, left: Value, right: Value) -> Result<Value, Fault> {
     match (left, right) {
         (Value::Int(left), Value::Int(right)) => whole(op, left, right),
         (Value::Float(left), Value::Float(right)) => decimal(op, left, right),
-        _ => Err(Fault::Confused("arithmetic reached something that is not a number")),
+        _ => Err(Fault::Confused(
+            "arithmetic reached something that is not a number",
+        )),
     }
 }
 
@@ -2287,7 +2539,11 @@ fn whole(op: Op, left: i64, right: i64) -> Result<Value, Fault> {
             }
             (left.checked_rem(right), Operation::Remainder)
         }
-        _ => return Err(Fault::Confused("an operator arrived where arithmetic was expected")),
+        _ => {
+            return Err(Fault::Confused(
+                "an operator arrived where arithmetic was expected",
+            ))
+        }
     };
     answer.map(Value::Int).ok_or(Fault::Overflowed(operation))
 }
@@ -2296,8 +2552,11 @@ fn decimal(op: Op, left: f64, right: f64) -> Result<Value, Fault> {
     // A Float divided by zero is an error too, rather than the infinity IEEE
     // would give: Vaab promises one meaning for dividing by zero, not two.
     if matches!(op, Op::Divide | Op::Remainder) && right == 0.0 {
-        let operation =
-            if op == Op::Divide { Operation::Division } else { Operation::Remainder };
+        let operation = if op == Op::Divide {
+            Operation::Division
+        } else {
+            Operation::Remainder
+        };
         return Err(Fault::DividedByZero(operation));
     }
     Ok(Value::Float(match op {
@@ -2306,7 +2565,11 @@ fn decimal(op: Op, left: f64, right: f64) -> Result<Value, Fault> {
         Op::Multiply => left * right,
         Op::Divide => left / right,
         Op::Remainder => left % right,
-        _ => return Err(Fault::Confused("an operator arrived where arithmetic was expected")),
+        _ => {
+            return Err(Fault::Confused(
+                "an operator arrived where arithmetic was expected",
+            ))
+        }
     }))
 }
 
@@ -2315,7 +2578,11 @@ fn ordered(op: Op, left: &Value, right: &Value) -> Result<bool, Fault> {
         (Value::Int(left), Value::Int(right)) => left.partial_cmp(right),
         (Value::Float(left), Value::Float(right)) => left.partial_cmp(right),
         (Value::Text(left), Value::Text(right)) => left.as_ref().partial_cmp(right.as_ref()),
-        _ => return Err(Fault::Confused("a comparison reached values it cannot order")),
+        _ => {
+            return Err(Fault::Confused(
+                "a comparison reached values it cannot order",
+            ))
+        }
     };
     let Some(order) = order else {
         // Only a `NaN` gets here, and a `NaN` is neither side of anything.
@@ -2326,7 +2593,11 @@ fn ordered(op: Op, left: &Value, right: &Value) -> Result<bool, Fault> {
         Op::LessOrEqual => order.is_le(),
         Op::Greater => order.is_gt(),
         Op::GreaterOrEqual => order.is_ge(),
-        _ => return Err(Fault::Confused("an operator arrived where a comparison was expected")),
+        _ => {
+            return Err(Fault::Confused(
+                "an operator arrived where a comparison was expected",
+            ))
+        }
     })
 }
 
@@ -2347,19 +2618,28 @@ fn item_at(target: &Value, position: &Value) -> Result<Value, Fault> {
         return Err(Fault::Confused("something that is not a list was indexed"));
     };
     let Value::Int(index) = position else {
-        return Err(Fault::Confused("a list was indexed by something that is not a number"));
+        return Err(Fault::Confused(
+            "a list was indexed by something that is not a number",
+        ));
     };
-    let found = usize::try_from(*index).ok().and_then(|index| items.get(index));
+    let found = usize::try_from(*index)
+        .ok()
+        .and_then(|index| items.get(index));
     match found {
         Some(item) => Ok(item.clone()),
-        None => Err(Fault::IndexOutOfRange { index: *index, length: items.len() }),
+        None => Err(Fault::IndexOutOfRange {
+            index: *index,
+            length: items.len(),
+        }),
     }
 }
 
 /// `1..10`, which is the list of whole numbers it stands for.
 fn range(start: Value, end: Value) -> Result<Value, Fault> {
     let (Value::Int(start), Value::Int(end)) = (start, end) else {
-        return Err(Fault::Confused("a range was made from something that is not a number"));
+        return Err(Fault::Confused(
+            "a range was made from something that is not a number",
+        ));
     };
     if end < start {
         return Ok(Value::list(Vec::new()));
@@ -2376,7 +2656,9 @@ fn range(start: Value, end: Value) -> Result<Value, Fault> {
 /// Which body a call through an ability runs, which only the value can say.
 fn ability_body(receiver: &Value, ability: u32, slot: u32) -> Result<usize, Fault> {
     let Value::Record(record) = receiver else {
-        return Err(Fault::Confused("an ability was used on something that does not provide it"));
+        return Err(Fault::Confused(
+            "an ability was used on something that does not provide it",
+        ));
     };
     let found = record
         .layout
@@ -2386,7 +2668,9 @@ fn ability_body(receiver: &Value, ability: u32, slot: u32) -> Result<usize, Faul
         .copied()
         .unwrap_or_default();
     if found == 0 {
-        return Err(Fault::Confused("a type promised an ability and had no function for it"));
+        return Err(Fault::Confused(
+            "a type promised an ability and had no function for it",
+        ));
     }
     Ok(found as usize)
 }
@@ -2403,8 +2687,14 @@ mod tests {
 
     #[test]
     fn dividing_by_zero_stops_whether_the_numbers_are_whole_or_not() {
-        assert!(matches!(whole(Op::Divide, 1, 0), Err(Fault::DividedByZero(_))));
-        assert!(matches!(decimal(Op::Divide, 1.0, 0.0), Err(Fault::DividedByZero(_))));
+        assert!(matches!(
+            whole(Op::Divide, 1, 0),
+            Err(Fault::DividedByZero(_))
+        ));
+        assert!(matches!(
+            decimal(Op::Divide, 1.0, 0.0),
+            Err(Fault::DividedByZero(_))
+        ));
     }
 
     #[test]
@@ -2423,13 +2713,22 @@ mod tests {
     fn reaching_past_the_end_of_a_list_says_how_long_it_is() {
         let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
         let missing = item_at(&list, &Value::Int(5));
-        assert!(matches!(missing, Err(Fault::IndexOutOfRange { index: 5, length: 2 })));
+        assert!(matches!(
+            missing,
+            Err(Fault::IndexOutOfRange {
+                index: 5,
+                length: 2
+            })
+        ));
     }
 
     #[test]
     fn a_negative_position_is_out_of_range_rather_than_counting_backwards() {
         let list = Value::list(vec![Value::Int(1)]);
-        assert!(matches!(item_at(&list, &Value::Int(-1)), Err(Fault::IndexOutOfRange { .. })));
+        assert!(matches!(
+            item_at(&list, &Value::Int(-1)),
+            Err(Fault::IndexOutOfRange { .. })
+        ));
     }
 
     #[test]

@@ -63,7 +63,10 @@ pub(crate) struct NotSendable {
 
 impl NotSendable {
     fn culprit(declared: &Type) -> Self {
-        NotSendable { culprit: declared.clone(), reached_by: None }
+        NotSendable {
+            culprit: declared.clone(),
+            reached_by: None,
+        }
     }
 
     /// The same reason, reached through one more step. The innermost step wins,
@@ -79,11 +82,10 @@ impl NotSendable {
     /// say where that type came from.
     fn behind(mut self, step: impl FnOnce() -> String) -> Self {
         let step = step();
-        self.reached_by =
-            Some(match self.reached_by {
-                Some(path) => format!("{step}, and {path}"),
-                None => step,
-            });
+        self.reached_by = Some(match self.reached_by {
+            Some(path) => format!("{step}, and {path}"),
+            None => step,
+        });
         self
     }
 }
@@ -124,10 +126,17 @@ impl Checker {
     ) -> Result<(), NotSendable> {
         match declared {
             // Nothing can change these, so two tasks holding one cannot disagree.
-            Type::Int | Type::Float | Type::Bool | Type::Text | Type::Bytes | Type::Nothing | Type::Db | Type::Store
-            | Type::Logger | Type::Socket | Type::Query { .. } => {
-                Ok(())
-            }
+            Type::Int
+            | Type::Float
+            | Type::Bool
+            | Type::Text
+            | Type::Bytes
+            | Type::Nothing
+            | Type::Db
+            | Type::Store
+            | Type::Logger
+            | Type::Socket
+            | Type::Query { .. } => Ok(()),
 
             // A hole, or a mistake already reported. Neither is worth a second
             // message, and nothing is known well enough to refuse it.
@@ -183,16 +192,16 @@ impl Checker {
         verdict
     }
 
-    fn fields_of_named(
-        &self,
-        name: &str,
-        visiting: &mut Vec<String>,
-    ) -> Result<(), NotSendable> {
-        if let Some(declared) = self.checked.declared_types.iter().find(|held| held.name == name) {
+    fn fields_of_named(&self, name: &str, visiting: &mut Vec<String>) -> Result<(), NotSendable> {
+        if let Some(declared) = self
+            .checked
+            .declared_types
+            .iter()
+            .find(|held| held.name == name)
+        {
             for field in &declared.fields {
-                self.sendability_of(&field.declared, visiting).map_err(|why| {
-                    why.through(|| format!("`{name}`'s field `{}`", field.name))
-                })?;
+                self.sendability_of(&field.declared, visiting)
+                    .map_err(|why| why.through(|| format!("`{name}`'s field `{}`", field.name)))?;
             }
             return Ok(());
         }
@@ -200,11 +209,12 @@ impl Checker {
         if let Some(choice) = self.checked.choices.iter().find(|held| held.name == name) {
             for variant in &choice.variants {
                 for field in &variant.fields {
-                    self.sendability_of(&field.declared, visiting).map_err(|why| {
-                        why.through(|| {
-                            format!("`{name}`'s `{}` holds `{}`", variant.name, field.name)
-                        })
-                    })?;
+                    self.sendability_of(&field.declared, visiting)
+                        .map_err(|why| {
+                            why.through(|| {
+                                format!("`{name}`'s `{}` holds `{}`", variant.name, field.name)
+                            })
+                        })?;
                 }
             }
         }
@@ -281,7 +291,9 @@ impl Checker {
         }
 
         for (node, at) in reaches.selves {
-            let Some(found) = self.checked.type_of(node).cloned() else { continue };
+            let Some(found) = self.checked.type_of(node).cloned() else {
+                continue;
+            };
             if let Err(why) = self.sendability(&found) {
                 self.report(messages::unsendable_self(
                     &found,
@@ -305,6 +317,42 @@ impl Checker {
         }
     }
 
+    /// Locals a `db.transaction` body reads from outside itself. The block runs
+    /// on the same task, so sendability is not required.
+    pub(super) fn record_transaction(
+        &mut self,
+        node: NodeId,
+        frame: crate::checked::FrameId,
+        body: &Block,
+        locals_begin: usize,
+    ) {
+        let mut reaches = Reaches::default();
+        walk::block(body, &mut reaches);
+        let mut captures: Vec<LocalId> = Vec::new();
+        for (id, _) in reaches.names {
+            let Some(Resolution::Local(found)) = self.checked.resolution(id).cloned() else {
+                continue;
+            };
+            if found.local.index() >= locals_begin {
+                continue;
+            }
+            if !captures.contains(&found.local) {
+                captures.push(found.local);
+            }
+        }
+        self.checked
+            .transactions
+            .insert(node, crate::checked::Transaction { frame, captures });
+    }
+
+    pub(super) fn reject_nested_transaction(&mut self, body: &Block, span: Span) {
+        let mut nested = NestedTransaction { found: false };
+        walk::block(body, &mut nested);
+        if nested.found {
+            self.report(messages::nested_transaction(span));
+        }
+    }
+
     /// One value a task uses from outside itself, reported if the rules refuse it.
     fn check_capture(&mut self, local: LocalId, at: Span) {
         // A task inside a task reaches for the same value, and the innermost one is
@@ -313,21 +361,25 @@ impl Checker {
             return;
         }
 
-        let Some(held) = self.checked.local(local) else { return };
+        let Some(held) = self.checked.local(local) else {
+            return;
+        };
         let name = held.name.clone();
         let found = self.variables.resolve(&held.declared);
         let found_at = held.span;
 
         match self.verdict(local, &mut Vec::new()) {
             Verdict::Fine => {}
-            Verdict::Changing { name: changing, declared, declared_at, read_at } => {
+            Verdict::Changing {
+                name: changing,
+                declared,
+                declared_at,
+                read_at,
+            } => {
                 self.report(match read_at {
-                    None => messages::changing_captured_by_task(
-                        &changing,
-                        &declared,
-                        at,
-                        declared_at,
-                    ),
+                    None => {
+                        messages::changing_captured_by_task(&changing, &declared, at, declared_at)
+                    }
                     Some(read_at) => messages::changing_captured_through(
                         &changing,
                         &name,
@@ -355,13 +407,20 @@ impl Checker {
     /// mention locals declared before it, so it can never reach itself; the list is
     /// there so that the walk is bounded by construction rather than by hope.
     fn verdict(&self, local: LocalId, seen: &mut Vec<NodeId>) -> Verdict {
-        let Some(held) = self.checked.local(local) else { return Verdict::Fine };
+        let Some(held) = self.checked.local(local) else {
+            return Verdict::Fine;
+        };
         let name = held.name.clone();
         let declared = self.variables.resolve(&held.declared);
         let declared_at = held.span;
 
         if held.changing {
-            return Verdict::Changing { name, declared, declared_at, read_at: None };
+            return Verdict::Changing {
+                name,
+                declared,
+                declared_at,
+                read_at: None,
+            };
         }
 
         // A function value is refused unless it can be traced to the closure it
@@ -396,12 +455,19 @@ impl Checker {
     }
 
     fn verdict_of_captures(&self, closure: NodeId, seen: &mut Vec<NodeId>) -> Verdict {
-        let Some(reaches) = self.closure_captures.get(&closure) else { return Verdict::Fine };
+        let Some(reaches) = self.closure_captures.get(&closure) else {
+            return Verdict::Fine;
+        };
 
         for (held, at) in reaches {
             match self.verdict(*held, seen) {
                 Verdict::Fine => {}
-                Verdict::Changing { name, declared, declared_at, read_at } => {
+                Verdict::Changing {
+                    name,
+                    declared,
+                    declared_at,
+                    read_at,
+                } => {
                     return Verdict::Changing {
                         name,
                         declared,
@@ -431,7 +497,9 @@ impl Checker {
 
         let mut captures: Vec<(LocalId, Span)> = Vec::new();
         for (node, at) in reaches.names {
-            let Some(Resolution::Local(found)) = self.checked.resolution(node) else { continue };
+            let Some(Resolution::Local(found)) = self.checked.resolution(node) else {
+                continue;
+            };
             if found.local.index() >= closure_locals_begin {
                 continue;
             }
@@ -456,6 +524,21 @@ impl Checker {
 struct Reaches {
     names: Vec<(NodeId, Span)>,
     selves: Vec<(NodeId, Span)>,
+}
+
+struct NestedTransaction {
+    found: bool,
+}
+
+impl Visit for NestedTransaction {
+    fn expression(&mut self, expression: &Expr) -> Step {
+        if matches!(expression.kind, ExprKind::Transaction { .. }) {
+            self.found = true;
+            Step::Over
+        } else {
+            Step::Into
+        }
+    }
 }
 
 impl Visit for Reaches {
@@ -536,7 +619,10 @@ impl Checker {
     /// waited, and whatever it was waiting for could be waiting for the value.
     pub(super) fn check_update_change(&mut self, arguments: &[vaab_syntax::ast::Argument]) {
         let waiting = {
-            let mut waits = Waits { checked: &self.checked, found: Vec::new() };
+            let mut waits = Waits {
+                checked: &self.checked,
+                found: Vec::new(),
+            };
             for argument in arguments {
                 walk::expression(&argument.value, &mut waits);
             }
