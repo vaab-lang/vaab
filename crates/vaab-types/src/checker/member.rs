@@ -358,6 +358,50 @@ impl Checker {
                     }
                 };
             }
+            if self.lookup_local(&written.text).is_none() && written.text == "Clock" {
+                return match name.text.as_str() {
+                    "millis" => Member::Callable {
+                        signature: Signature::new(Vec::new(), Type::Int),
+                        resolution: Resolution::BuiltinMethod("clock_millis"),
+                        shape: CallShape::function("Clock.millis", None),
+                    },
+                    "monotonic_millis" => Member::Callable {
+                        signature: Signature::new(Vec::new(), Type::Int),
+                        resolution: Resolution::BuiltinMethod("clock_monotonic_millis"),
+                        shape: CallShape::function("Clock.monotonic_millis", None),
+                    },
+                    _ => {
+                        self.report(messages::unknown_member(
+                            &Type::named("Clock"),
+                            &name.text,
+                            name.span,
+                            &["millis".into(), "monotonic_millis".into()],
+                        ));
+                        Member::Unknown
+                    }
+                };
+            }
+            if self.lookup_local(&written.text).is_none() && written.text == "Float" {
+                return match name.text.as_str() {
+                    "pi" => Member::Value {
+                        declared: Type::Float,
+                        resolution: Resolution::BuiltinMethod("float_pi"),
+                    },
+                    "infinity" => Member::Value {
+                        declared: Type::Float,
+                        resolution: Resolution::BuiltinMethod("float_infinity"),
+                    },
+                    _ => {
+                        self.report(messages::unknown_member(
+                            &Type::named("Float"),
+                            &name.text,
+                            name.span,
+                            &["pi".into(), "infinity".into()],
+                        ));
+                        Member::Unknown
+                    }
+                };
+            }
         }
 
         let found = self.expression(target, Wanted::Anything);
@@ -1017,43 +1061,48 @@ impl Checker {
 
     /// A method from the prelude, such as `.map` or `.get`.
     fn builtin_member(&mut self, found: &Type, name: &Name, target: Span) -> Member {
-        let candidate = self
-            .builtin_methods
-            .iter()
-            .find(|method| {
-                method.name == name.text && prelude::same_shape(&method.receiver, found)
-            })
-            .map(|method| (method.name, method.receiver.clone(), method.signature.clone(), method.property));
+        let mut mismatch: Option<Type> = None;
+        for method in &self.builtin_methods {
+            if method.name != name.text || !prelude::same_shape(&method.receiver, found) {
+                continue;
+            }
 
-        let Some((name_of, receiver, signature, property)) = candidate else {
-            let known = prelude::members_of(found);
-            self.report(messages::unknown_member(found, &name.text, name.span, &known));
-            return Member::Unknown;
-        };
+            // The receiver and the signature share their type parameters, so they have
+            // to be given the same fresh variables: that is what carries the `T` of a
+            // `list of T` into what `.map` gives back.
+            let (receiver, signature) =
+                self.variables.instantiate_together(&method.receiver, &method.signature);
 
-        // The receiver and the signature share their type parameters, so they have to
-        // be given the same fresh variables: that is what carries the `T` of a
-        // `list of T` into what `.map` gives back.
-        let (receiver, signature) = self.variables.instantiate_together(&receiver, &signature);
+            if !self.variables.fits(found, &receiver) {
+                if mismatch.is_none() {
+                    mismatch = Some(self.variables.resolve(&receiver));
+                }
+                continue;
+            }
 
-        if !self.variables.fits(found, &receiver) {
-            let receiver = self.variables.resolve(&receiver);
-            self.report(messages::bad_receiver(&name.text, &receiver, found, target));
-            return Member::Unknown;
-        }
+            let code = prelude::builtin_code(method.name, &method.receiver);
+            if method.property {
+                return Member::Value {
+                    declared: signature.returns,
+                    resolution: Resolution::BuiltinMethod(code),
+                };
+            }
 
-        if property {
-            return Member::Value {
-                declared: signature.returns,
-                resolution: Resolution::BuiltinMethod(name_of),
+            return Member::Callable {
+                signature,
+                resolution: Resolution::BuiltinMethod(code),
+                shape: CallShape::function(method.name, None),
             };
         }
 
-        Member::Callable {
-            signature,
-            resolution: Resolution::BuiltinMethod(name_of),
-            shape: CallShape::function(name_of, None),
+        if let Some(wanted) = mismatch {
+            self.report(messages::bad_receiver(&name.text, &wanted, found, target));
+            return Member::Unknown;
         }
+
+        let known = prelude::members_of(found);
+        self.report(messages::unknown_member(found, &name.text, name.span, &known));
+        Member::Unknown
     }
 
     /// Everything a value of a declared type offers, for a "did you mean".

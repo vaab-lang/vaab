@@ -161,6 +161,7 @@ impl<'a> Compiler<'a> {
                 self.emit(Op::ReadFile(self.file_error_not_found()), span)
             }
             Some(Resolution::Builtin("now")) => self.emit(Op::Now, span),
+            Some(Resolution::Builtin("sleep")) => self.emit(Op::Nothing, span),
             Some(Resolution::Builtin("print")) => {
                 self.push_constant(Value::Builtin(Builtin::Print), span)
             }
@@ -241,6 +242,17 @@ impl<'a> Compiler<'a> {
             Some(Resolution::BuiltinMethod(name)) => {
                 // Only a property is read rather than called, so this is one of the
                 // handful that are.
+                match name {
+                    "float_pi" => {
+                        self.push_constant(Value::Float(std::f64::consts::PI), span);
+                        return;
+                    }
+                    "float_infinity" => {
+                        self.push_constant(Value::Float(f64::INFINITY), span);
+                        return;
+                    }
+                    _ => {}
+                }
                 let op = match name {
                     "is_empty" => Op::IsEmpty,
                     "count" | "length" => Op::Length,
@@ -285,6 +297,10 @@ impl<'a> Compiler<'a> {
             }
             Some(Resolution::Builtin("now")) => {
                 self.emit(Op::Now, span);
+            }
+            Some(Resolution::Builtin("sleep")) => {
+                let _ = self.push_arguments(call, arguments, Defaults::None);
+                self.emit(Op::Sleep, span);
             }
             Some(Resolution::Builtin("to_json")) => {
                 let count = self.push_arguments(call, arguments, Defaults::None);
@@ -809,6 +825,12 @@ impl<'a> Compiler<'a> {
                 let _ = self.push_arguments(call, arguments, Defaults::None);
                 return self.emit(Op::LoggerWrite, span);
             }
+            "clock_millis" => {
+                return self.emit(Op::ClockMillis, span);
+            }
+            "clock_monotonic_millis" => {
+                return self.emit(Op::ClockMonotonicMillis, span);
+            }
             _ => {}
         }
 
@@ -823,6 +845,21 @@ impl<'a> Compiler<'a> {
             "max" => Builtin::Max,
             "to_float" => Builtin::ToFloat,
             "round" => Builtin::Round,
+            "sqrt" => Builtin::Sqrt,
+            "ln" => Builtin::Ln,
+            "exp" => Builtin::Exp,
+            "pow" => Builtin::Pow,
+            "floor" => Builtin::Floor,
+            "ceil" => Builtin::Ceil,
+            "is_finite" => Builtin::IsFinite,
+            "to_int" => Builtin::ToInt,
+            "divided_by" => Builtin::DividedBy,
+            "sum_int" => Builtin::SumInt,
+            "sum_float" => Builtin::SumFloat,
+            "list_min" => Builtin::ListMin,
+            "list_max" => Builtin::ListMax,
+            "list_mean" => Builtin::ListMean,
+            "list_sorted" => Builtin::ListSorted,
             // A name in the checker's prelude and not in this list would be a
             // method with nothing behind it. `tests/library.rs` calls every one.
             _ => return self.emit(Op::Nothing, span),

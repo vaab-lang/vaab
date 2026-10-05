@@ -59,6 +59,7 @@ pub enum WaitSite {
     WaitTask { task: usize, span: Span },
     Together { group: usize },
     Select { descriptor: usize, resume_pc: usize },
+    Sleep { until: Instant },
 }
 
 pub(crate) struct TaskMeta {
@@ -153,11 +154,14 @@ impl Scheduler {
             self.host.fire_timeouts(&mut self.runnable);
 
             if self.runnable.is_empty() {
-                if self.host.timeouts.is_empty() && self.host.all_parked() {
-                    return Run::Failed(self.host.deadlock(&self.machines));
-                }
                 if self.host.timeouts.is_empty() {
                     return Run::Failed(self.host.deadlock(&self.machines));
+                }
+                if let Some(deadline) = self.host.next_deadline() {
+                    let now = Instant::now();
+                    if deadline > now {
+                        std::thread::sleep(deadline - now);
+                    }
                 }
                 continue;
             }
@@ -567,7 +571,18 @@ impl Host {
                 }
             }
             WaitSite::WaitTask { .. } | WaitSite::Together { .. } | WaitSite::Select { .. } => {}
+            WaitSite::Sleep { until } => {
+                self.timeouts.push(PendingTimeout {
+                    at: *until,
+                    task,
+                    select_arm: usize::MAX,
+                });
+            }
         }
+    }
+
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
+        self.timeouts.iter().map(|pending| pending.at).min()
     }
 
     fn try_wake_receiver(&mut self, task: usize, channel: u32) -> bool {
@@ -690,6 +705,7 @@ impl Host {
                 Some(WaitSite::WaitTask { task, .. }) => format!("waiting for task {task}"),
                 Some(WaitSite::Together { .. }) => "waiting in `together`".to_string(),
                 Some(WaitSite::Select { .. }) => "waiting in `select`".to_string(),
+                Some(WaitSite::Sleep { .. }) => "sleeping".to_string(),
                 None => "blocked".to_string(),
             };
             lines.push(format!("  task {id} ({name}): {site}"));

@@ -157,7 +157,29 @@ fn worker_loop(queue: Worker<usize>, shared: Arc<Parallel>) {
             return;
         }
         shared.idle_workers.fetch_sub(1, Ordering::AcqRel);
-        thread::yield_now();
+        if let Some(wait) = sleep_until_next_deadline(&shared) {
+            thread::sleep(wait);
+        } else {
+            thread::yield_now();
+        }
+    }
+}
+
+fn sleep_until_next_deadline(shared: &Parallel) -> Option<std::time::Duration> {
+    let host = lock(&shared.host).ok()?;
+    if !shared.injector.is_empty() || shared.stealers.iter().any(|stealer| !stealer.is_empty()) {
+        return None;
+    }
+    if host.timeouts.is_empty() || !host.all_parked() {
+        return None;
+    }
+    let deadline = host.next_deadline()?;
+    drop(host);
+    let now = std::time::Instant::now();
+    if deadline > now {
+        Some(deadline - now)
+    } else {
+        None
     }
 }
 
@@ -419,6 +441,7 @@ fn deadlock_parallel(host: &Host, machines: &Mutex<Vec<Mutex<Machine>>>) -> Runt
             Some(WaitSite::WaitTask { task, .. }) => format!("waiting for task {task}"),
             Some(WaitSite::Together { .. }) => "waiting in `together`".to_string(),
             Some(WaitSite::Select { .. }) => "waiting in `select`".to_string(),
+            Some(WaitSite::Sleep { .. }) => "sleeping".to_string(),
             None => "blocked".to_string(),
         };
         lines.push(format!("  task {id} ({name}): {site}"));

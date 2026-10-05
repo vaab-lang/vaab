@@ -890,6 +890,8 @@ fn pure_effect_label(effect: &str) -> String {
     match effect {
         "call `print`" => "this calls `print`".to_string(),
         "call `read_file`" => "this calls `read_file`".to_string(),
+        "call `sleep`" => "this calls `sleep`".to_string(),
+        "read the clock" => "this reads the clock".to_string(),
         "call a function held in a value" => "this calls a function held in a value".to_string(),
         "start a task" => "this starts a task".to_string(),
         "wait for a task" => "this waits for a task".to_string(),
@@ -913,6 +915,10 @@ fn pure_effect_help(effect: &str) -> String {
         "call `print`" => "use `print` before or after the `pure` function, not inside it",
         "call `read_file`" => {
             "read the file before calling the `pure` function, and pass the text in"
+        }
+        "call `sleep`" => "wait outside the `pure` function, then call it",
+        "read the clock" => {
+            "read the clock before calling the `pure` function, and pass the number in"
         }
         "call a function held in a value" => {
             "call a function declared with `pure to` by name instead, since a function \

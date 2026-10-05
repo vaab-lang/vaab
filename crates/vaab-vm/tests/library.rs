@@ -157,6 +157,103 @@ fn a_half_rounds_away_from_zero_the_way_it_is_taught_at_school() {
     assert_eq!(output("print(2.5.round())\nprint((-2.5).round())\n"), ["3", "-3"]);
 }
 
+#[test]
+fn float_maths_covers_the_new_methods() {
+    let source = "\
+print((9.0).sqrt())\n\
+print((1.0).exp().ln().round())\n\
+print((2.0).pow(3.0))\n\
+print((1.5).floor())\n\
+print((1.5).ceil())\n\
+print((1.0).min(2.0))\n\
+print((1.0).max(2.0))\n\
+print((1.0).is_finite())\n\
+print(Float.infinity.is_finite())\n\
+print((2.9).to_int())\n\
+print((-2.9).to_int())\n\
+print((10.0).divided_by(2.0))\n\
+print((10.0).divided_by(0.0))\n\
+print(Float.pi > 3.0)\n\
+";
+    assert_eq!(
+        output(source),
+        [
+            "3.0",
+            "1",
+            "8.0",
+            "1.0",
+            "2.0",
+            "1.0",
+            "2.0",
+            "yes",
+            "no",
+            "2",
+            "-2",
+            "found 5.0",
+            "nothing",
+            "yes",
+        ]
+    );
+}
+
+#[test]
+fn a_list_of_numbers_can_be_summed_averaged_and_sorted() {
+    let source = "\
+print([1, 3, 2].sum())\n\
+print([1.5, 2.5].sum())\n\
+print([3, 1, 2].min())\n\
+print([3, 1, 2].max())\n\
+print([1.0, 3.0, 2.0].mean())\n\
+print([3, 1, 2].sorted())\n\
+let empty_ints: list of Int = []\n\
+let empty_floats: list of Float = []\n\
+print(empty_ints.sum())\n\
+print(empty_floats.sum())\n\
+print(empty_ints.min())\n\
+print(empty_floats.mean())\n\
+let original = [2, 1]\n\
+let ordered = original.sorted()\n\
+print(ordered)\n\
+print(original)\n\
+";
+    assert_eq!(
+        output(source),
+        [
+            "6",
+            "4.0",
+            "found 1",
+            "found 3",
+            "found 2.0",
+            "[1, 2, 3]",
+            "0",
+            "0.0",
+            "nothing",
+            "nothing",
+            "[1, 2]",
+            "[2, 1]",
+        ]
+    );
+}
+
+#[test]
+fn clock_millis_is_a_whole_number_since_1970() {
+    let millis = printed("print(Clock.millis())\n")
+        .parse::<i64>()
+        .expect("a whole number");
+    assert!(millis > 1_600_000_000_000);
+}
+
+#[test]
+fn sleep_parks_until_the_deadline() {
+    let source = "\
+let started = Clock.monotonic_millis()\n\
+sleep(milliseconds: 20)\n\
+let elapsed = Clock.monotonic_millis() - started\n\
+print(if elapsed >= 20 { \"yes\" } else { \"no\" })\n\
+";
+    assert_eq!(printed(source), "yes");
+}
+
 // ---------------------------------------------------------------------------
 // File I/O, time and JSON
 // ---------------------------------------------------------------------------

@@ -1049,3 +1049,38 @@ structure is JSON-safe. Claiming `can Json` is optional documentation, not requi
 `.equals` / `.differs` / `.above` / … alias `.where_eq` / …. Prefer
 `.where("owner").is("ada")` for column-then-comparison fluency.
 
+---
+
+## Time and maths
+
+### D87. `Clock` and `sleep`
+
+`now()` stays whole seconds. Sub-second work uses `Clock.millis()` (wall time
+since the Unix epoch) and `Clock.monotonic_millis()` (a steady clock for
+durations). `Clock` is a namespace like `http` and `env`, not a value: unknown
+members use the existing unknown-member diagnostic and name `millis` and
+`monotonic_millis`.
+
+`sleep(milliseconds:)` parks the task with the same deadline list that backs
+`when timeout after` in `select`. The scheduler thread sleeps until the next
+deadline only when nothing else is runnable. It never blocks the OS thread
+while another task can run. `Clock.millis`, `Clock.monotonic_millis`, and
+`sleep` are not `pure`; read the clock or wait outside a `pure` function.
+
+### D88. Float and list maths
+
+`Float` gains `sqrt`, `ln`, `exp`, `pow`, `floor`, `ceil`, `min`, `max`,
+`is_finite`, `to_int`, and `divided_by`. `Float.pi` and `Float.infinity` are
+properties on the `Float` namespace, not calls. `/` by zero stays an error;
+`divided_by` returns `nothing` when the divisor is zero or not finite. `sqrt`
+of a negative number is a runtime fault, not a NaN. `to_int` truncates toward
+zero and uses the same overflow fault as `round` when the number is not finite
+or does not fit in an Int.
+
+Lists of Int and lists of Float offer `sum`, `min`, `max`, `mean`, and
+`sorted`. Empty `sum` is `0` or `0.0`; empty `min` / `max` / `mean` is
+`nothing`; `sorted` returns a new list. Method lookup tries every same-name
+prelude method whose receiver fits, so a `sum` registered on `list of Int`
+does not reject `list of Float`. A non-numeric list still gets the existing
+bad-receiver diagnostic. Maths is `pure`.
+

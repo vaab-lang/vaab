@@ -151,6 +151,9 @@ pub enum Op {
 
     ReadFile(u32),
     Now,
+    ClockMillis,
+    ClockMonotonicMillis,
+    Sleep,
 
     EnvGet,
     EnvRequired(u32),
@@ -393,6 +396,9 @@ fn write(op: &Op, program: &Program) -> String {
         Op::Builtin(builtin) => format!("Builtin {}", builtin.name()),
         Op::ReadFile(layout) => format!("ReadFile {layout}"),
         Op::Now => "Now".to_string(),
+        Op::ClockMillis => "ClockMillis".to_string(),
+        Op::ClockMonotonicMillis => "ClockMonotonicMillis".to_string(),
+        Op::Sleep => "Sleep".to_string(),
         Op::NotYet(feature) => format!("NotYet ({feature})"),
         other => format!("{other:?}"),
     }

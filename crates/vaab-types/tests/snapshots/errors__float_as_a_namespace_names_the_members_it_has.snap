@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"print(Float.tau)\\n\")"
+---
+[unknown-member] Error: a `Float` has nothing called `tau`
+   ╭─[ example.vaab:1:13 ]
+   │
+ 1 │ print(Float.tau)
+   │             ─┬─  
+   │              ╰─── this asks a `Float` for `tau`
+   │ 
+   │ Help: a `Float` offers `pi` and `infinity`
+───╯

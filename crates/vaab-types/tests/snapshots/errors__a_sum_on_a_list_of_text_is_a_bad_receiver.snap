@@ -1,0 +1,11 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"print([\\\"a\\\", \\\"b\\\"].sum())\\n\")"
+---
+[bad-receiver] Error: `sum` needs list of Int
+   ╭─[ example.vaab:1:7 ]
+   │
+ 1 │ print(["a", "b"].sum())
+   │       ─────┬────  
+   │            ╰────── this is list of Text
+───╯

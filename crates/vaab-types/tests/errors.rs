@@ -1098,6 +1098,36 @@ fn a_pure_closure_inside_a_pure_function_cannot_print() {
     ));
 }
 
+#[test]
+fn a_pure_function_cannot_read_the_clock() {
+    assert_snapshot!(errors("pure to stamp() returns Int = Clock.millis()\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_read_the_monotonic_clock() {
+    assert_snapshot!(errors("pure to tick() returns Int = Clock.monotonic_millis()\n"));
+}
+
+#[test]
+fn a_pure_function_cannot_sleep() {
+    assert_snapshot!(errors("pure to pause() = sleep(milliseconds: 10)\n"));
+}
+
+#[test]
+fn clock_names_the_members_it_has() {
+    assert_snapshot!(errors("print(Clock.seconds())\n"));
+}
+
+#[test]
+fn float_as_a_namespace_names_the_members_it_has() {
+    assert_snapshot!(errors("print(Float.tau)\n"));
+}
+
+#[test]
+fn a_sum_on_a_list_of_text_is_a_bad_receiver() {
+    assert_snapshot!(errors("print([\"a\", \"b\"].sum())\n"));
+}
+
 // ---------------------------------------------------------------------------
 // `together` and `select`
 // ---------------------------------------------------------------------------

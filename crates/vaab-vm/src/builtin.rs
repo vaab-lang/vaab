@@ -36,6 +36,21 @@ pub enum Builtin {
     Max,
     ToFloat,
     Round,
+    Sqrt,
+    Ln,
+    Exp,
+    Pow,
+    Floor,
+    Ceil,
+    IsFinite,
+    ToInt,
+    DividedBy,
+    SumInt,
+    SumFloat,
+    ListMin,
+    ListMax,
+    ListMean,
+    ListSorted,
 }
 
 impl Builtin {
@@ -56,6 +71,21 @@ impl Builtin {
             Builtin::Max => "max",
             Builtin::ToFloat => "to_float",
             Builtin::Round => "round",
+            Builtin::Sqrt => "sqrt",
+            Builtin::Ln => "ln",
+            Builtin::Exp => "exp",
+            Builtin::Pow => "pow",
+            Builtin::Floor => "floor",
+            Builtin::Ceil => "ceil",
+            Builtin::IsFinite => "is_finite",
+            Builtin::ToInt => "to_int",
+            Builtin::DividedBy => "divided_by",
+            Builtin::SumInt => "sum",
+            Builtin::SumFloat => "sum",
+            Builtin::ListMin => "min",
+            Builtin::ListMax => "max",
+            Builtin::ListMean => "mean",
+            Builtin::ListSorted => "sorted",
         }
     }
 
@@ -70,8 +100,27 @@ impl Builtin {
             | Builtin::Keys
             | Builtin::Abs
             | Builtin::ToFloat
-            | Builtin::Round => 1,
-            Builtin::Contains | Builtin::Join | Builtin::Get | Builtin::Min | Builtin::Max => 2,
+            | Builtin::Round
+            | Builtin::Sqrt
+            | Builtin::Ln
+            | Builtin::Exp
+            | Builtin::Floor
+            | Builtin::Ceil
+            | Builtin::IsFinite
+            | Builtin::ToInt
+            | Builtin::SumInt
+            | Builtin::SumFloat
+            | Builtin::ListMin
+            | Builtin::ListMax
+            | Builtin::ListMean
+            | Builtin::ListSorted => 1,
+            Builtin::Contains
+            | Builtin::Join
+            | Builtin::Get
+            | Builtin::Min
+            | Builtin::Max
+            | Builtin::Pow
+            | Builtin::DividedBy => 2,
         }
     }
 
@@ -116,17 +165,42 @@ impl Builtin {
             (Builtin::Max, [Value::Int(left), Value::Int(right)]) => {
                 Ok(Value::Int(*left.max(right)))
             }
+            (Builtin::Min, [Value::Float(left), Value::Float(right)]) => {
+                Ok(Value::Float(left.min(*right)))
+            }
+            (Builtin::Max, [Value::Float(left), Value::Float(right)]) => {
+                Ok(Value::Float(left.max(*right)))
+            }
             (Builtin::ToFloat, [Value::Int(number)]) => Ok(Value::Float(*number as f64)),
-            (Builtin::Round, [Value::Float(number)]) => {
-                let rounded = number.round();
-                // `as` would clamp silently, and a number too big to be a whole one
-                // is exactly the sort of thing that should stop the program.
-                if rounded.is_finite() && (MIN_WHOLE..=MAX_WHOLE).contains(&rounded) {
-                    Ok(Value::Int(rounded as i64))
+            (Builtin::Round, [Value::Float(number)]) => float_to_int(number.round()),
+            (Builtin::Sqrt, [Value::Float(number)]) => {
+                if *number < 0.0 {
+                    return Err(Fault::NotARealNumber);
+                }
+                Ok(Value::Float(number.sqrt()))
+            }
+            (Builtin::Ln, [Value::Float(number)]) => Ok(Value::Float(number.ln())),
+            (Builtin::Exp, [Value::Float(number)]) => Ok(Value::Float(number.exp())),
+            (Builtin::Pow, [Value::Float(base), Value::Float(exponent)]) => {
+                Ok(Value::Float(base.powf(*exponent)))
+            }
+            (Builtin::Floor, [Value::Float(number)]) => Ok(Value::Float(number.floor())),
+            (Builtin::Ceil, [Value::Float(number)]) => Ok(Value::Float(number.ceil())),
+            (Builtin::IsFinite, [Value::Float(number)]) => Ok(Value::Bool(number.is_finite())),
+            (Builtin::ToInt, [Value::Float(number)]) => float_to_int(number.trunc()),
+            (Builtin::DividedBy, [Value::Float(left), Value::Float(right)]) => {
+                if *right == 0.0 || !right.is_finite() {
+                    Ok(Value::absent())
                 } else {
-                    Err(Fault::Overflowed(Operation::Rounding))
+                    Ok(Value::found(Value::Float(left / right)))
                 }
             }
+            (Builtin::SumInt, [Value::List(items)]) => sum_ints(items),
+            (Builtin::SumFloat, [Value::List(items)]) => Ok(Value::Float(sum_floats(items))),
+            (Builtin::ListMin, [Value::List(items)]) => list_min(items),
+            (Builtin::ListMax, [Value::List(items)]) => list_max(items),
+            (Builtin::ListMean, [Value::List(items)]) => list_mean(items),
+            (Builtin::ListSorted, [Value::List(items)]) => Ok(Value::list(sorted_list(items))),
 
             // Every builtin is reached through a checked call, so a value of the
             // wrong shape here means the compiler and the checker have fallen out.
@@ -138,6 +212,124 @@ impl Builtin {
 /// The widest whole numbers a `Float` can be turned into without losing the range.
 const MIN_WHOLE: f64 = i64::MIN as f64;
 const MAX_WHOLE: f64 = i64::MAX as f64;
+
+fn float_to_int(number: f64) -> Result<Value, Fault> {
+    // `as` would clamp silently, and a number too big to be a whole one
+    // is exactly the sort of thing that should stop the program.
+    if number.is_finite() && (MIN_WHOLE..=MAX_WHOLE).contains(&number) {
+        Ok(Value::Int(number as i64))
+    } else {
+        Err(Fault::Overflowed(Operation::Rounding))
+    }
+}
+
+fn sum_ints(items: &[Value]) -> Result<Value, Fault> {
+    let mut total = 0i64;
+    for item in items {
+        let Value::Int(number) = item else {
+            return Err(Fault::Confused("a list sum was given a value that is not a whole number"));
+        };
+        total = total
+            .checked_add(*number)
+            .ok_or(Fault::Overflowed(Operation::Sum))?;
+    }
+    Ok(Value::Int(total))
+}
+
+fn sum_floats(items: &[Value]) -> f64 {
+    items.iter().fold(0.0, |total, item| match item {
+        Value::Float(number) => total + number,
+        Value::Int(number) => total + *number as f64,
+        _ => total,
+    })
+}
+
+fn list_min(items: &[Value]) -> Result<Value, Fault> {
+    let Some(first) = items.first() else {
+        return Ok(Value::absent());
+    };
+    match first {
+        Value::Int(_) => {
+            let mut least = match first {
+                Value::Int(number) => *number,
+                _ => unreachable!(),
+            };
+            for item in &items[1..] {
+                let Value::Int(number) = item else {
+                    return Err(Fault::Confused("a list min mixed whole numbers with something else"));
+                };
+                least = least.min(*number);
+            }
+            Ok(Value::found(Value::Int(least)))
+        }
+        Value::Float(_) => {
+            let mut least = match first {
+                Value::Float(number) => *number,
+                _ => unreachable!(),
+            };
+            for item in &items[1..] {
+                let Value::Float(number) = item else {
+                    return Err(Fault::Confused("a list min mixed decimals with something else"));
+                };
+                least = least.min(*number);
+            }
+            Ok(Value::found(Value::Float(least)))
+        }
+        _ => Err(Fault::Confused("a list min was given a value that is not a number")),
+    }
+}
+
+fn list_max(items: &[Value]) -> Result<Value, Fault> {
+    let Some(first) = items.first() else {
+        return Ok(Value::absent());
+    };
+    match first {
+        Value::Int(_) => {
+            let mut most = match first {
+                Value::Int(number) => *number,
+                _ => unreachable!(),
+            };
+            for item in &items[1..] {
+                let Value::Int(number) = item else {
+                    return Err(Fault::Confused("a list max mixed whole numbers with something else"));
+                };
+                most = most.max(*number);
+            }
+            Ok(Value::found(Value::Int(most)))
+        }
+        Value::Float(_) => {
+            let mut most = match first {
+                Value::Float(number) => *number,
+                _ => unreachable!(),
+            };
+            for item in &items[1..] {
+                let Value::Float(number) = item else {
+                    return Err(Fault::Confused("a list max mixed decimals with something else"));
+                };
+                most = most.max(*number);
+            }
+            Ok(Value::found(Value::Float(most)))
+        }
+        _ => Err(Fault::Confused("a list max was given a value that is not a number")),
+    }
+}
+
+fn list_mean(items: &[Value]) -> Result<Value, Fault> {
+    if items.is_empty() {
+        return Ok(Value::absent());
+    }
+    Ok(Value::found(Value::Float(sum_floats(items) / items.len() as f64)))
+}
+
+fn sorted_list(items: &[Value]) -> Vec<Value> {
+    let mut ordered = items.to_vec();
+    ordered.sort_by(|left, right| match (left, right) {
+        (Value::Int(a), Value::Int(b)) => a.cmp(b),
+        (Value::Float(a), Value::Float(b)) => a.total_cmp(b),
+        _ => std::cmp::Ordering::Equal,
+    });
+    ordered
+}
 
 /// Builds a map from keys and values that were pushed one pair after another.
 pub fn table(pairs: Vec<Value>) -> Value {

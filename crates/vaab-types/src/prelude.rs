@@ -56,6 +56,13 @@ pub fn functions() -> Vec<Function> {
                 Type::Text,
             ),
         },
+        Function {
+            name: "sleep",
+            signature: Signature::new(
+                vec![Parameter::new("milliseconds", Type::Int)],
+                Type::Nothing,
+            ),
+        },
     ]
 }
 
@@ -112,6 +119,66 @@ pub fn methods() -> Vec<Method> {
                 vec![Parameter::new("separator", Type::Text)],
                 Type::Text,
             ),
+            property: false,
+        },
+        Method {
+            name: "sum",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: false,
+        },
+        Method {
+            name: "sum",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "min",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Int)),
+            property: false,
+        },
+        Method {
+            name: "min",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+            property: false,
+        },
+        Method {
+            name: "max",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Int)),
+            property: false,
+        },
+        Method {
+            name: "max",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+            property: false,
+        },
+        Method {
+            name: "mean",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+            property: false,
+        },
+        Method {
+            name: "mean",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+            property: false,
+        },
+        Method {
+            name: "sorted",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::list(Type::Int)),
+            property: false,
+        },
+        Method {
+            name: "sorted",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::list(Type::Float)),
             property: false,
         },
         // ---- Maps ---------------------------------------------------------
@@ -217,6 +284,78 @@ pub fn methods() -> Vec<Method> {
             signature: Signature::new(Vec::new(), Type::Int),
             property: false,
         },
+        Method {
+            name: "sqrt",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "ln",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "exp",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "pow",
+            receiver: Type::Float,
+            signature: Signature::new(
+                vec![Parameter::new("exponent", Type::Float)],
+                Type::Float,
+            ),
+            property: false,
+        },
+        Method {
+            name: "floor",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "ceil",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "min",
+            receiver: Type::Float,
+            signature: Signature::new(vec![Parameter::new("other", Type::Float)], Type::Float),
+            property: false,
+        },
+        Method {
+            name: "max",
+            receiver: Type::Float,
+            signature: Signature::new(vec![Parameter::new("other", Type::Float)], Type::Float),
+            property: false,
+        },
+        Method {
+            name: "is_finite",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Bool),
+            property: false,
+        },
+        Method {
+            name: "to_int",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: false,
+        },
+        Method {
+            name: "divided_by",
+            receiver: Type::Float,
+            signature: Signature::new(
+                vec![Parameter::new("other", Type::Float)],
+                Type::maybe(Type::Float),
+            ),
+            property: false,
+        },
         // ---- Tasks and shared state ---------------------------------------
         Method {
             name: "wait",
@@ -278,11 +417,28 @@ pub fn methods() -> Vec<Method> {
 
 /// Everything a value of this type offers, for the "did you mean" in an error.
 pub fn members_of(receiver: &Type) -> Vec<String> {
-    methods()
-        .into_iter()
-        .filter(|method| same_shape(&method.receiver, receiver))
-        .map(|method| method.name.to_string())
-        .collect()
+    let mut names = Vec::new();
+    for method in methods() {
+        if same_shape(&method.receiver, receiver) && !names.iter().any(|name| name == method.name) {
+            names.push(method.name.to_string());
+        }
+    }
+    names
+}
+
+/// The compiler/runtime name for a prelude method, when the user-facing name is
+/// shared by more than one receiver (list `sum` of Int vs Float, list `min` vs
+/// number `min`).
+pub fn builtin_code(name: &'static str, receiver: &Type) -> &'static str {
+    match (name, receiver) {
+        ("sum", Type::List(item)) if **item == Type::Int => "sum_int",
+        ("sum", Type::List(item)) if **item == Type::Float => "sum_float",
+        ("min", Type::List(_)) => "list_min",
+        ("max", Type::List(_)) => "list_max",
+        ("mean", Type::List(_)) => "list_mean",
+        ("sorted", Type::List(_)) => "list_sorted",
+        _ => name,
+    }
 }
 
 /// Whether two types are built the same way, ignoring what they hold.
@@ -313,7 +469,7 @@ mod tests {
     #[test]
     fn the_prelude_holds_exactly_what_the_examples_need() {
         let names: Vec<&str> = functions().iter().map(|function| function.name).collect();
-        assert_eq!(names, ["print", "read_file", "now", "to_json"]);
+        assert_eq!(names, ["print", "read_file", "now", "to_json", "sleep"]);
     }
 
     #[test]

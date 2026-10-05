@@ -532,10 +532,18 @@ print("héllo".length)                    # 5, counted in characters
 | `items.count` | how many items it holds |
 | `items.first` | `maybe` the first item, since the list may be empty |
 | `items.join(separator: Text)` | one piece of text, for a list of Text |
+| `numbers.sum()` | the total, `0` or `0.0` when the list is empty |
+| `numbers.min()` / `numbers.max()` | `maybe` the least or greatest, `nothing` when empty |
+| `numbers.mean()` | `maybe` the average as a Float, `nothing` when empty |
+| `numbers.sorted()` | a new list in order; the original is unchanged |
+
+`sum`, `min`, `max`, `mean` and `sorted` belong to lists of Int and lists of
+Float. A list of anything else is told so.
 
 ```vaab
 print([1, 2, 3].map(n -> n * 2))          # [2, 4, 6]
 print(["ada", "alan"].map(n -> n.upper()).join(", "))
+print([2.0, 4.0, 4.0].mean())             # found 3.333...
 ```
 
 ### Maps
@@ -564,14 +572,26 @@ for each name in ages.keys {
 | `n.to_float()` | the same number as a Float |
 | `x.abs()` | the size of a decimal, without its sign |
 | `x.round()` | the nearest whole number, halves away from zero |
+| `x.sqrt()` | the non-negative square root; a negative number stops the program |
+| `x.ln()` / `x.exp()` | natural logarithm and e to the power of `x` |
+| `x.pow(exponent: Float)` | `x` raised to `exponent` |
+| `x.floor()` / `x.ceil()` | the nearest whole decimals toward −∞ and +∞ |
+| `x.min(other)` / `x.max(other)` | the smaller or larger of two decimals |
+| `x.is_finite()` | `no` for NaN and both infinities |
+| `x.to_int()` | toward zero, if the number is finite and fits in an Int |
+| `x.divided_by(other)` | `maybe` the quotient; `nothing` when `other` is 0 or not finite |
+| `Float.pi` / `Float.infinity` | π and +∞ |
 
 Vaab never turns an `Int` into a `Float` behind your back, so `.to_float()` is
 how a calculation mixes them. A method binds tighter than a minus sign, so the
-size of a negative literal is written `(-7).abs()`.
+size of a negative literal is written `(-7).abs()`. Dividing by zero with `/`
+is still an error; `.divided_by` is for code that expects a missing answer.
 
 ```vaab
 print(3.to_float() / 2.0)   # 1.5
 print(2.5.round())          # 3
+print((9.0).sqrt())         # 3.0
+print(Float.pi)
 ```
 
 ### Query (Db and Store)
@@ -624,6 +644,20 @@ match File.read("config.txt") {
 | | |
 |---|---|
 | `now()` | whole seconds since 1970-01-01 UTC |
+| `Clock.millis()` | whole milliseconds since 1970-01-01 UTC |
+| `Clock.monotonic_millis()` | milliseconds from a steady clock, for measuring durations |
+| `sleep(milliseconds: Int)` | parks this task until that many milliseconds have passed |
+
+`sleep` never parks the operating-system thread: other tasks keep running. Use
+`Clock.monotonic_millis` to time a wait; `Clock.millis` is wall time and can
+jump. `now()` is unchanged.
+
+```vaab
+let started = Clock.monotonic_millis()
+sleep(milliseconds: 100)
+let elapsed = Clock.monotonic_millis() - started
+print(if elapsed >= 100 { "yes" } else { "no" })
+```
 
 ### Logging
 

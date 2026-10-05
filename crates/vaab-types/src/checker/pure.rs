@@ -139,6 +139,7 @@ impl ImpureFinder<'_> {
             Some(Resolution::Builtin("read_file")) => {
                 Some(PureViolation::Effect("call `read_file`"))
             }
+            Some(Resolution::Builtin("sleep")) => Some(PureViolation::Effect("call `sleep`")),
             Some(Resolution::Builtin(_)) => None,
             Some(Resolution::BuiltinMethod("wait")) => {
                 Some(PureViolation::Effect("wait for a task"))
@@ -159,6 +160,9 @@ impl ImpureFinder<'_> {
             }
             Some(Resolution::BuiltinMethod("env_get" | "env_required")) => {
                 Some(PureViolation::Effect("read the environment"))
+            }
+            Some(Resolution::BuiltinMethod("clock_millis" | "clock_monotonic_millis")) => {
+                Some(PureViolation::Effect("read the clock"))
             }
             Some(Resolution::BuiltinMethod("http_get" | "http_post" | "http_send")) => {
                 Some(PureViolation::Effect("make an HTTP request"))

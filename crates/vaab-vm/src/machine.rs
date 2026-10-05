@@ -19,6 +19,7 @@
 //! tasks see the same file.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use vaab_syntax::span::Span;
 
@@ -202,6 +203,7 @@ enum Pending {
         resume_pc: usize,
         span: Span,
     },
+    Sleep { until: Instant },
 }
 
 /// A running Vaab program.
@@ -342,6 +344,7 @@ impl Machine {
                 }))),
                 }
             }
+            Some(Pending::Sleep { .. }) => None,
             Some(Pending::Select { descriptor, channels, resume_pc, span }) => {
                 let Some(meta) = world.program.selects.get(descriptor) else {
                     return Some(Step::Failed(Box::new(RuntimeError {
@@ -942,11 +945,44 @@ impl Machine {
                 }
             }
             Op::Now => {
-                let seconds = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
+                let seconds = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
                     .map(|duration| duration.as_secs() as i64)
                     .map_err(|_| Fault::Confused("the clock could not be read"))?;
                 self.stack.push(Value::Int(seconds));
+            }
+            Op::ClockMillis => {
+                let millis = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|duration| duration.as_millis() as i64)
+                    .map_err(|_| Fault::Confused("the clock could not be read"))?;
+                self.stack.push(Value::Int(millis));
+            }
+            Op::ClockMonotonicMillis => {
+                self.stack.push(Value::Int(monotonic_millis()));
+            }
+            Op::Sleep => {
+                let milliseconds = match self.stack.last() {
+                    Some(Value::Int(number)) => *number,
+                    _ => return Err(Fault::Confused("sleep expected a number of milliseconds")),
+                };
+                let until = match self.pending {
+                    Some(Pending::Sleep { until }) => until,
+                    _ => {
+                        let wait = milliseconds.max(0) as u64;
+                        Instant::now()
+                            .checked_add(Duration::from_millis(wait))
+                            .unwrap_or_else(|| Instant::now() + Duration::from_secs(3600))
+                    }
+                };
+                if Instant::now() >= until {
+                    self.pending = None;
+                    let _ = self.pop()?;
+                    self.stack.push(Value::Nothing);
+                } else {
+                    self.pending = Some(Pending::Sleep { until });
+                    return Ok(self.park_at(pc, WaitSite::Sleep { until }));
+                }
             }
 
             Op::EnvGet => {
@@ -1921,6 +1957,13 @@ fn arithmetic(op: Op, left: Value, right: Value) -> Result<Value, Fault> {
         (Value::Float(left), Value::Float(right)) => decimal(op, left, right),
         _ => Err(Fault::Confused("arithmetic reached something that is not a number")),
     }
+}
+
+fn monotonic_millis() -> i64 {
+    use std::sync::OnceLock;
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    let origin = ORIGIN.get_or_init(Instant::now);
+    Instant::now().duration_since(*origin).as_millis() as i64
 }
 
 /// Whole numbers, checked every time.

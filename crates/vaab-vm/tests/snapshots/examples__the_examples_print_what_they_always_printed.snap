@@ -1,6 +1,5 @@
 ---
 source: crates/vaab-vm/tests/examples.rs
-assertion_line: 104
 expression: transcript
 ---
 $ vaab run examples/01_hello.vaab
@@ -131,4 +130,10 @@ square 4x4 in ink
 yes
 yes
 no
+yes
+
+$ vaab run examples/27_numbers.vaab
+7
+2
+yes
 yes
