@@ -252,6 +252,75 @@ fn query_filters_sqlite_rows_with_sea_query() {
 }
 
 #[test]
+fn multiple_fluent_queries_on_one_db_handle_succeed() {
+    let path = std::env::temp_dir().join("vaab-multi-query-db-test.sqlite");
+    let _ = std::fs::remove_file(&path);
+    let path = path.display();
+    let source = format!(
+        "choice AppError {{\n\
+             Database(message: Text)\n\
+         }}\n\
+         \n\
+         to open_db(url: Text) returns Db or fails AppError {{\n\
+             match Db.connect(url) {{\n\
+                 when success db then {{\n\
+                     let empty: [Text] = []\n\
+                     match db.execute(\"create table if not exists events (id text primary key, name text not null)\", empty) {{\n\
+                         when success _ then {{ return db }}\n\
+                         when failure error then match error {{\n\
+                             when Failed(message) then {{ fail AppError.Database(message) }}\n\
+                         }}\n\
+                     }}\n\
+                 }}\n\
+                 when failure error then match error {{\n\
+                     when Failed(message) then {{ fail AppError.Database(message) }}\n\
+                 }}\n\
+             }}\n\
+         }}\n\
+         \n\
+         to track(db: Db, id: Text, name: Text) returns Int or fails AppError {{\n\
+             match db.from(\"events\").insert({{\"id\": id, \"name\": name}}) {{\n\
+                 when success _ then match db.from(\"events\").equals(\"name\", name).count() {{\n\
+                     when success n then {{ return n }}\n\
+                     when failure error then match error {{\n\
+                         when Failed(message) then {{ fail AppError.Database(message) }}\n\
+                     }}\n\
+                 }}\n\
+                 when failure error then match error {{\n\
+                     when Failed(message) then {{ fail AppError.Database(message) }}\n\
+                 }}\n\
+             }}\n\
+         }}\n\
+         \n\
+         to count_for(db: Db, name: Text) returns Int or fails AppError {{\n\
+             match db.from(\"events\").equals(\"name\", name).count() {{\n\
+                 when success n then {{ return n }}\n\
+                 when failure error then match error {{\n\
+                     when Failed(message) then {{ fail AppError.Database(message) }}\n\
+                 }}\n\
+             }}\n\
+         }}\n\
+         \n\
+         to run_all_queries() returns Text or fails AppError {{\n\
+             let db = try open_db(\"sqlite:{path}\")\n\
+             let c1 = try track(db, \"1\", \"rig\")\n\
+             let c2 = try track(db, \"2\", \"rig\")\n\
+             let c3 = try track(db, \"3\", \"tape\")\n\
+             let rig_n = try count_for(db, \"rig\")\n\
+             let tape_n = try count_for(db, \"tape\")\n\
+             let supa_n = try count_for(db, \"supabase\")\n\
+             return \"{{c1}},{{c2}},{{c3}}:{{rig_n}},{{tape_n}},{{supa_n}}\"\n\
+         }}\n\
+         \n\
+         match run_all_queries() {{\n\
+             when success summary then print(summary)\n\
+             when failure _ then print(\"failed\")\n\
+         }}\n"
+    );
+    assert_eq!(printed(&source), "1,2,1:2,1,0");
+}
+
+#[test]
 fn query_filters_store_rows_by_value() {
     let path = std::env::temp_dir().join("vaab-query-store-test.kv");
     let _ = std::fs::remove_file(&path);

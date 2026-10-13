@@ -324,6 +324,18 @@ impl<'a> Compiler<'a> {
     fn serve(&mut self, statement: &'a Stmt, serve: &'a ServeDecl) {
         let Some(checked) = self.checked.serves.get(&statement.id) else { return };
 
+        if let (Some(before_frame), Some(before_block)) = (checked.before, &serve.before) {
+            let body_index = self.builders.len();
+            let name = Ref::from("before every request");
+            self.builders.push(Builder::new(name, before_frame));
+            self.open_body(body_index, before_frame, 1);
+            self.block_discard(before_block);
+            self.emit(Op::Nothing, before_block.span);
+            self.emit(Op::Return, before_block.span);
+            self.open.pop();
+            self.program.before_route = Some(body_index);
+        }
+
         for (route, route_decl) in checked.routes.iter().zip(&serve.routes) {
             let body_index = self.builders.len();
             let name = Ref::from(format!("route {}", route.method).as_str());
@@ -334,6 +346,7 @@ impl<'a> Compiler<'a> {
                 + usize::from(route.expecting.is_some());
             self.open_body(body_index, route.frame, parameters);
             self.block_discard(&route_decl.body);
+            self.emit(Op::Nothing, route_decl.span);
             self.emit(Op::Return, route_decl.span);
             self.open.pop();
 
@@ -343,6 +356,11 @@ impl<'a> Compiler<'a> {
                 body: body_index,
                 frame: route.frame,
                 path_param_count: route.path_params.len(),
+                path_param_types: route
+                    .path_params
+                    .iter()
+                    .map(|(_, declared)| declared.clone())
+                    .collect(),
                 expects_body: route.expecting.is_some(),
                 body_layout: route.expecting.as_ref().and_then(|(declared, _)| {
                     match declared {
@@ -357,6 +375,20 @@ impl<'a> Compiler<'a> {
                     }
                 }),
             });
+        }
+
+        if let (Some((_, _, error_frame)), Some(handler_decl)) =
+            (&checked.error_handler, &serve.error_handler)
+        {
+            let body_index = self.builders.len();
+            let name = Ref::from("when anything fails");
+            self.builders.push(Builder::new(name, *error_frame));
+            self.open_body(body_index, *error_frame, 1);
+            self.block_discard(&handler_decl.body);
+            self.emit(Op::Nothing, handler_decl.body.span);
+            self.emit(Op::Return, handler_decl.body.span);
+            self.open.pop();
+            self.program.error_handler = Some(body_index);
         }
     }
 

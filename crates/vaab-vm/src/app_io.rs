@@ -42,11 +42,11 @@ impl Databases {
             );
         }
         let path = url
-            .strip_prefix("sqlite:")
-            .or_else(|| url.strip_prefix("sqlite://"))
+            .strip_prefix("sqlite://")
+            .or_else(|| url.strip_prefix("sqlite:"))
             .unwrap_or(url)
             .to_string();
-        {
+        if path != ":memory:" {
             let known = self.by_path.lock().map_err(|_| "database lock poisoned".to_string())?;
             if let Some(handle) = known.get(&path) {
                 return Ok(*handle);
@@ -61,10 +61,12 @@ impl Databases {
             .lock()
             .map_err(|_| "database lock poisoned".to_string())?
             .push(dialect);
-        self.by_path
-            .lock()
-            .map_err(|_| "database lock poisoned".to_string())?
-            .insert(path, index);
+        if path != ":memory:" {
+            self.by_path
+                .lock()
+                .map_err(|_| "database lock poisoned".to_string())?
+                .insert(path, index);
+        }
         Ok(index)
     }
 

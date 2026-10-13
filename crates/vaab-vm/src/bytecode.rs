@@ -271,7 +271,9 @@ pub struct Program {
     /// starting the machine partway through this body.
     pub statements: Vec<u32>,
     pub selects: Vec<SelectDescriptor>,
+    pub before_route: Option<usize>,
     pub routes: Vec<RouteHandler>,
+    pub error_handler: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -281,6 +283,7 @@ pub struct RouteHandler {
     pub body: usize,
     pub frame: vaab_types::FrameId,
     pub path_param_count: usize,
+    pub path_param_types: Vec<vaab_types::Type>,
     pub expects_body: bool,
     /// Layout index for `expecting T as name`, when the body should be a record.
     pub body_layout: Option<u32>,
@@ -314,7 +317,9 @@ impl Program {
             globals: 0,
             statements: Vec::new(),
             selects: Vec::new(),
+            before_route: None,
             routes: Vec::new(),
+            error_handler: None,
         }
     }
 

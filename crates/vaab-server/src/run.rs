@@ -27,7 +27,10 @@ pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Re
         .next()
         .ok_or_else(|| "this file has no `serve on port ...` block".to_string())?;
 
-    let world = vaab_vm::prepare(module, checked, Output::collected());
+    let mut world = vaab_vm::prepare(module, checked, Output::collected());
+    if let Err(problem) = vaab_vm::run(&mut world) {
+        return Err(format!("server startup failed: {:?}", problem.fault));
+    }
     let program = Ref::clone(&world.program);
     if program.routes.is_empty() {
         return Err("this server has no compiled routes".to_string());
@@ -42,9 +45,10 @@ pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Re
     log.info(&format!("listening on http://127.0.0.1:{}", serve.port));
     let state = Arc::new(ServerState {
         program,
-        databases: Databases::shared(),
-        stores: Stores::shared(),
-        loggers: Loggers::shared(),
+        globals: world.globals,
+        databases: Arc::clone(&world.databases),
+        stores: Arc::clone(&world.stores),
+        loggers: Arc::clone(&world.loggers),
         log,
     });
 
@@ -68,6 +72,7 @@ pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Re
 
 struct ServerState {
     program: Ref<Program>,
+    globals: Vec<Value>,
     databases: Arc<Databases>,
     stores: Arc<Stores>,
     loggers: Arc<Loggers>,
@@ -180,6 +185,7 @@ fn run_route(
         Arc::clone(&state.stores),
         Arc::clone(&state.loggers),
     );
+    world.globals = state.globals.clone();
     world.response = None;
 
     let request = Value::Tuple(Ref::from(vec![
@@ -189,11 +195,33 @@ fn run_route(
         Value::map(headers),
     ]));
 
+    if let Some(before_body) = state.program.before_route {
+        let mut before_machine = Machine::entering(&state.program, before_body, 0);
+        let _ = before_machine.set_argument(0, request.clone());
+        let mut before_host = Host::scratch(&state.program);
+        let _ = before_machine.resume(&mut world, &mut before_host, Budget::unlimited());
+        if let Some(response) = world.response.take() {
+            return response;
+        }
+    }
+
     let mut machine = Machine::entering(&state.program, route.body, 0);
     let _ = machine.set_argument(0, request);
     for (slot, value) in params.into_iter().enumerate() {
-        let argument = if let Ok(number) = value.parse::<i64>() {
-            Value::Int(number)
+        let expects_int = matches!(
+            route.path_param_types.get(slot),
+            Some(vaab_types::Type::Int)
+        );
+        let argument = if expects_int {
+            match value.parse::<i64>() {
+                Ok(number) => Value::Int(number),
+                Err(_) => {
+                    return HttpResponse::json(
+                        400,
+                        "{\"error\":\"invalid path parameter\"}".to_string(),
+                    );
+                }
+            }
         } else {
             Value::Text(Ref::from(value.as_str()))
         };
@@ -218,14 +246,36 @@ fn run_route(
         Step::Finished(value) => {
             if world.response.is_none() {
                 if let Value::Failure(held) = &value {
-                    if let Ok(body) = vaab_vm::json::encode(held) {
-                        world.response = Some(HttpResponse::json(400, body));
+                    if let Some(error_body) = state.program.error_handler {
+                        let mut error_machine = Machine::entering(&state.program, error_body, 0);
+                        let _ = error_machine.set_argument(0, held.as_ref().clone());
+                        let mut error_host = Host::scratch(&state.program);
+                        let _ = error_machine.resume(
+                            &mut world,
+                            &mut error_host,
+                            Budget::unlimited(),
+                        );
+                    }
+                    if world.response.is_none() {
+                        if let Ok(body) = vaab_vm::json::encode(held) {
+                            world.response = Some(HttpResponse::json(400, body));
+                        }
                     }
                 }
             }
         }
         Step::Yielded | Step::Parked(_) => {}
-        Step::Failed(_) => {}
+        Step::Failed(error) => {
+            state.log.write(
+                vaab_vm::LogLevel::Error,
+                "route fault",
+                &[
+                    ("method", method),
+                    ("path", path),
+                    ("fault", &format!("{:?}", error.fault)),
+                ],
+            );
+        }
     }
 
     world.response.unwrap_or(HttpResponse::json(

@@ -17,3 +17,7 @@ serde_json.workspace = true
 vaab-syntax.workspace = true
 vaab-types.workspace = true
 vaab-vm.workspace = true
+
+[dev-dependencies]
+vaab-riff = { path = "../vaab-riff" }
+
