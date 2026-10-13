@@ -30,6 +30,9 @@ hyper-util = { version = "0.1", features = ["server", "tokio", "http1"] }
 http-body-util = "0.1"
 redb = "2.6"
 rusqlite = { version = "0.32", features = ["bundled"] }
+postgres = "0.19"
+postgres-native-tls = "0.5"
+native-tls = "0.2"
 sea-query = { version = "1.0", default-features = false, features = ["backend-sqlite", "backend-postgres"] }
 ureq = "2.12"
 sha2 = "0.10"

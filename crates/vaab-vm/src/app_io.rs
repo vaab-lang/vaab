@@ -11,6 +11,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use hmac::{Hmac, Mac};
 use indexmap::IndexMap;
 use redb::{Database, ReadableTable, TableDefinition};
+use native_tls::TlsConnector;
+use postgres::Client as PostgresClient;
+use postgres_native_tls::MakeTlsConnector;
 use rusqlite::{params_from_iter, types::ValueRef, Connection};
 use sha2::Sha256;
 
@@ -20,10 +23,15 @@ use crate::value::{Key, Record, RecordLayout, Ref, Value, Variant, VariantLayout
 
 type HmacSha256 = Hmac<Sha256>;
 
+enum DbBackend {
+    Sqlite(Connection),
+    Postgres(Mutex<PostgresClient>),
+}
+
 /// Open database handles shared by every request machine in a `serve` process.
 #[derive(Default)]
 pub struct Databases {
-    connections: Mutex<Vec<Connection>>,
+    connections: Mutex<Vec<DbBackend>>,
     dialects: Mutex<Vec<Dialect>>,
     by_path: Mutex<HashMap<String, u32>>,
 }
@@ -35,37 +43,39 @@ impl Databases {
 
     pub fn connect(&self, url: &str) -> Result<u32, String> {
         let dialect = crate::query::dialect_for(url);
-        if dialect == Dialect::Postgres {
-            return Err(
-                "Postgres URLs are recognised for Query SQL, but live connections are still SQLite-only — use sqlite: for now"
-                    .into(),
-            );
-        }
-        let path = url
-            .strip_prefix("sqlite://")
-            .or_else(|| url.strip_prefix("sqlite:"))
-            .unwrap_or(url)
-            .to_string();
-        if path != ":memory:" {
+        let cache_key = if dialect == Dialect::Postgres {
+            url.to_string()
+        } else {
+            url.strip_prefix("sqlite://")
+                .or_else(|| url.strip_prefix("sqlite:"))
+                .unwrap_or(url)
+                .to_string()
+        };
+        if cache_key != ":memory:" {
             let known = self.by_path.lock().map_err(|_| "database lock poisoned".to_string())?;
-            if let Some(handle) = known.get(&path) {
+            if let Some(handle) = known.get(&cache_key) {
                 return Ok(*handle);
             }
         }
-        let connection = Connection::open(&path).map_err(|error| error.to_string())?;
+        let backend = match dialect {
+            Dialect::Sqlite => {
+                DbBackend::Sqlite(Connection::open(&cache_key).map_err(|error| error.to_string())?)
+            }
+            Dialect::Postgres => DbBackend::Postgres(Mutex::new(connect_postgres(url)?)),
+        };
         let mut held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
         let index = held.len() as u32;
-        held.push(connection);
+        held.push(backend);
         drop(held);
         self.dialects
             .lock()
             .map_err(|_| "database lock poisoned".to_string())?
             .push(dialect);
-        if path != ":memory:" {
+        if cache_key != ":memory:" {
             self.by_path
                 .lock()
                 .map_err(|_| "database lock poisoned".to_string())?
-                .insert(path, index);
+                .insert(cache_key, index);
         }
         Ok(index)
     }
@@ -78,55 +88,125 @@ impl Databases {
     }
 
     pub fn execute(&self, handle: u32, sql: &str, args: &[Value]) -> Result<i64, String> {
-        let sql = postgres_placeholders(sql);
         let bound = bind_args(args)?;
         let held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
-        let connection = held
+        let backend = held
             .get(handle as usize)
             .ok_or_else(|| "that database handle is gone".to_string())?;
-        connection
-            .execute(&sql, params_from_iter(bound.iter()))
-            .map(|changed| changed as i64)
-            .map_err(|error| error.to_string())
+        match backend {
+            DbBackend::Sqlite(connection) => {
+                let sql = postgres_placeholders(sql);
+                connection
+                    .execute(&sql, params_from_iter(bound.iter()))
+                    .map(|changed| changed as i64)
+                    .map_err(|error| error.to_string())
+            }
+            DbBackend::Postgres(client) => {
+                let mut client = client.lock().map_err(|_| "database lock poisoned".to_string())?;
+                let params = postgres_params(&bound);
+                client
+                    .execute(sql, &params)
+                    .map(|changed| changed as i64)
+                    .map_err(|error| error.to_string())
+            }
+        }
     }
 
     pub fn query(&self, handle: u32, sql: &str, args: &[Value]) -> Result<Value, String> {
-        let sql = postgres_placeholders(sql);
         let bound = bind_args(args)?;
         let held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
-        let connection = held
+        let backend = held
             .get(handle as usize)
             .ok_or_else(|| "that database handle is gone".to_string())?;
-        let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
-        let column_count = statement.column_count();
-        let names: Vec<String> = (0..column_count)
-            .map(|index| statement.column_name(index).unwrap_or("column").to_string())
-            .collect();
-        let rows = statement
-            .query_map(params_from_iter(bound.iter()), |row| {
-                let mut entries = IndexMap::new();
-                for (index, name) in names.iter().enumerate() {
-                    let value = match row.get_ref(index)? {
-                        ValueRef::Null => Value::text(""),
-                        ValueRef::Integer(number) => Value::text(number.to_string()),
-                        ValueRef::Real(number) => Value::text(number.to_string()),
-                        ValueRef::Text(text) => {
-                            Value::text(String::from_utf8_lossy(text).into_owned())
-                        }
-                        ValueRef::Blob(_) => Value::text("<blob>"),
-                    };
-                    entries.insert(Key(Value::text(name.clone())), value);
-                }
-                Ok(Value::map(entries))
-            })
-            .map_err(|error| error.to_string())?;
-
-        let mut list = Vec::new();
-        for row in rows {
-            list.push(row.map_err(|error| error.to_string())?);
+        match backend {
+            DbBackend::Sqlite(connection) => query_sqlite(connection, sql, &bound),
+            DbBackend::Postgres(client) => {
+                let mut client = client.lock().map_err(|_| "database lock poisoned".to_string())?;
+                query_postgres(&mut client, sql, &bound)
+            }
         }
-        Ok(Value::list(list))
     }
+}
+
+fn postgres_params(bound: &[String]) -> Vec<&(dyn postgres::types::ToSql + Sync)> {
+    bound
+        .iter()
+        .map(|value| value as &(dyn postgres::types::ToSql + Sync))
+        .collect()
+}
+
+fn connect_postgres(url: &str) -> Result<PostgresClient, String> {
+    if url.contains("sslmode=disable") {
+        return PostgresClient::connect(url, postgres::NoTls).map_err(|error| error.to_string());
+    }
+    let tls = TlsConnector::builder()
+        .build()
+        .map_err(|error| error.to_string())?;
+    let connector = MakeTlsConnector::new(tls);
+    PostgresClient::connect(url, connector).map_err(|error| error.to_string())
+}
+
+fn query_sqlite(connection: &Connection, sql: &str, bound: &[String]) -> Result<Value, String> {
+    let sql = postgres_placeholders(sql);
+    let mut statement = connection.prepare(&sql).map_err(|error| error.to_string())?;
+    let column_count = statement.column_count();
+    let names: Vec<String> = (0..column_count)
+        .map(|index| statement.column_name(index).unwrap_or("column").to_string())
+        .collect();
+    let rows = statement
+        .query_map(params_from_iter(bound.iter()), |row| row_to_map(row, &names))
+        .map_err(|error| error.to_string())?;
+    collect_rows(rows)
+}
+
+fn query_postgres(client: &mut PostgresClient, sql: &str, bound: &[String]) -> Result<Value, String> {
+    let params = postgres_params(bound);
+    let rows = client.query(sql, &params).map_err(|error| error.to_string())?;
+    if rows.is_empty() {
+        return Ok(Value::list(Vec::new()));
+    }
+    let names: Vec<String> = rows[0]
+        .columns()
+        .iter()
+        .map(|column| column.name().to_string())
+        .collect();
+    let mut list = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut entries = IndexMap::new();
+        for (index, name) in names.iter().enumerate() {
+            let text: String = row
+                .try_get(index)
+                .unwrap_or_else(|_| String::new());
+            entries.insert(Key(Value::text(name.clone())), Value::text(text));
+        }
+        list.push(Value::map(entries));
+    }
+    Ok(Value::list(list))
+}
+
+fn row_to_map(row: &rusqlite::Row<'_>, names: &[String]) -> rusqlite::Result<Value> {
+    let mut entries = IndexMap::new();
+    for (index, name) in names.iter().enumerate() {
+        let value = match row.get_ref(index)? {
+            ValueRef::Null => Value::text(""),
+            ValueRef::Integer(number) => Value::text(number.to_string()),
+            ValueRef::Real(number) => Value::text(number.to_string()),
+            ValueRef::Text(text) => Value::text(String::from_utf8_lossy(text).into_owned()),
+            ValueRef::Blob(_) => Value::text("<blob>"),
+        };
+        entries.insert(Key(Value::text(name.clone())), value);
+    }
+    Ok(Value::map(entries))
+}
+
+fn collect_rows(
+    rows: rusqlite::MappedRows<'_, impl FnMut(&rusqlite::Row<'_>) -> rusqlite::Result<Value>>,
+) -> Result<Value, String> {
+    let mut list = Vec::new();
+    for row in rows {
+        list.push(row.map_err(|error| error.to_string())?);
+    }
+    Ok(Value::list(list))
 }
 
 fn bind_args(args: &[Value]) -> Result<Vec<String>, String> {
@@ -267,6 +347,88 @@ pub fn sign_token(secret: &str, id: &str, email: &str) -> String {
     mac.update(b".");
     mac.update(email.as_bytes());
     hex::encode(mac.finalize().into_bytes())
+}
+
+/// `Authorization: Basic base64(username:password)` — used by gated static mounts.
+pub fn basic_auth_ok(header: &str, username: &str, password: &str) -> bool {
+    let encoded = header
+        .strip_prefix("Basic ")
+        .or_else(|| header.strip_prefix("basic "))
+        .map(str::trim)
+        .unwrap_or("");
+    if encoded.is_empty() {
+        return false;
+    }
+    let Ok(bytes) = base64_decode(encoded) else {
+        return false;
+    };
+    let Ok(decoded) = std::str::from_utf8(&bytes) else {
+        return false;
+    };
+    let expected = format!("{username}:{password}");
+    constant_time_eq(decoded.as_bytes(), expected.as_bytes())
+}
+
+fn base64_decode(input: &str) -> Result<Vec<u8>, ()> {
+    let chars: Vec<u8> = input
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .collect();
+    if chars.is_empty() || chars.len() % 4 != 0 {
+        return Err(());
+    }
+    let padding = chars.iter().rev().take_while(|byte| **byte == b'=').count();
+    if padding > 2 {
+        return Err(());
+    }
+    let mut out = Vec::with_capacity(chars.len() / 4 * 3);
+    for chunk in chars.chunks_exact(4) {
+        let mut values = [0_u8; 4];
+        for (index, byte) in chunk.iter().enumerate() {
+            if *byte == b'=' {
+                if index < 2 {
+                    return Err(());
+                }
+                values[index] = 0;
+            } else {
+                values[index] = base64_digit(*byte).ok_or(())?;
+            }
+        }
+        out.push((values[0] << 2) | (values[1] >> 4));
+        out.push((values[1] << 4) | (values[2] >> 2));
+        out.push((values[2] << 6) | values[3]);
+    }
+    if padding > 0 {
+        out.truncate(out.len() - padding);
+    }
+    Ok(out)
+}
+
+fn base64_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod basic_auth_tests {
+    use super::*;
+
+    #[test]
+    fn basic_auth_accepts_a_valid_header() {
+        // echo -n 'admin:secret' | base64 → YWRtaW46c2VjcmV0
+        assert!(basic_auth_ok("Basic YWRtaW46c2VjcmV0", "admin", "secret"));
+    }
+
+    #[test]
+    fn basic_auth_rejects_a_bad_password() {
+        assert!(!basic_auth_ok("Basic YWRtaW46c2VjcmV0", "admin", "nope"));
+    }
 }
 
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
