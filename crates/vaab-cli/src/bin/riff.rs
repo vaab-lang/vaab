@@ -6,7 +6,7 @@
 
 use std::process::ExitCode;
 
-use vaab_riff::{install, is_installed, vaab_home};
+use vaab_riff::{install, is_installed, track_registry_install, vaab_home};
 
 fn main() -> ExitCode {
     match run(std::env::args().skip(1).collect()) {
@@ -35,6 +35,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             }
             let path = install(&name)?;
             println!("Installed {name} to {}", path.display());
+            track_registry_install(&name);
             Ok(())
         }
         "list" => {

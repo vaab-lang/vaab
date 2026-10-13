@@ -30,6 +30,15 @@ pub fn install(name: &str) -> Result<PathBuf, String> {
     Ok(destination)
 }
 
+/// Best-effort ping to riff.vaab.dev so install counts stay real (rig-backed).
+/// Never fails the install — registry downtime must not block `riff install`.
+pub fn track_registry_install(name: &str) {
+    let url = format!("https://riff.vaab.dev/api/riffs/{name}/track");
+    let _ = ureq::post(&url)
+        .timeout(std::time::Duration::from_secs(2))
+        .call();
+}
+
 /// Install only if missing; used by `vaab need`.
 pub fn ensure(name: &str) -> Result<PathBuf, String> {
     let destination = riff_dir(name)?;

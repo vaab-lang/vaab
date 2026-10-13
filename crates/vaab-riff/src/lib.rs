@@ -15,7 +15,9 @@ mod project;
 
 pub use gather::{add_dependency, default_project_manifest, gather, ProjectKind};
 pub use home::vaab_home;
-pub use install::{ensure, install, install_from_path, installed_path, is_installed};
+pub use install::{
+    ensure, install, install_from_path, installed_path, is_installed, track_registry_install,
+};
 pub use link::{exports_of, link, Linked, LoadedRiff};
 pub use lock::{LockEntry, Lockfile};
 pub use manifest::{Dependency, Manifest};
