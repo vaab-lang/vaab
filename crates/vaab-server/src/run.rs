@@ -132,9 +132,26 @@ async fn handle(
 
     let response = match router::find_route(&state.program.routes, &method, &path) {
         Some(matched) => {
-            let route = &state.program.routes[matched.handler];
             let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
-            run_route(&state, route, &method, &path, body_text, headers, matched.params)
+            let state_for_route = Arc::clone(&state);
+            let method_for_route = method.clone();
+            let path_for_route = path.clone();
+            let handler_index = matched.handler;
+            let params = matched.params;
+            tokio::task::spawn_blocking(move || {
+                let route = &state_for_route.program.routes[handler_index];
+                run_route(
+                    &state_for_route,
+                    route,
+                    &method_for_route,
+                    &path_for_route,
+                    body_text,
+                    headers,
+                    params,
+                )
+            })
+            .await
+            .unwrap_or_else(|_| HttpResponse::json(500, "{\"error\":\"route failed\"}".to_string()))
         }
         None => HttpResponse::json(404, "{\"error\":\"not found\"}".to_string()),
     };

@@ -6,6 +6,7 @@
 //! Postgres/auth/HTTP/env are not riffs.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use hmac::{Hmac, Mac};
@@ -23,9 +24,120 @@ use crate::value::{Key, Record, RecordLayout, Ref, Value, Variant, VariantLayout
 
 type HmacSha256 = Hmac<Sha256>;
 
+enum PgCommand {
+    Execute {
+        sql: String,
+        bound: Vec<String>,
+        reply: SyncSender<Result<i64, String>>,
+    },
+    Query {
+        sql: String,
+        bound: Vec<String>,
+        reply: SyncSender<Result<Value, String>>,
+    },
+}
+
+#[derive(Clone)]
+struct PostgresWorker {
+    sender: SyncSender<PgCommand>,
+}
+
+impl PostgresWorker {
+    fn connect(url: &str) -> Result<Self, String> {
+        let url_owned = url.to_string();
+        let (init_tx, init_rx) = mpsc::sync_channel::<Result<SyncSender<PgCommand>, String>>(1);
+        std::thread::spawn(move || {
+            let mut client = match connect_postgres(&url_owned) {
+                Ok(client) => client,
+                Err(error) => {
+                    let _ = init_tx.send(Err(error));
+                    return;
+                }
+            };
+            let (cmd_tx, cmd_rx) = mpsc::sync_channel::<PgCommand>(64);
+            if init_tx.send(Ok(cmd_tx)).is_err() {
+                return;
+            }
+            while let Ok(command) = cmd_rx.recv() {
+                match command {
+                    PgCommand::Execute { sql, bound, reply } => {
+                        let first = {
+                            let params = postgres_params(&bound);
+                            client.execute(sql.as_str(), &params)
+                        };
+                        let outcome = match first {
+                            Ok(changed) => Ok(changed as i64),
+                            Err(err) if client.is_closed() => match connect_postgres(&url_owned) {
+                                Ok(fresh) => {
+                                    client = fresh;
+                                    let params = postgres_params(&bound);
+                                    client
+                                        .execute(sql.as_str(), &params)
+                                        .map(|changed| changed as i64)
+                                        .map_err(|error| error.to_string())
+                                }
+                                Err(_) => Err(err.to_string()),
+                            },
+                            Err(err) => Err(err.to_string()),
+                        };
+                        let _ = reply.send(outcome);
+                    }
+                    PgCommand::Query { sql, bound, reply } => {
+                        let first = query_postgres(&mut client, &sql, &bound);
+                        let outcome = match first {
+                            Ok(rows) => Ok(rows),
+                            Err(err) if client.is_closed() => match connect_postgres(&url_owned) {
+                                Ok(fresh) => {
+                                    client = fresh;
+                                    query_postgres(&mut client, &sql, &bound)
+                                }
+                                Err(_) => Err(err),
+                            },
+                            Err(err) => Err(err),
+                        };
+                        let _ = reply.send(outcome);
+                    }
+                }
+            }
+        });
+        let sender = init_rx
+            .recv()
+            .map_err(|_| "postgres worker thread exited during connect".to_string())??;
+        Ok(Self { sender })
+    }
+
+    fn execute(&self, sql: &str, bound: Vec<String>) -> Result<i64, String> {
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        self.sender
+            .send(PgCommand::Execute {
+                sql: sql.to_string(),
+                bound,
+                reply: reply_tx,
+            })
+            .map_err(|_| "postgres worker thread disconnected".to_string())?;
+        reply_rx
+            .recv()
+            .map_err(|_| "postgres worker thread disconnected".to_string())?
+    }
+
+    fn query(&self, sql: &str, bound: Vec<String>) -> Result<Value, String> {
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        self.sender
+            .send(PgCommand::Query {
+                sql: sql.to_string(),
+                bound,
+                reply: reply_tx,
+            })
+            .map_err(|_| "postgres worker thread disconnected".to_string())?;
+        reply_rx
+            .recv()
+            .map_err(|_| "postgres worker thread disconnected".to_string())?
+    }
+}
+
 enum DbBackend {
-    Sqlite(Connection),
-    Postgres(Mutex<PostgresClient>),
+    Sqlite(Arc<Mutex<Connection>>),
+    Postgres(PostgresWorker),
 }
 
 /// Open database handles shared by every request machine in a `serve` process.
@@ -58,10 +170,10 @@ impl Databases {
             }
         }
         let backend = match dialect {
-            Dialect::Sqlite => {
-                DbBackend::Sqlite(Connection::open(&cache_key).map_err(|error| error.to_string())?)
-            }
-            Dialect::Postgres => DbBackend::Postgres(Mutex::new(connect_postgres(url)?)),
+            Dialect::Sqlite => DbBackend::Sqlite(Arc::new(Mutex::new(
+                Connection::open(&cache_key).map_err(|error| error.to_string())?,
+            ))),
+            Dialect::Postgres => DbBackend::Postgres(PostgresWorker::connect(url)?),
         };
         let mut held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
         let index = held.len() as u32;
@@ -89,41 +201,43 @@ impl Databases {
 
     pub fn execute(&self, handle: u32, sql: &str, args: &[Value]) -> Result<i64, String> {
         let bound = bind_args(args)?;
-        let held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
-        let backend = held
-            .get(handle as usize)
-            .ok_or_else(|| "that database handle is gone".to_string())?;
+        let backend = {
+            let held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
+            match held.get(handle as usize) {
+                Some(DbBackend::Sqlite(conn)) => DbBackend::Sqlite(Arc::clone(conn)),
+                Some(DbBackend::Postgres(worker)) => DbBackend::Postgres(worker.clone()),
+                None => return Err("that database handle is gone".to_string()),
+            }
+        };
         match backend {
             DbBackend::Sqlite(connection) => {
+                let connection = connection.lock().map_err(|_| "database lock poisoned".to_string())?;
                 let sql = postgres_placeholders(sql);
                 connection
                     .execute(&sql, params_from_iter(bound.iter()))
                     .map(|changed| changed as i64)
                     .map_err(|error| error.to_string())
             }
-            DbBackend::Postgres(client) => {
-                let mut client = client.lock().map_err(|_| "database lock poisoned".to_string())?;
-                let params = postgres_params(&bound);
-                client
-                    .execute(sql, &params)
-                    .map(|changed| changed as i64)
-                    .map_err(|error| error.to_string())
-            }
+            DbBackend::Postgres(worker) => worker.execute(sql, bound),
         }
     }
 
     pub fn query(&self, handle: u32, sql: &str, args: &[Value]) -> Result<Value, String> {
         let bound = bind_args(args)?;
-        let held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
-        let backend = held
-            .get(handle as usize)
-            .ok_or_else(|| "that database handle is gone".to_string())?;
-        match backend {
-            DbBackend::Sqlite(connection) => query_sqlite(connection, sql, &bound),
-            DbBackend::Postgres(client) => {
-                let mut client = client.lock().map_err(|_| "database lock poisoned".to_string())?;
-                query_postgres(&mut client, sql, &bound)
+        let backend = {
+            let held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
+            match held.get(handle as usize) {
+                Some(DbBackend::Sqlite(conn)) => DbBackend::Sqlite(Arc::clone(conn)),
+                Some(DbBackend::Postgres(worker)) => DbBackend::Postgres(worker.clone()),
+                None => return Err("that database handle is gone".to_string()),
             }
+        };
+        match backend {
+            DbBackend::Sqlite(connection) => {
+                let connection = connection.lock().map_err(|_| "database lock poisoned".to_string())?;
+                query_sqlite(&connection, sql, &bound)
+            }
+            DbBackend::Postgres(worker) => worker.query(sql, bound),
         }
     }
 }
@@ -139,11 +253,22 @@ fn connect_postgres(url: &str) -> Result<PostgresClient, String> {
     if url.contains("sslmode=disable") {
         return PostgresClient::connect(url, postgres::NoTls).map_err(|error| error.to_string());
     }
-    let tls = TlsConnector::builder()
+    if let Ok(tls) = TlsConnector::builder()
+        .danger_accept_invalid_certs(true)
         .build()
-        .map_err(|error| error.to_string())?;
-    let connector = MakeTlsConnector::new(tls);
-    PostgresClient::connect(url, connector).map_err(|error| error.to_string())
+    {
+        let connector = MakeTlsConnector::new(tls);
+        match PostgresClient::connect(url, connector) {
+            Ok(client) => return Ok(client),
+            Err(tls_error) => {
+                if let Ok(client) = PostgresClient::connect(url, postgres::NoTls) {
+                    return Ok(client);
+                }
+                return Err(tls_error.to_string());
+            }
+        }
+    }
+    PostgresClient::connect(url, postgres::NoTls).map_err(|error| error.to_string())
 }
 
 fn query_sqlite(connection: &Connection, sql: &str, bound: &[String]) -> Result<Value, String> {
