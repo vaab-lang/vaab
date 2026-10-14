@@ -24,15 +24,22 @@ use crate::value::{Key, Record, RecordLayout, Ref, Value, Variant, VariantLayout
 
 type HmacSha256 = Hmac<Sha256>;
 
+enum PgBind {
+    Text(String),
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+}
+
 enum PgCommand {
     Execute {
         sql: String,
-        bound: Vec<String>,
+        bound: Vec<PgBind>,
         reply: SyncSender<Result<i64, String>>,
     },
     Query {
         sql: String,
-        bound: Vec<String>,
+        bound: Vec<PgBind>,
         reply: SyncSender<Result<Value, String>>,
     },
 }
@@ -106,7 +113,7 @@ impl PostgresWorker {
         Ok(Self { sender })
     }
 
-    fn execute(&self, sql: &str, bound: Vec<String>) -> Result<i64, String> {
+    fn execute(&self, sql: &str, bound: Vec<PgBind>) -> Result<i64, String> {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         self.sender
             .send(PgCommand::Execute {
@@ -120,7 +127,7 @@ impl PostgresWorker {
             .map_err(|_| "postgres worker thread disconnected".to_string())?
     }
 
-    fn query(&self, sql: &str, bound: Vec<String>) -> Result<Value, String> {
+    fn query(&self, sql: &str, bound: Vec<PgBind>) -> Result<Value, String> {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         self.sender
             .send(PgCommand::Query {
@@ -200,7 +207,6 @@ impl Databases {
     }
 
     pub fn execute(&self, handle: u32, sql: &str, args: &[Value]) -> Result<i64, String> {
-        let bound = bind_args(args)?;
         let backend = {
             let held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
             match held.get(handle as usize) {
@@ -211,6 +217,7 @@ impl Databases {
         };
         match backend {
             DbBackend::Sqlite(connection) => {
+                let bound = bind_args(args)?;
                 let connection = connection.lock().map_err(|_| "database lock poisoned".to_string())?;
                 let sql = postgres_placeholders(sql);
                 connection
@@ -218,12 +225,11 @@ impl Databases {
                     .map(|changed| changed as i64)
                     .map_err(|error| error.to_string())
             }
-            DbBackend::Postgres(worker) => worker.execute(sql, bound),
+            DbBackend::Postgres(worker) => worker.execute(sql, pg_binds_from_values(args)?),
         }
     }
 
     pub fn query(&self, handle: u32, sql: &str, args: &[Value]) -> Result<Value, String> {
-        let bound = bind_args(args)?;
         let backend = {
             let held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
             match held.get(handle as usize) {
@@ -234,18 +240,36 @@ impl Databases {
         };
         match backend {
             DbBackend::Sqlite(connection) => {
+                let bound = bind_args(args)?;
                 let connection = connection.lock().map_err(|_| "database lock poisoned".to_string())?;
                 query_sqlite(&connection, sql, &bound)
             }
-            DbBackend::Postgres(worker) => worker.query(sql, bound),
+            DbBackend::Postgres(worker) => worker.query(sql, pg_binds_from_values(args)?),
         }
     }
 }
 
-fn postgres_params(bound: &[String]) -> Vec<&(dyn postgres::types::ToSql + Sync)> {
+fn pg_binds_from_values(args: &[Value]) -> Result<Vec<PgBind>, String> {
+    args.iter()
+        .map(|value| match value {
+            Value::Text(text) => Ok(PgBind::Text(text.to_string())),
+            Value::Int(number) => Ok(PgBind::Int(*number)),
+            Value::Float(number) => Ok(PgBind::Float(*number)),
+            Value::Bool(yes) => Ok(PgBind::Bool(*yes)),
+            _ => Err("database arguments must be text, numbers, or yes/no".to_string()),
+        })
+        .collect()
+}
+
+fn postgres_params(bound: &[PgBind]) -> Vec<&(dyn postgres::types::ToSql + Sync)> {
     bound
         .iter()
-        .map(|value| value as &(dyn postgres::types::ToSql + Sync))
+        .map(|value| match value {
+            PgBind::Text(text) => text as &(dyn postgres::types::ToSql + Sync),
+            PgBind::Int(number) => number as &(dyn postgres::types::ToSql + Sync),
+            PgBind::Float(number) => number as &(dyn postgres::types::ToSql + Sync),
+            PgBind::Bool(yes) => yes as &(dyn postgres::types::ToSql + Sync),
+        })
         .collect()
 }
 
@@ -284,7 +308,7 @@ fn query_sqlite(connection: &Connection, sql: &str, bound: &[String]) -> Result<
     collect_rows(rows)
 }
 
-fn query_postgres(client: &mut PostgresClient, sql: &str, bound: &[String]) -> Result<Value, String> {
+fn query_postgres(client: &mut PostgresClient, sql: &str, bound: &[PgBind]) -> Result<Value, String> {
     let params = postgres_params(bound);
     let rows = client.query(sql, &params).map_err(|error| error.to_string())?;
     if rows.is_empty() {

@@ -175,8 +175,27 @@ fn sea_to_text(value: &SeaValue) -> String {
     }
 }
 
-fn bind_texts(values: &[SeaValue]) -> Vec<Value> {
-    values.iter().map(|value| Value::text(sea_to_text(value))).collect()
+fn bind_values(values: &[SeaValue]) -> Vec<Value> {
+    values.iter().map(sea_to_value).collect()
+}
+
+fn sea_to_value(value: &SeaValue) -> Value {
+    match value {
+        SeaValue::Bool(Some(yes)) => Value::Bool(*yes),
+        SeaValue::TinyInt(Some(n)) => Value::Int(i64::from(*n)),
+        SeaValue::SmallInt(Some(n)) => Value::Int(i64::from(*n)),
+        SeaValue::Int(Some(n)) => Value::Int(i64::from(*n)),
+        SeaValue::BigInt(Some(n)) => Value::Int(*n),
+        SeaValue::TinyUnsigned(Some(n)) => Value::Int(i64::from(*n)),
+        SeaValue::SmallUnsigned(Some(n)) => Value::Int(i64::from(*n)),
+        SeaValue::Unsigned(Some(n)) => Value::Int(i64::from(*n)),
+        SeaValue::BigUnsigned(Some(n)) => Value::Int(*n as i64),
+        SeaValue::Float(Some(n)) => Value::Float(f64::from(*n)),
+        SeaValue::Double(Some(n)) => Value::Float(*n),
+        SeaValue::String(Some(text)) => Value::text(text),
+        SeaValue::Char(Some(letter)) => Value::text(letter.to_string()),
+        _ => Value::text(sea_to_text(value)),
+    }
 }
 
 fn column_expr(name: &str) -> Expr {
@@ -252,7 +271,7 @@ fn build_select(query: &Query, dialect: Dialect) -> Result<(String, Vec<Value>),
     if dialect == Dialect::Postgres {
         append_postgres_paging(&mut sql, limit, offset);
     }
-    Ok((sql, bind_texts(&values.0)))
+    Ok((sql, bind_values(&values.0)))
 }
 
 fn build_count(query: &Query, dialect: Dialect) -> Result<(String, Vec<Value>), String> {
@@ -265,7 +284,7 @@ fn build_count(query: &Query, dialect: Dialect) -> Result<(String, Vec<Value>), 
         Dialect::Sqlite => select.build(SqliteQueryBuilder),
         Dialect::Postgres => select.build(PostgresQueryBuilder),
     };
-    Ok((sql, bind_texts(&values.0)))
+    Ok((sql, bind_values(&values.0)))
 }
 
 fn build_insert(query: &Query, row: &IndexMap<Key, Value>, dialect: Dialect) -> Result<(String, Vec<Value>), String> {
@@ -290,7 +309,7 @@ fn build_insert(query: &Query, row: &IndexMap<Key, Value>, dialect: Dialect) -> 
             .values_panic(values)
             .build(PostgresQueryBuilder),
     };
-    Ok((sql, bind_texts(&bound.0)))
+    Ok((sql, bind_values(&bound.0)))
 }
 
 fn build_update(
@@ -325,7 +344,7 @@ fn build_update(
         Dialect::Sqlite => update.build(SqliteQueryBuilder),
         Dialect::Postgres => update.build(PostgresQueryBuilder),
     };
-    Ok((sql, bind_texts(&bound.0)))
+    Ok((sql, bind_values(&bound.0)))
 }
 
 fn build_delete(query: &Query, dialect: Dialect) -> Result<(String, Vec<Value>), String> {
@@ -350,7 +369,7 @@ fn build_delete(query: &Query, dialect: Dialect) -> Result<(String, Vec<Value>),
         Dialect::Sqlite => delete.build(SqliteQueryBuilder),
         Dialect::Postgres => delete.build(PostgresQueryBuilder),
     };
-    Ok((sql, bind_texts(&bound.0)))
+    Ok((sql, bind_values(&bound.0)))
 }
 
 fn key_as_text(key: &Key) -> Result<String, String> {
@@ -751,6 +770,23 @@ pub fn wrap(query: Query) -> Value {
 mod tests {
     use super::*;
     use sea_query::{Alias, Asterisk, PostgresQueryBuilder, Query as SeaQuery};
+
+    #[test]
+    fn postgres_limit_all_live() {
+        let url = std::env::var("VAAB_TEST_POSTGRES_URL")
+            .unwrap_or_else(|_| "postgres://postgres:pass@127.0.0.1:5433/vaab".into());
+        let databases = Databases::default();
+        let handle = match databases.connect(&url) {
+            Ok(handle) => handle,
+            Err(_) => return,
+        };
+        let query = Query::from_db(handle, "riffs".into()).with_limit(200);
+        let rows = run_all(&databases, &Stores::default(), &query).expect("run_all");
+        match rows {
+            Value::List(_) => {}
+            _ => panic!("expected list"),
+        }
+    }
 
     #[test]
     fn postgres_run_first_live() {
