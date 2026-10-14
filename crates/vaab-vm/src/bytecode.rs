@@ -287,6 +287,8 @@ pub struct RouteHandler {
     pub expects_body: bool,
     /// Layout index for `expecting T as name`, when the body should be a record.
     pub body_layout: Option<u32>,
+    /// True when `expecting {Text: Text} as name` decodes a JSON object into a map.
+    pub body_is_map: bool,
 }
 
 /// One arm of a compiled `select`.

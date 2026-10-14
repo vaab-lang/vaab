@@ -241,6 +241,12 @@ fn run_route(
                     return HttpResponse::json(400, "{\"error\":\"invalid body\"}".to_string());
                 }
             },
+            None if route.body_is_map => match vaab_vm::json::decode_map(&body) {
+                Ok(map) => map,
+                Err(_) => {
+                    return HttpResponse::json(400, "{\"error\":\"invalid body\"}".to_string());
+                }
+            },
             None => Value::Text(Ref::from(body.as_str())),
         };
         let _ = machine.set_argument(slot, argument);

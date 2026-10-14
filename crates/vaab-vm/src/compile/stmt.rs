@@ -385,6 +385,10 @@ impl<'a> Compiler<'a> {
                         _ => None,
                     }
                 }),
+                body_is_map: route
+                    .expecting
+                    .as_ref()
+                    .is_some_and(|(declared, _)| matches!(declared, vaab_types::Type::Map { .. })),
             });
         }
 

@@ -26,6 +26,26 @@ pub fn decode_record(text: &str, layout: Ref<RecordLayout>) -> Result<Value, Fau
     Ok(Value::Record(Ref::new(Record { layout, fields, cells: None })))
 }
 
+pub fn decode_map(text: &str) -> Result<Value, Fault> {
+    let json: Json = serde_json::from_str(text)
+        .map_err(|_| Fault::Confused("the request body is not valid JSON"))?;
+    let Json::Object(entries) = json else {
+        return Err(Fault::Confused("the request body must be a JSON object"));
+    };
+    let mut map = indexmap::IndexMap::new();
+    for (key, value) in entries {
+        let cell = match value {
+            Json::Null => Value::text(""),
+            Json::Bool(yes) => Value::text(if yes { "true" } else { "false" }),
+            Json::Number(number) => Value::text(number.to_string()),
+            Json::String(text) => Value::text(text),
+            other => Value::text(other.to_string()),
+        };
+        map.insert(crate::value::Key(Value::text(key)), cell);
+    }
+    Ok(Value::map(map))
+}
+
 fn json_to_value(value: &Json) -> Result<Value, Fault> {
     match value {
         Json::Null => Ok(Value::absent()),

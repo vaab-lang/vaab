@@ -33,8 +33,8 @@ mount rig_auth at "/auth/v1" {
 }
 
 mount rig_api at "/rest/v1" {
-    route get "/todos" {
-        reply with "todos-ok"
+    route get "/{table: Text}" {
+        reply with "table-{table}"
     }
 }
 
@@ -62,7 +62,10 @@ serve on port 54321 {
     );
     assert_eq!(
         world.program.routes[1].path,
-        vec![vaab_types::RouteSegment::Literal("/api/v2/todos".to_string())]
+        vec![
+            vaab_types::RouteSegment::Literal("/api/v2/".to_string()),
+            vaab_types::RouteSegment::Param("table".to_string()),
+        ]
     );
     assert_eq!(
         world.program.routes[2].path,
@@ -284,4 +287,14 @@ fn linked_riff_routes_run_multiple_queries_on_one_db_handle() {
     }
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn route_expecting_text_map_body_inserts_into_studio_table() {
+    let body_map = vaab_vm::json::decode_map("{\"id\":\"u-1\",\"email\":\"op@rig.dev\",\"name\":\"Op\"}")
+        .expect("decode map");
+    let Value::Map(entries) = body_map else {
+        panic!("expected Value::Map");
+    };
+    assert_eq!(entries.len(), 3);
 }

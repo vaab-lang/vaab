@@ -174,14 +174,37 @@ fn query_postgres(client: &mut PostgresClient, sql: &str, bound: &[String]) -> R
     for row in rows {
         let mut entries = IndexMap::new();
         for (index, name) in names.iter().enumerate() {
-            let text: String = row
-                .try_get(index)
-                .unwrap_or_else(|_| String::new());
+            let text = postgres_cell_to_string(&row, index);
             entries.insert(Key(Value::text(name.clone())), Value::text(text));
         }
         list.push(Value::map(entries));
     }
     Ok(Value::list(list))
+}
+
+fn postgres_cell_to_string(row: &postgres::Row, index: usize) -> String {
+    if let Ok(Some(v)) = row.try_get::<_, Option<String>>(index) {
+        return v;
+    }
+    if let Ok(Some(v)) = row.try_get::<_, Option<i64>>(index) {
+        return v.to_string();
+    }
+    if let Ok(Some(v)) = row.try_get::<_, Option<i32>>(index) {
+        return v.to_string();
+    }
+    if let Ok(Some(v)) = row.try_get::<_, Option<i16>>(index) {
+        return v.to_string();
+    }
+    if let Ok(Some(v)) = row.try_get::<_, Option<bool>>(index) {
+        return if v { "true".to_string() } else { "false".to_string() };
+    }
+    if let Ok(Some(v)) = row.try_get::<_, Option<f64>>(index) {
+        return v.to_string();
+    }
+    if let Ok(Some(v)) = row.try_get::<_, Option<f32>>(index) {
+        return v.to_string();
+    }
+    String::new()
 }
 
 fn row_to_map(row: &rusqlite::Row<'_>, names: &[String]) -> rusqlite::Result<Value> {
