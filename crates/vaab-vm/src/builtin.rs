@@ -20,6 +20,7 @@ use crate::value::{Key, Value};
 pub enum Builtin {
     Print,
     ToJson,
+    BasicAuthOk,
 
     Upper,
     Lower,
@@ -44,6 +45,7 @@ impl Builtin {
         match self {
             Builtin::Print => "print",
             Builtin::ToJson => "to_json",
+            Builtin::BasicAuthOk => "basic_auth_ok",
             Builtin::Upper => "upper",
             Builtin::Lower => "lower",
             Builtin::Contains => "contains",
@@ -72,6 +74,7 @@ impl Builtin {
             | Builtin::ToFloat
             | Builtin::Round => 1,
             Builtin::Contains | Builtin::Join | Builtin::Get | Builtin::Min | Builtin::Max => 2,
+            Builtin::BasicAuthOk => 3,
         }
     }
 
@@ -80,6 +83,14 @@ impl Builtin {
     pub fn apply(self, arguments: &[Value]) -> Result<Value, Fault> {
         match (self, arguments) {
             (Builtin::ToJson, [value]) => crate::json::encode(value).map(Value::text),
+            (
+                Builtin::BasicAuthOk,
+                [Value::Text(header), Value::Text(username), Value::Text(password)],
+            ) => Ok(Value::Bool(crate::app_io::basic_auth_ok(
+                header,
+                username,
+                password,
+            ))),
             (Builtin::Upper, [Value::Text(text)]) => Ok(Value::text(text.to_uppercase())),
             (Builtin::Lower, [Value::Text(text)]) => Ok(Value::text(text.to_lowercase())),
             (Builtin::Contains, [Value::Text(text), Value::Text(part)]) => {

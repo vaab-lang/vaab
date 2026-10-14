@@ -6,10 +6,10 @@ use std::collections::{HashMap, HashSet};
 use vaab_syntax::ast::{
     AbilityDecl, ArmBody, ArmPattern, Argument, AssignStmt, Block, CastDecl, ChoiceDecl,
     ElseBranch, ExpectingDecl, Expr, ExprKind, Field, ForEachStmt, FunctionBody, FunctionDecl,
-    IfExpr, LetStmt, MapEntry, MatchArm, MatchExpr, Module, Name, NodeId, Parameter, Pattern,
-    PatternKind, RepeatStmt, ReplyKind, ReplyStmt, RouteDecl, RouteSegment, SelectArm, SelectExpr,
-    SendStmt, ServeDecl, ServeErrorHandler, Stmt, StmtKind, TextPart, TypeDecl, TypeExpr,
-    TypeKind, Variant, VariantField, WhileStmt,
+    IfExpr, LetStmt, MapEntry, MatchArm, MatchExpr, Module, MountDecl, MountUse, Name, NodeId,
+    Parameter, Pattern, PatternKind, RepeatStmt, ReplyKind, ReplyStmt, RouteDecl, RouteSegment,
+    SelectArm, SelectExpr, SendStmt, ServeDecl, ServeErrorHandler, Stmt, StmtKind, TextPart,
+    TypeDecl, TypeExpr, TypeKind, Variant, VariantField, WhileStmt,
 };
 
 use crate::link::{exports_of, LoadedRiff, RiffImports};
@@ -32,10 +32,13 @@ struct Mapper {
 
 /// One module containing every riff plus the entry file, with unique `NodeId`s.
 pub fn merge(entry: Module, riffs: &[LoadedRiff]) -> Module {
+    let entry_has_user = entry.statements.iter().any(|s| {
+        matches!(&s.kind, StmtKind::Type(t) if t.name.text == "User")
+    });
     let mut riff_map: HashMap<String, HashMap<String, String>> = HashMap::new();
     let mut statements = Vec::new();
     for riff in riffs {
-        let (riff_stmts, mapping) = select_riff_statements(riff);
+        let (riff_stmts, mapping) = select_riff_statements(riff, !entry_has_user);
         riff_map.insert(riff.alias.clone(), mapping);
         statements.extend(riff_stmts);
     }
@@ -50,12 +53,15 @@ pub fn merge(entry: Module, riffs: &[LoadedRiff]) -> Module {
     merged
 }
 
-fn select_riff_statements(riff: &LoadedRiff) -> (Vec<Stmt>, HashMap<String, String>) {
+fn select_riff_statements(
+    riff: &LoadedRiff,
+    keep_user_bare: bool,
+) -> (Vec<Stmt>, HashMap<String, String>) {
     let all_exports = exports_of(&riff.module);
     let prefix = format!("{}__", riff.alias);
     let mut mapping = HashMap::new();
 
-    let prefixed_exports: HashSet<String> = match &riff.imports {
+    let mut prefixed_exports: HashSet<String> = match &riff.imports {
         RiffImports::Bare(bare_names) => {
             for name in &all_exports {
                 if bare_names.contains(name) {
@@ -70,9 +76,14 @@ fn select_riff_statements(riff: &LoadedRiff) -> (Vec<Stmt>, HashMap<String, Stri
             for name in &all_exports {
                 mapping.insert(name.clone(), format!("{prefix}{name}"));
             }
-            all_exports
+            all_exports.clone()
         }
     };
+
+    if keep_user_bare && all_exports.contains("User") {
+        mapping.insert("User".to_string(), "User".to_string());
+        prefixed_exports.remove("User");
+    }
 
     let mut mapper = Mapper::new(Mode::Prefix {
         prefix,
@@ -187,6 +198,7 @@ impl Mapper {
                 StmtKind::Ability(Box::new(self.map_ability(*declaration)))
             }
             StmtKind::Serve(serve) => StmtKind::Serve(Box::new(self.map_serve(*serve))),
+            StmtKind::Mount(mount) => StmtKind::Mount(Box::new(self.map_mount(*mount))),
             StmtKind::Reply(reply) => StmtKind::Reply(self.map_reply(reply)),
             StmtKind::Expr(expression) => StmtKind::Expr(self.map_expr(expression)),
             StmtKind::Need(_) => kind,
@@ -203,6 +215,11 @@ impl Mapper {
                 self.pop_scope();
                 mapped
             }),
+            mounts: serve
+                .mounts
+                .into_iter()
+                .map(|target| self.map_mount_use(target))
+                .collect(),
             routes: serve
                 .routes
                 .into_iter()
@@ -212,6 +229,67 @@ impl Mapper {
                 .error_handler
                 .map(|handler| self.map_serve_error_handler(handler)),
             span: serve.span,
+        }
+    }
+
+    fn map_mount(&mut self, mount: MountDecl) -> MountDecl {
+        MountDecl {
+            name: self.map_top_level_name(mount.name),
+            path: mount.path,
+            mounts: mount
+                .mounts
+                .into_iter()
+                .map(|target| self.map_mount_use(target))
+                .collect(),
+            routes: mount
+                .routes
+                .into_iter()
+                .map(|route| self.map_route(route))
+                .collect(),
+            span: mount.span,
+        }
+    }
+
+    fn map_mount_use(&self, mount_use: MountUse) -> MountUse {
+        MountUse {
+            name: self.map_mount_target(mount_use.name),
+            path: mount_use.path,
+            span: mount_use.span,
+        }
+    }
+
+    fn map_mount_target(&self, target: Name) -> Name {
+        match &self.mode {
+            Mode::Prefix { prefix, exports } if exports.contains(&target.text) => {
+                Name::new(format!("{prefix}{}", target.text), target.span)
+            }
+            Mode::Qualify { riffs } => {
+                if let Some((alias, member)) = target.text.split_once('.') {
+                    if let Some(exports) = riffs.get(alias) {
+                        let resolved = exports
+                            .get(member)
+                            .or_else(|| exports.get(&format!("{alias}_{member}")))
+                            .cloned()
+                            .unwrap_or_else(|| format!("{alias}__{member}"));
+                        return Name::new(resolved, target.span);
+                    }
+                }
+                if let Some(exports) = riffs.get(&target.text) {
+                    if let Some(resolved) = exports
+                        .get(&target.text)
+                        .or_else(|| exports.get(&format!("{}_all", target.text)))
+                    {
+                        return Name::new(resolved.clone(), target.span);
+                    }
+                }
+                for exports in riffs.values() {
+                    if let Some(resolved) = exports.get(&target.text) {
+                        return Name::new(resolved.clone(), target.span);
+                    }
+                }
+                target
+            }
+            _ => target,
         }
     }
 
@@ -942,6 +1020,11 @@ impl Renumber {
                 }
                 if let Some(handler) = &mut serve.error_handler {
                     self.block(&mut handler.body);
+                }
+            }
+            StmtKind::Mount(mount) => {
+                for route in &mut mount.routes {
+                    self.block(&mut route.body);
                 }
             }
             StmtKind::Reply(reply) => match &mut reply.kind {

@@ -1,8 +1,8 @@
 //! `serve on port ... { route ... }`.
 
 use crate::ast::{
-    ExpectingDecl, Name, ReplyKind, ReplyStmt, RouteDecl, RouteSegment, ServeDecl,
-    ServeErrorHandler, TypeExpr, TypeKind,
+    ExpectingDecl, MountDecl, MountUse, Name, ReplyKind, ReplyStmt, RouteDecl, RouteSegment,
+    ServeDecl, ServeErrorHandler, TypeExpr, TypeKind,
 };
 use crate::diagnostic::Diagnostic;
 use crate::span::Span;
@@ -20,6 +20,7 @@ impl<'src> Parser<'src> {
         self.expect(TokenKind::OpenBrace, "a `{` to open the server block")?;
 
         let mut before = None;
+        let mut mounts = Vec::new();
         let mut routes = Vec::new();
         let mut error_handler = None;
 
@@ -30,6 +31,8 @@ impl<'src> Parser<'src> {
             }
             if self.check(TokenKind::Route) {
                 routes.push(self.route_declaration()?);
+            } else if self.check(TokenKind::Mount) {
+                mounts.push(self.mount_use()?);
             } else if self.check(TokenKind::Before) {
                 before = Some(self.before_hook()?);
             } else if self.check(TokenKind::When) {
@@ -38,7 +41,7 @@ impl<'src> Parser<'src> {
                 self.report(
                     Diagnostic::error(
                         "unexpected-in-serve",
-                        "only `before`, `route` and `when anything fails` belong inside a `serve` block",
+                        "only `before`, `mount`, `route` and `when anything fails` belong inside a `serve` block",
                     )
                     .at(self.current().span, "this does not belong here"),
                 );
@@ -50,10 +53,89 @@ impl<'src> Parser<'src> {
         Ok(ServeDecl {
             port,
             before,
+            mounts,
             routes,
             error_handler,
             span: start.to(self.previous_span()),
         })
+    }
+
+    pub(crate) fn mount_declaration(&mut self) -> Parse<MountDecl> {
+        let start = self.current().span;
+        self.expect(TokenKind::Mount, "the word `mount`")?;
+        let name = self.name("a name for this mount")?;
+        let path = self.optional_mount_path()?;
+        self.expect(TokenKind::OpenBrace, "a `{` to open the mount block")?;
+
+        let mut mounts = Vec::new();
+        let mut routes = Vec::new();
+
+        while !self.check(TokenKind::CloseBrace) && !self.at_end() {
+            self.skip_newlines();
+            if self.check(TokenKind::CloseBrace) || self.at_end() {
+                break;
+            }
+            if self.check(TokenKind::Route) {
+                routes.push(self.route_declaration()?);
+            } else if self.check(TokenKind::Mount) {
+                mounts.push(self.mount_use()?);
+            } else {
+                self.report(
+                    Diagnostic::error(
+                        "unexpected-in-mount",
+                        "only `mount` and `route` belong inside a `mount` block",
+                    )
+                    .at(self.current().span, "this does not belong here"),
+                );
+                self.recover_to_statement_boundary();
+            }
+        }
+
+        self.expect(TokenKind::CloseBrace, "a `}` to close the mount block")?;
+        Ok(MountDecl {
+            name,
+            path,
+            mounts,
+            routes,
+            span: start.to(self.previous_span()),
+        })
+    }
+
+    fn mount_use(&mut self) -> Parse<MountUse> {
+        let start = self.current().span;
+        self.expect(TokenKind::Mount, "the word `mount`")?;
+        let first = self.name("the name of a route group to mount")?;
+        let name = if self.eat(TokenKind::Dot) {
+            let member = self.name("the name of a mount in this riff")?;
+            Name::new(
+                format!("{}.{}", first.text, member.text),
+                first.span.to(member.span),
+            )
+        } else {
+            first
+        };
+        let path = self.optional_mount_path()?;
+        Ok(MountUse {
+            name,
+            path,
+            span: start.to(self.previous_span()),
+        })
+    }
+
+    fn optional_mount_path(&mut self) -> Parse<Option<String>> {
+        if self.eat_identifier("at") || self.eat_identifier("on") {
+            let token = self.current();
+            if token.kind != TokenKind::Text {
+                return Err(self.unexpected("a mount path in double quotes, such as `\"/studio\"`"));
+            }
+            self.advance();
+            Ok(Some(token.text(self.source()).trim_matches('"').to_string()))
+        } else if self.check(TokenKind::Text) {
+            let token = self.advance();
+            Ok(Some(token.text(self.source()).trim_matches('"').to_string()))
+        } else {
+            Ok(None)
+        }
     }
 
     fn before_hook(&mut self) -> Parse<crate::ast::Block> {

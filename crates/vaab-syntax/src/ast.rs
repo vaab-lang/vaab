@@ -103,6 +103,8 @@ pub enum StmtKind {
     Ability(Box<AbilityDecl>),
     /// `serve on port 8080 { route ... }`
     Serve(Box<ServeDecl>),
+    /// `mount rig_studio { route ... }`
+    Mount(Box<MountDecl>),
     /// `reply with value` or `reply explain error`, inside a route body.
     Reply(ReplyStmt),
     /// An expression evaluated for its effect, or, if it is last in a block, for
@@ -140,9 +142,151 @@ pub enum NeedImports {
 pub struct ServeDecl {
     pub port: Expr,
     pub before: Option<Block>,
+    pub mounts: Vec<MountUse>,
     pub routes: Vec<RouteDecl>,
     pub error_handler: Option<ServeErrorHandler>,
     pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MountDecl {
+    pub name: Name,
+    pub path: Option<String>,
+    pub mounts: Vec<MountUse>,
+    pub routes: Vec<RouteDecl>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MountUse {
+    pub name: Name,
+    pub path: Option<String>,
+    pub span: Span,
+}
+
+pub fn normalize_mount_prefix(prefix: &str) -> String {
+    let trimmed = prefix.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("/{trimmed}")
+    }
+}
+
+pub fn join_mount_prefix(parent: &str, child: &str) -> String {
+    let p = normalize_mount_prefix(parent);
+    let c = normalize_mount_prefix(child);
+    if p.is_empty() {
+        c
+    } else if c.is_empty() {
+        p
+    } else {
+        format!("{p}{c}")
+    }
+}
+
+pub fn prefix_route_segments(prefix: &str, route_path: &[RouteSegment]) -> Vec<RouteSegment> {
+    let norm = normalize_mount_prefix(prefix);
+    if norm.is_empty() {
+        return route_path.to_vec();
+    }
+    match route_path {
+        [] => vec![RouteSegment::Literal(norm)],
+        [RouteSegment::Literal(only)] if only == "/" || only.is_empty() => {
+            vec![RouteSegment::Literal(norm)]
+        }
+        [RouteSegment::Literal(first), rest @ ..] => {
+            let combined = if first.starts_with('/') {
+                format!("{norm}{first}")
+            } else {
+                format!("{norm}/{first}")
+            };
+            let mut segments = Vec::with_capacity(1 + rest.len());
+            segments.push(RouteSegment::Literal(combined));
+            segments.extend_from_slice(rest);
+            segments
+        }
+        other => {
+            let mut segments = Vec::with_capacity(1 + other.len());
+            segments.push(RouteSegment::Literal(format!("{norm}/")));
+            segments.extend_from_slice(other);
+            segments
+        }
+    }
+}
+
+pub fn prefix_route(prefix: &str, route: &RouteDecl) -> RouteDecl {
+    RouteDecl {
+        method: route.method.clone(),
+        path: prefix_route_segments(prefix, &route.path),
+        expecting: route.expecting.clone(),
+        body: route.body.clone(),
+        span: route.span,
+    }
+}
+
+pub fn order_serve_routes(direct: &[RouteDecl], mounted: Vec<RouteDecl>) -> Vec<RouteDecl> {
+    let is_catch_all = |route: &RouteDecl| {
+        route
+            .path
+            .last()
+            .is_some_and(|seg| matches!(seg, RouteSegment::CatchAll { .. }))
+    };
+    let literal_prefix_len = |route: &RouteDecl| match route.path.first() {
+        Some(RouteSegment::Literal(lit)) => lit.len(),
+        _ => 0,
+    };
+
+    let mut specific = Vec::new();
+    let mut catch_all = Vec::new();
+
+    for route in direct.iter().cloned().chain(mounted) {
+        if is_catch_all(&route) {
+            catch_all.push(route);
+        } else {
+            specific.push(route);
+        }
+    }
+
+    catch_all.sort_by(|a, b| literal_prefix_len(b).cmp(&literal_prefix_len(a)));
+    specific.extend(catch_all);
+    specific
+}
+
+pub fn order_serve_route_refs<'a>(
+    direct: &'a [RouteDecl],
+    mounted: Vec<(Vec<RouteSegment>, &'a RouteDecl)>,
+) -> Vec<&'a RouteDecl> {
+    let is_catch_all = |path: &[RouteSegment]| {
+        path.last()
+            .is_some_and(|seg| matches!(seg, RouteSegment::CatchAll { .. }))
+    };
+    let literal_prefix_len = |path: &[RouteSegment]| match path.first() {
+        Some(RouteSegment::Literal(lit)) => lit.len(),
+        _ => 0,
+    };
+
+    let mut specific = Vec::new();
+    let mut catch_all: Vec<(usize, &'a RouteDecl)> = Vec::new();
+
+    for route in direct {
+        if is_catch_all(&route.path) {
+            catch_all.push((literal_prefix_len(&route.path), route));
+        } else {
+            specific.push(route);
+        }
+    }
+    for (path, route) in mounted {
+        if is_catch_all(&path) {
+            catch_all.push((literal_prefix_len(&path), route));
+        } else {
+            specific.push(route);
+        }
+    }
+
+    catch_all.sort_by(|a, b| b.0.cmp(&a.0));
+    specific.extend(catch_all.into_iter().map(|(_, route)| route));
+    specific
 }
 
 #[derive(Clone, Debug, PartialEq)]

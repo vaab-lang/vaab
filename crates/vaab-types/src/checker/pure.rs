@@ -68,6 +68,7 @@ impl Visit for ImpureFinder<'_> {
             StmtKind::Close(_) => Some(PureViolation::Effect("close a channel")),
             StmtKind::Together(_) => Some(PureViolation::Effect("wait for tasks")),
             StmtKind::Serve(_) => Some(PureViolation::Effect("start a web server")),
+            StmtKind::Mount(_) => Some(PureViolation::Effect("declare server routes")),
             StmtKind::Reply(_) => Some(PureViolation::Effect("send an HTTP response")),
             StmtKind::Assign(assignment) if self.changes_outside(&assignment.target) => {
                 Some(PureViolation::ChangesOutside)

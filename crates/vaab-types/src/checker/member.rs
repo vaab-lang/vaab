@@ -143,6 +143,12 @@ impl Checker {
                         resolution: Resolution::RequestWho,
                     };
                 }
+                if name.text == "headers" {
+                    return Member::Value {
+                        declared: Type::map(Type::Text, Type::Text),
+                        resolution: Resolution::RequestField(3),
+                    };
+                }
                 if let Some(index) = match name.text.as_str() {
                     "method" => Some(0),
                     "path" => Some(1),

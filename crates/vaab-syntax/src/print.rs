@@ -102,6 +102,12 @@ impl Printer {
                 if let Some(before) = &serve.before {
                     printer.node("before every request", |printer| printer.block(before));
                 }
+                for mounted in &serve.mounts {
+                    match &mounted.path {
+                        Some(path) => printer.line(format!("mount {} at {:?}", mounted.name.text, path)),
+                        None => printer.line(format!("mount {}", mounted.name.text)),
+                    }
+                }
                 for route in &serve.routes {
                     printer.node(format!("route {}", route.method.text), |printer| {
                         printer.line(format!("path {:?}", route.path));
@@ -124,6 +130,34 @@ impl Printer {
                     );
                 }
             }),
+            StmtKind::Mount(mount) => {
+                let heading = match &mount.path {
+                    Some(path) => format!("mount {} at {:?}", mount.name.text, path),
+                    None => format!("mount {}", mount.name.text),
+                };
+                self.node(heading, |printer| {
+                    for nested in &mount.mounts {
+                        match &nested.path {
+                            Some(path) => {
+                                printer.line(format!("mount {} at {:?}", nested.name.text, path))
+                            }
+                            None => printer.line(format!("mount {}", nested.name.text)),
+                        }
+                    }
+                    for route in &mount.routes {
+                        printer.node(format!("route {}", route.method.text), |printer| {
+                            printer.line(format!("path {:?}", route.path));
+                            if let Some(expecting) = &route.expecting {
+                                printer.node(
+                                    format!("expecting as {}", expecting.binding.text),
+                                    |printer| printer.type_expression(&expecting.declared),
+                                );
+                            }
+                            printer.block(&route.body);
+                        });
+                    }
+                })
+            }
             StmtKind::Reply(reply) => match &reply.kind {
                 ReplyKind::With { value, status } => self.node("reply with", |printer| {
                     printer.expression(value);

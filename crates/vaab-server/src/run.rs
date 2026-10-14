@@ -159,12 +159,17 @@ async fn handle(
 }
 
 fn cors_response(status: StatusCode, content_type: &str, body: Bytes) -> Response<Full<Bytes>> {
-    Response::builder()
+    let mut builder = Response::builder()
         .status(status)
         .header("content-type", content_type)
         .header("access-control-allow-origin", "*")
         .header("access-control-allow-headers", "authorization, content-type")
-        .header("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+        .header("access-control-allow-methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    // Browsers only open the Basic-auth prompt when a 401 carries this challenge.
+    if status == StatusCode::UNAUTHORIZED {
+        builder = builder.header("www-authenticate", "Basic realm=\"vaab\"");
+    }
+    builder
         .body(Full::new(body))
         .expect("response body is valid")
 }

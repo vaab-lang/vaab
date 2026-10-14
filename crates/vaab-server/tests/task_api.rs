@@ -24,6 +24,53 @@ serve on port 8080 {
 }
 
 #[test]
+fn serve_mounts_route_groups() {
+    let source = r#"
+mount rig_auth at "/auth/v1" {
+    route get "/health" {
+        reply with "auth-ok"
+    }
+}
+
+mount rig_api at "/rest/v1" {
+    route get "/todos" {
+        reply with "todos-ok"
+    }
+}
+
+mount rig_studio at "/studio" {
+    route get "/" {
+        reply with "studio-ok"
+    }
+}
+
+serve on port 54321 {
+    mount rig_auth
+    mount rig_api at "/api/v2"
+    mount rig_studio at "/admin"
+}
+"#;
+    let parsed = vaab_syntax::parse(source);
+    assert!(!parsed.has_errors(), "{:?}", parsed.diagnostics);
+    let checked = vaab_types::check(&parsed.module).expect("check");
+    assert_eq!(checked.serves.len(), 1);
+    let world = vaab_vm::prepare(&parsed.module, &checked, vaab_vm::Output::collected());
+    assert_eq!(world.program.routes.len(), 3);
+    assert_eq!(
+        world.program.routes[0].path,
+        vec![vaab_types::RouteSegment::Literal("/auth/v1/health".to_string())]
+    );
+    assert_eq!(
+        world.program.routes[1].path,
+        vec![vaab_types::RouteSegment::Literal("/api/v2/todos".to_string())]
+    );
+    assert_eq!(
+        world.program.routes[2].path,
+        vec![vaab_types::RouteSegment::Literal("/admin".to_string())]
+    );
+}
+
+#[test]
 fn linked_riff_routes_run_multiple_queries_on_one_db_handle() {
     let dir = std::env::temp_dir().join(format!("vaab_rig_route_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);

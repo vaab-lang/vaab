@@ -139,6 +139,9 @@ fn resolve_need_path(
     let name = need.name.text.clone();
     if let Some(lock) = lock {
         if let Some(path) = lock.path_for(&name) {
+            if path.is_relative() {
+                return Ok(project_root.join(path));
+            }
             return Ok(path.clone());
         }
     }
@@ -178,6 +181,7 @@ pub fn exports_of(module: &Module) -> HashSet<String> {
             StmtKind::Cast(declaration) => names.insert(declaration.name.text.clone()),
             StmtKind::Choice(declaration) => names.insert(declaration.name.text.clone()),
             StmtKind::Ability(declaration) => names.insert(declaration.name.text.clone()),
+            StmtKind::Mount(declaration) => names.insert(declaration.name.text.clone()),
             _ => false,
         };
     }

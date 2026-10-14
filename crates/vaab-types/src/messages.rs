@@ -985,6 +985,25 @@ pub fn cannot_json(span: Span) -> Diagnostic {
     .with_help("use text, numbers, lists, maps, records or choices whose fields can all be JSON")
 }
 
+pub fn unknown_mount(name: &str, span: Span, known: &[String]) -> Diagnostic {
+    let display = name.split("__").last().unwrap_or(name);
+    let help = did_you_mean(
+        display,
+        known,
+        if known.is_empty() {
+            format!("declare `mount {display} {{ route ... }}` first, or `need` a riff that provides it")
+        } else {
+            format!("known mounts are {}", listed(known))
+        },
+    );
+    Diagnostic::error(
+        "unknown-mount",
+        format!("there is no mount called `{display}`"),
+    )
+    .at(span, "not found")
+    .with_help(help)
+}
+
 // ---------------------------------------------------------------------------
 // Sendability: what may cross between tasks
 // ---------------------------------------------------------------------------

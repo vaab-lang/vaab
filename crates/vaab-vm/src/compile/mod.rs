@@ -102,6 +102,8 @@ pub(crate) struct Compiler<'a> {
     /// Declaration statements in scope, registered on the way into each block the
     /// way the checker hoists them.
     declarations: HashMap<NodeId, &'a Stmt>,
+    /// Named route groups declared with `mount name { ... }`.
+    mounts: HashMap<String, &'a ast::MountDecl>,
 }
 
 impl<'a> Compiler<'a> {
@@ -118,6 +120,7 @@ impl<'a> Compiler<'a> {
             types_at: HashMap::new(),
             casts_at: HashMap::new(),
             declarations: HashMap::new(),
+            mounts: HashMap::new(),
         };
         compiler.lay_out();
         compiler
@@ -308,6 +311,9 @@ impl<'a> Compiler<'a> {
                 StmtKind::Function(_) | StmtKind::Type(_) | StmtKind::Cast(_)
             ) {
                 self.declarations.insert(statement.id, statement);
+            }
+            if let StmtKind::Mount(mount) = &statement.kind {
+                self.mounts.insert(mount.name.text.clone(), mount);
             }
         }
     }
@@ -674,7 +680,7 @@ impl<'a> Compiler<'a> {
 
     pub(crate) fn user_layout(&self) -> u32 {
         for (index, declared) in self.checked.declared_types.iter().enumerate() {
-            if declared.name == "User" {
+            if declared.name == "User" || declared.name.ends_with("__User") {
                 return index as u32;
             }
         }

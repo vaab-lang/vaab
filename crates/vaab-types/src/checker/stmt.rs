@@ -146,6 +146,15 @@ impl Checker {
             }
 
             StmtKind::Serve(serve) => self.serve(statement, serve),
+            StmtKind::Mount(mount) => {
+                if self.scopes.len() > 1 {
+                    self.report(messages::nested_declaration(
+                        "mount",
+                        &mount.name.text,
+                        mount.name.span,
+                    ));
+                }
+            }
             StmtKind::Reply(reply) => self.reply(reply),
 
             StmtKind::Need(_) => {}

@@ -82,6 +82,7 @@ pub enum TokenKind {
     Timeout,
     After,
     Serve,
+    Mount,
     Route,
     Reply,
     Port,
@@ -217,6 +218,7 @@ const KEYWORDS: &[(&str, TokenKind)] = &[
     ("timeout", TokenKind::Timeout),
     ("after", TokenKind::After),
     ("serve", TokenKind::Serve),
+    ("mount", TokenKind::Mount),
     ("route", TokenKind::Route),
     ("reply", TokenKind::Reply),
     ("port", TokenKind::Port),
@@ -270,6 +272,7 @@ impl TokenKind {
                 | Timeout
                 | After
                 | Serve
+                | Mount
                 | Route
                 | Reply
                 | Port

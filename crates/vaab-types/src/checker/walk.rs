@@ -104,6 +104,11 @@ pub(super) fn statement(node: &Stmt, visitor: &mut impl Visit) {
                 block(&handler.body, visitor);
             }
         }
+        StmtKind::Mount(mount) => {
+            for route in &mount.routes {
+                block(&route.body, visitor);
+            }
+        }
         StmtKind::Reply(reply) => match &reply.kind {
             vaab_syntax::ast::ReplyKind::With { value, status } => {
                 expression(value, visitor);

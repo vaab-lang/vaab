@@ -39,8 +39,8 @@ mod walk;
 use std::collections::{HashMap, HashSet};
 
 use vaab_syntax::ast::{
-    AbilityDecl, CastDecl, ChoiceDecl, Expr, FunctionDecl, Module, Name, NodeId, Stmt, StmtKind,
-    TypeDecl, TypeExpr, TypeKind,
+    AbilityDecl, CastDecl, ChoiceDecl, Expr, FunctionDecl, Module, MountDecl, Name, NodeId, Stmt,
+    StmtKind, TypeDecl, TypeExpr, TypeKind,
 };
 use vaab_syntax::diagnostic::Diagnostic;
 use vaab_syntax::span::Span;
@@ -169,6 +169,10 @@ pub(crate) struct Checker {
     route_depth: u32,
     /// Error type for `try` inside a `serve` route, from `when anything fails with E`.
     route_error: Option<Type>,
+    /// Named route groups declared with `mount name { ... }`.
+    mounts: HashMap<String, MountDecl>,
+    /// Mounts expanded by at least one `serve` block.
+    mounted_in_serve: HashSet<String>,
 }
 
 /// Checks a module.
@@ -209,6 +213,8 @@ impl Checker {
             reported_captures: HashSet::new(),
             route_depth: 0,
             route_error: None,
+            mounts: HashMap::new(),
+            mounted_in_serve: HashSet::new(),
         }
     }
 
@@ -222,6 +228,7 @@ impl Checker {
         for statement in &module.statements {
             self.statement(statement);
         }
+        self.check_unmounted_mounts(&module.statements);
     }
 
     /// Hands back the tables, or the problems that stopped them being trustworthy.
@@ -372,6 +379,10 @@ impl Checker {
                 StmtKind::Cast(declaration) => self.register_cast(statement.id, declaration),
                 StmtKind::Choice(declaration) => self.register_choice(statement.id, declaration),
                 StmtKind::Ability(declaration) => self.register_ability(statement.id, declaration),
+                StmtKind::Mount(declaration) => {
+                    self.mounts
+                        .insert(declaration.name.text.clone(), (**declaration).clone());
+                }
                 _ => {}
             }
         }

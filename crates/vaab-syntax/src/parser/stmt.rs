@@ -46,6 +46,9 @@ impl<'src> Parser<'src> {
             Choice => StmtKind::Choice(Box::new(self.choice_declaration()?)),
             Ability => StmtKind::Ability(Box::new(self.ability_declaration()?)),
             Serve => StmtKind::Serve(Box::new(self.serve_declaration()?)),
+            Mount if self.looks_like_mount_declaration() => {
+                StmtKind::Mount(Box::new(self.mount_declaration()?))
+            }
             Reply => StmtKind::Reply(self.reply_statement()?),
             Need => StmtKind::Need(self.need_statement()?),
 
@@ -307,6 +310,34 @@ impl<'src> Parser<'src> {
             i += 1;
         }
         matches!(self.peek_at(i), Returns | Equals | OpenBrace)
+    }
+
+    /// Top-level `mount name { ... }` or `mount name at "/path" { ... }`.
+    fn looks_like_mount_declaration(&self) -> bool {
+        use TokenKind::*;
+        if self.peek() != Mount {
+            return false;
+        }
+        let name = self.peek_at(1);
+        if !(name.is_name_like() || name == Identifier) {
+            return false;
+        }
+        let mut i = 2;
+        if self.peek_at(i) == Identifier
+            && matches!(
+                self.tokens.get(self.position + i).map(|t| t.text(self.source)),
+                Some("at" | "on")
+            )
+        {
+            i += 1;
+        }
+        if self.peek_at(i) == Text {
+            i += 1;
+        }
+        while self.peek_at(i) == Newline {
+            i += 1;
+        }
+        self.peek_at(i) == OpenBrace
     }
 
     fn parameter_list(&mut self) -> Parse<Vec<Parameter>> {

@@ -1,6 +1,5 @@
 ---
 source: crates/vaab-vm/tests/examples.rs
-assertion_line: 104
 expression: transcript
 ---
 $ vaab run examples/01_hello.vaab
@@ -132,3 +131,36 @@ yes
 yes
 no
 yes
+
+$ vaab run examples/21_strategy.vaab
+90
+95
+80
+
+$ vaab run examples/22_state.vaab
+stop
+go
+slow down
+stop
+
+$ vaab run examples/23_observer.vaab
+launch day
+version 0.1.3
+patterns guide
+3
+
+$ vaab run examples/24_command.vaab
+lit
+dark
+lit
+
+$ vaab run examples/25_builder.vaab
+12 inch on rye
+6 inch on rye with cheese
+12 inch on sourdough with cheese and tomato
+
+$ vaab run examples/26_prototype.vaab
+Jolly
+Dolly
+Mountain Sheep
+Mountain Sheep

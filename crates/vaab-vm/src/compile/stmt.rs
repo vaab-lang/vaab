@@ -1,6 +1,9 @@
 //! Statements, blocks and the bodies of declarations.
 
-use vaab_syntax::ast::{Block, Expr, ExprKind, ReplyKind, ServeDecl, Stmt, StmtKind};
+use vaab_syntax::ast::{
+    join_mount_prefix, order_serve_route_refs, prefix_route_segments, Block, Expr, ExprKind,
+    MountUse, ReplyKind, RouteDecl, RouteSegment, ServeDecl, Stmt, StmtKind,
+};
 
 use crate::bytecode::RouteHandler;
 use crate::value::Ref;
@@ -134,7 +137,7 @@ impl<'a> Compiler<'a> {
                 }
             }
 
-            StmtKind::Choice(_) | StmtKind::Ability(_) => {}
+            StmtKind::Choice(_) | StmtKind::Ability(_) | StmtKind::Mount(_) => {}
 
             StmtKind::Serve(serve) => self.serve(statement, serve),
             StmtKind::Reply(reply) => self.reply(reply, span),
@@ -336,7 +339,15 @@ impl<'a> Compiler<'a> {
             self.program.before_route = Some(body_index);
         }
 
-        for (route, route_decl) in checked.routes.iter().zip(&serve.routes) {
+        let mut mounted_routes = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        for mount_use in &serve.mounts {
+            self.collect_mount_routes(mount_use, "", &mut visited, &mut mounted_routes);
+        }
+
+        let all_routes = order_serve_route_refs(&serve.routes, mounted_routes);
+
+        for (route, route_decl) in checked.routes.iter().zip(all_routes) {
             let body_index = self.builders.len();
             let name = Ref::from(format!("route {}", route.method).as_str());
             self.builders.push(Builder::new(name, route.frame));
@@ -389,6 +400,36 @@ impl<'a> Compiler<'a> {
             self.emit(Op::Return, handler_decl.body.span);
             self.open.pop();
             self.program.error_handler = Some(body_index);
+        }
+    }
+
+    fn collect_mount_routes(
+        &self,
+        mount_use: &MountUse,
+        inherited_prefix: &str,
+        visited: &mut std::collections::HashSet<(String, String)>,
+        out: &mut Vec<(Vec<RouteSegment>, &'a RouteDecl)>,
+    ) {
+        let Some(mount) = self.mounts.get(&mount_use.name.text).copied() else { return };
+        let own_base = mount_use
+            .path
+            .as_deref()
+            .or(mount.path.as_deref())
+            .unwrap_or("");
+        let effective_prefix = join_mount_prefix(inherited_prefix, own_base);
+        if !visited.insert((mount.name.text.clone(), effective_prefix.clone())) {
+            return;
+        }
+        let child_inherited = if mount.path.is_none() {
+            effective_prefix.as_str()
+        } else {
+            inherited_prefix
+        };
+        for nested in &mount.mounts {
+            self.collect_mount_routes(nested, child_inherited, visited, out);
+        }
+        for route in &mount.routes {
+            out.push((prefix_route_segments(&effective_prefix, &route.path), route));
         }
     }
 

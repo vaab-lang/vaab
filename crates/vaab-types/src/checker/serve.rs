@@ -1,8 +1,9 @@
 //! `serve on port ...` blocks, routes, and `reply` statements.
 
 use vaab_syntax::ast::{
-    Block, ExprKind, Name, ReplyKind, ReplyStmt, RouteDecl, RouteSegment as AstRouteSegment,
-    ServeDecl, ServeErrorHandler, Stmt,
+    join_mount_prefix, order_serve_routes, prefix_route, Block, ExprKind, MountUse, Name,
+    ReplyKind, ReplyStmt, RouteDecl, RouteSegment as AstRouteSegment, ServeDecl,
+    ServeErrorHandler, Stmt, StmtKind,
 };
 use vaab_syntax::span::Span;
 
@@ -35,7 +36,17 @@ impl Checker {
         self.route_error = serve.error_handler.as_ref().map(|handler| self.resolve_type(&handler.error_type));
 
         let before = serve.before.as_ref().map(|body| self.before_hook(body, statement.id));
-        let routes = serve.routes.iter().map(|route| self.check_route(route, statement.id)).collect();
+        let mut mounted_routes = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        for mount_use in &serve.mounts {
+            self.collect_mount_routes(mount_use, "", &mut visited, &mut mounted_routes);
+        }
+
+        let all_routes = order_serve_routes(&serve.routes, mounted_routes);
+        let routes = all_routes
+            .iter()
+            .map(|route| self.check_route(route, statement.id))
+            .collect();
         let error_handler =
             serve.error_handler.as_ref().map(|handler| self.check_error_handler(handler, statement.id));
 
@@ -47,6 +58,74 @@ impl Checker {
                 Serve { port, before, routes, error_handler },
             );
         }
+    }
+
+    pub(super) fn check_unmounted_mounts(&mut self, statements: &[Stmt]) {
+        for statement in statements {
+            let StmtKind::Mount(mount) = &statement.kind else { continue };
+            if self.mounted_in_serve.contains(&mount.name.text) {
+                continue;
+            }
+            for nested in &mount.mounts {
+                if !self.mounts.contains_key(&nested.name.text) {
+                    let known = self.known_mount_names();
+                    self.report(messages::unknown_mount(&nested.name.text, nested.name.span, &known));
+                }
+            }
+            for route in &mount.routes {
+                let _ = self.check_route(route, statement.id);
+            }
+        }
+    }
+
+    fn collect_mount_routes(
+        &mut self,
+        mount_use: &MountUse,
+        inherited_prefix: &str,
+        visited: &mut std::collections::HashSet<(String, String)>,
+        out: &mut Vec<RouteDecl>,
+    ) {
+        let Some(mount) = self.mounts.get(&mount_use.name.text).cloned() else {
+            let known = self.known_mount_names();
+            self.report(messages::unknown_mount(
+                &mount_use.name.text,
+                mount_use.name.span,
+                &known,
+            ));
+            return;
+        };
+        let own_base = mount_use
+            .path
+            .as_deref()
+            .or(mount.path.as_deref())
+            .unwrap_or("");
+        let effective_prefix = join_mount_prefix(inherited_prefix, own_base);
+        if !visited.insert((mount.name.text.clone(), effective_prefix.clone())) {
+            return;
+        }
+        self.mounted_in_serve.insert(mount.name.text.clone());
+        let child_inherited = if mount.path.is_none() {
+            effective_prefix.as_str()
+        } else {
+            inherited_prefix
+        };
+        for nested in &mount.mounts {
+            self.collect_mount_routes(nested, child_inherited, visited, out);
+        }
+        for route in &mount.routes {
+            out.push(prefix_route(&effective_prefix, route));
+        }
+    }
+
+    fn known_mount_names(&self) -> Vec<String> {
+        let mut known: Vec<String> = self
+            .mounts
+            .keys()
+            .map(|k| k.split("__").last().unwrap_or(k).to_string())
+            .collect();
+        known.sort();
+        known.dedup();
+        known
     }
 
     pub(super) fn reply(&mut self, reply: &ReplyStmt) {

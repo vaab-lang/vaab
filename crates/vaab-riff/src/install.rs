@@ -3,6 +3,7 @@
 //! catalog monorepo.
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::home::riff_dir;
@@ -108,6 +109,8 @@ fn fetch_official(name: &str, destination: &Path) -> Result<(), String> {
                         destination.join("lib.vaab").display()
                     )
                 })?;
+                // Optional packaged assets (e.g. rig Studio dist) listed in `studio/files`.
+                let _ = fetch_listed_files(base, destination, "studio/files");
                 return Ok(());
             }
             Err(error) => last_error = error,
@@ -124,12 +127,52 @@ fn fetch_pair(base: &str) -> Result<(String, String), String> {
     Ok((riff, lib))
 }
 
+/// Fetch each relative path listed in `manifest_path` (one path per line).
+/// Missing manifests are ignored so plain lib-only riffs stay unchanged.
+fn fetch_listed_files(base: &str, destination: &Path, manifest_path: &str) -> Result<(), String> {
+    let Ok(manifest) = fetch_text(&format!("{base}/{manifest_path}")) else {
+        return Ok(());
+    };
+    for line in manifest.lines() {
+        let path = line.trim();
+        if path.is_empty() || path.starts_with('#') {
+            continue;
+        }
+        if path.contains("..") || path.starts_with('/') {
+            return Err(format!("refusing unsafe asset path `{path}`"));
+        }
+        let bytes = fetch_bytes(&format!("{base}/{path}"))?;
+        let target = destination.join(path);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|error| {
+                format!("could not create `{}`: {error}", parent.display())
+            })?;
+        }
+        fs::write(&target, bytes).map_err(|error| {
+            format!("could not write `{}`: {error}", target.display())
+        })?;
+    }
+    Ok(())
+}
+
 fn fetch_text(url: &str) -> Result<String, String> {
     ureq::get(url)
         .call()
         .map_err(|error| format!("could not fetch `{url}`: {error}"))?
         .into_string()
         .map_err(|error| format!("could not read `{url}`: {error}"))
+}
+
+fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let response = ureq::get(url)
+        .call()
+        .map_err(|error| format!("could not fetch `{url}`: {error}"))?;
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .read_to_end(&mut bytes)
+        .map_err(|error| format!("could not read `{url}`: {error}"))?;
+    Ok(bytes)
 }
 
 fn copy_dir(source: &Path, destination: &Path) -> Result<(), String> {

@@ -56,6 +56,18 @@ pub fn functions() -> Vec<Function> {
                 Type::Text,
             ),
         },
+        Function {
+            // `Authorization: Basic …` check for gated mounts (rig Studio, etc.).
+            name: "basic_auth_ok",
+            signature: Signature::new(
+                vec![
+                    Parameter::new("header", Type::Text),
+                    Parameter::new("username", Type::Text),
+                    Parameter::new("password", Type::Text),
+                ],
+                Type::Bool,
+            ),
+        },
     ]
 }
 
@@ -313,7 +325,7 @@ mod tests {
     #[test]
     fn the_prelude_holds_exactly_what_the_examples_need() {
         let names: Vec<&str> = functions().iter().map(|function| function.name).collect();
-        assert_eq!(names, ["print", "read_file", "now", "to_json"]);
+        assert_eq!(names, ["print", "read_file", "now", "to_json", "basic_auth_ok"]);
     }
 
     #[test]

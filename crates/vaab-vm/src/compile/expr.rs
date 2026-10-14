@@ -291,6 +291,11 @@ impl<'a> Compiler<'a> {
                 let _ = count;
                 self.emit(Op::Builtin(Builtin::ToJson), span);
             }
+            Some(Resolution::Builtin("basic_auth_ok")) => {
+                let count = self.push_arguments(call, arguments, Defaults::None);
+                let _ = count;
+                self.emit(Op::Builtin(Builtin::BasicAuthOk), span);
+            }
 
             Some(Resolution::Function(id))
             | Some(Resolution::UserNew { function: id, .. })
