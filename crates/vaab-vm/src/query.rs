@@ -201,9 +201,27 @@ fn apply_predicates(mut select: sea_query::SelectStatement, predicates: &[Predic
     select
 }
 
+fn append_postgres_paging(sql: &mut String, limit: Option<i64>, offset: Option<i64>) {
+    if let Some(limit) = limit {
+        let clamped = std::cmp::max(limit, 0);
+        sql.push_str(&format!(" LIMIT {clamped}"));
+    }
+    if let Some(offset) = offset {
+        let clamped = std::cmp::max(offset, 0);
+        sql.push_str(&format!(" OFFSET {clamped}"));
+    }
+}
+
 fn build_select(query: &Query, dialect: Dialect) -> Result<(String, Vec<Value>), String> {
+    let limit = query.limit;
+    let offset = query.offset;
+    let mut compile = query.clone();
+    if dialect == Dialect::Postgres {
+        compile.limit = None;
+        compile.offset = None;
+    }
     let mut select = SeaQuery::select();
-    match &query.columns {
+    match &compile.columns {
         Some(columns) if !columns.is_empty() => {
             for column in columns {
                 select = select.column(Alias::new(column.clone())).to_owned();
@@ -213,22 +231,27 @@ fn build_select(query: &Query, dialect: Dialect) -> Result<(String, Vec<Value>),
             select = select.column(Asterisk).to_owned();
         }
     }
-    select = select.from(Alias::new(query.table.clone())).to_owned();
-    select = apply_predicates(select, &query.predicates);
-    for order in &query.order {
+    select = select.from(Alias::new(compile.table.clone())).to_owned();
+    select = apply_predicates(select, &compile.predicates);
+    for order in &compile.order {
         let direction = if order.descending { Order::Desc } else { Order::Asc };
         select = select.order_by(Alias::new(order.column.clone()), direction).to_owned();
     }
-    if let Some(limit) = query.limit {
-        select = select.limit(limit as u64).to_owned();
+    if dialect == Dialect::Sqlite {
+        if let Some(limit) = compile.limit {
+            select = select.limit(limit as u64).to_owned();
+        }
+        if let Some(offset) = compile.offset {
+            select = select.offset(offset as u64).to_owned();
+        }
     }
-    if let Some(offset) = query.offset {
-        select = select.offset(offset as u64).to_owned();
-    }
-    let (sql, values) = match dialect {
+    let (mut sql, values) = match dialect {
         Dialect::Sqlite => select.build(SqliteQueryBuilder),
         Dialect::Postgres => select.build(PostgresQueryBuilder),
     };
+    if dialect == Dialect::Postgres {
+        append_postgres_paging(&mut sql, limit, offset);
+    }
     Ok((sql, bind_texts(&values.0)))
 }
 
@@ -361,7 +384,9 @@ pub fn run_all(databases: &Databases, stores: &Stores, query: &Query) -> Result<
 
 pub fn run_first(databases: &Databases, stores: &Stores, query: &Query) -> Result<Value, String> {
     let mut limited = query.clone();
-    limited.limit = Some(1);
+    if limited.limit.is_none() {
+        limited.limit = Some(1);
+    }
     match run_all(databases, stores, &limited)? {
         Value::List(rows) => Ok(match rows.first() {
             Some(row) => Value::found(row.clone()),
@@ -720,4 +745,68 @@ pub fn as_query(value: &Value) -> Result<Query, String> {
 
 pub fn wrap(query: Query) -> Value {
     Value::Query(Ref::new(query))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_query::{Alias, Asterisk, PostgresQueryBuilder, Query as SeaQuery};
+
+    #[test]
+    fn postgres_run_first_live() {
+        let url = std::env::var("VAAB_TEST_POSTGRES_URL")
+            .unwrap_or_else(|_| "postgres://postgres:pass@127.0.0.1:5433/vaab".into());
+        let databases = Databases::default();
+        let handle = match databases.connect(&url) {
+            Ok(handle) => handle,
+            Err(_) => return,
+        };
+        let query = Query::from_db(handle, "riffs".into()).with_predicate(
+            "name".into(),
+            Compare::Eq,
+            "rig".into(),
+        );
+        let row = run_first(&databases, &Stores::default(), &query).expect("run_first");
+        match row {
+            Value::Maybe(Some(found)) => {
+                let Value::Map(map) = found.as_ref() else {
+                    panic!("expected map row");
+                };
+                assert_eq!(
+                    map.get(&Key(Value::text("name"))).and_then(|v| match v {
+                        Value::Text(t) => Some(t.as_ref()),
+                        _ => None,
+                    }),
+                    Some("rig")
+                );
+            }
+            Value::Maybe(None) => panic!("expected a row for name=rig"),
+            _ => panic!("unexpected first result"),
+        }
+    }
+
+    #[test]
+    fn postgres_limit_bind_is_text() {
+        let query = Query {
+            source: QuerySource::Db(0),
+            table: "riffs".into(),
+            predicates: vec![Predicate {
+                column: "name".into(),
+                compare: Compare::Eq,
+                value: "rig".into(),
+            }],
+            pending_column: None,
+            order: Vec::new(),
+            limit: Some(1),
+            offset: None,
+            columns: None,
+        };
+        let (sql, args) = build_select(&query, Dialect::Postgres).expect("build");
+        assert!(sql.contains("LIMIT 1"), "expected literal LIMIT in {sql}");
+        assert_eq!(args.len(), 1, "only predicate binds for postgres paging: {sql}");
+        let Value::Text(text) = &args[0] else {
+            panic!("expected text bind");
+        };
+        assert_eq!(text.as_ref(), "rig");
+    }
 }
