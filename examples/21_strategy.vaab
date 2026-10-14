@@ -1,0 +1,29 @@
+# Strategy — pick the pricing rule at checkout, not at compile time.
+#
+# An `ability` is the strategy interface. Each discount is a plain type that
+# provides it, and `checkout` takes whichever one the caller hands over.
+# No subclasses, no if-chains on a type flag.
+#
+# Run with: vaab run examples/21_strategy.vaab
+
+ability Discount {
+    to apply(total: Int) returns Int
+}
+
+type MemberDiscount can Discount {
+    to apply(total: Int) returns Int = total - total / 10
+}
+
+type SaleDiscount can Discount {
+    cut: Int = 5
+
+    to apply(total: Int) returns Int = total - self.cut
+}
+
+checkout(total: Int, discount: Discount) returns Int {
+    return discount.apply(total)
+}
+
+print(checkout(100, MemberDiscount.new()))
+print(checkout(100, SaleDiscount.new()))
+print(checkout(100, SaleDiscount.new(cut: 20)))

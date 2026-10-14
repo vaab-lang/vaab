@@ -1,0 +1,27 @@
+# Observer — a news feed is a channel, subscribers are tasks.
+#
+# Nobody keeps a subscriber list and nobody calls `notify` in a loop.
+# The publisher sends each headline once; the subscriber task reads the
+# feed until it closes, prints what arrived, and reports how many.
+#
+# Run with: vaab run examples/23_observer.vaab
+
+watch(feed: channel of Text) returns Int {
+    let changing count = 0
+    for each headline in feed {
+        print(headline)
+        count = count + 1
+    }
+    return count
+}
+
+let feed = Channel.new(of: Text, size: 4)
+let subscriber = start { watch(feed) }
+
+send "launch day" to feed
+send "version 0.1.3" to feed
+send "patterns guide" to feed
+close feed
+
+let seen: Int = subscriber.wait()
+print(seen)

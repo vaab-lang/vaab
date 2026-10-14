@@ -1,0 +1,20 @@
+# Prototype, dissolved — clone a sheep with `.with()`.
+#
+# Types are immutable, so every value is already a safe prototype: copy
+# one with `.with()` and only the named fields change. No `clone`
+# keyword, no magic method to get the copying right.
+#
+# Run with: vaab run examples/26_prototype.vaab
+
+type Sheep {
+    name: Text
+    category: Text = "Mountain Sheep"
+}
+
+let jolly = Sheep.new(name: "Jolly")
+let dolly = jolly.with(name: "Dolly")
+
+print(jolly.name)
+print(dolly.name)
+print(dolly.category)
+print(jolly.category)

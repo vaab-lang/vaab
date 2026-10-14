@@ -1,0 +1,42 @@
+# Command — a remote control stores actions as data, not objects.
+#
+# Each button press is a `LightCommand` value. The remote applies it and
+# remembers the previous state, so `undo` is one assignment. No Command
+# classes, no invoker hierarchy — the choice plus a match is the whole
+# pattern.
+#
+# Run with: vaab run examples/24_command.vaab
+
+choice LightCommand {
+    TurnOn
+    TurnOff
+}
+
+cast Remote {
+    changing lit: Bool = no
+    changing previous: Bool = no
+
+    press(command: LightCommand) {
+        self.previous = self.lit
+        match command {
+            when TurnOn then { self.lit = yes }
+            when TurnOff then { self.lit = no }
+        }
+    }
+
+    undo() {
+        self.lit = self.previous
+    }
+
+    glowing() returns Text {
+        if self.lit { return "lit" } else { return "dark" }
+    }
+}
+
+let remote = Remote.new()
+remote.press(LightCommand.TurnOn)
+print(remote.glowing())
+remote.press(LightCommand.TurnOff)
+print(remote.glowing())
+remote.undo()
+print(remote.glowing())

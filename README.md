@@ -109,6 +109,7 @@ crates/vaab-vm       the bytecode compiler and the machine that runs it
 crates/vaab-cli      the `vaab` binary
 docs/LANGUAGE.md     the living specification
 docs/DECISIONS.md    design choices and their reasoning
+docs/PATTERNS.md     design patterns in Vaab, with runnable examples
 examples/            runnable programs, one per feature
 examples/apps/tasks/ multi-file task API (casts + local riffs)
 examples/staffpulse/ aspirational StaffPulse API rewrite (phase 5–6 spec)

@@ -1,0 +1,32 @@
+# Builder, dissolved — a sandwich order is one call with named arguments.
+#
+# The pattern exists to fight telescoping constructors: too many
+# positional options, too many half-right overloads. Named arguments with
+# defaults end the fight before it starts — every flavor below is the
+# same `.new`, and leaving an option out keeps its default.
+#
+# Run with: vaab run examples/25_builder.vaab
+
+type Sandwich {
+    bread: Text = "rye"
+    cheese: Bool = no
+    tomato: Bool = no
+    size: Int = 12
+}
+
+describe(order: Sandwich) returns Text {
+    if order.cheese and order.tomato {
+        return "{order.size} inch on {order.bread} with cheese and tomato"
+    }
+    if order.cheese {
+        return "{order.size} inch on {order.bread} with cheese"
+    }
+    if order.tomato {
+        return "{order.size} inch on {order.bread} with tomato"
+    }
+    return "{order.size} inch on {order.bread}"
+}
+
+print(describe(Sandwich.new()))
+print(describe(Sandwich.new(size: 6, cheese: yes)))
+print(describe(Sandwich.new(bread: "sourdough", tomato: yes, cheese: yes)))

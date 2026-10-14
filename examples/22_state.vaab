@@ -1,0 +1,37 @@
+# State — a traffic light is a choice, and the next light is a match.
+#
+# No state classes, no `current_state` flag with a switch. The compiler
+# requires the match to cover every light, so adding a fourth one breaks
+# the build until `advance` handles it.
+#
+# Run with: vaab run examples/22_state.vaab
+
+choice Light {
+    Red
+    Yellow
+    Green
+}
+
+advance(light: Light) returns Light {
+    match light {
+        when Red then { return Light.Green }
+        when Green then { return Light.Yellow }
+        when Yellow then { return Light.Red }
+    }
+}
+
+describe(light: Light) returns Text {
+    match light {
+        when Red then { return "stop" }
+        when Green then { return "go" }
+        when Yellow then { return "slow down" }
+    }
+}
+
+let changing light = Light.Red
+let changing i = 0
+while i < 4 {
+    print(describe(light))
+    light = advance(light)
+    i = i + 1
+}
