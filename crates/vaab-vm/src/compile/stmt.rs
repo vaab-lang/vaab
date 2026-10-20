@@ -5,7 +5,7 @@ use vaab_syntax::ast::{
     MountUse, ReplyKind, RouteDecl, RouteSegment, ServeDecl, Stmt, StmtKind,
 };
 
-use crate::bytecode::RouteHandler;
+use crate::bytecode::{RouteHandler, RouteKind};
 use crate::value::Ref;
 
 use super::Builder;
@@ -327,6 +327,17 @@ impl<'a> Compiler<'a> {
     fn serve(&mut self, statement: &'a Stmt, serve: &'a ServeDecl) {
         let Some(checked) = self.checked.serves.get(&statement.id) else { return };
 
+        if let (Some(frame), Some(body)) = (checked.on_start, serve.on_start.as_ref()) {
+            let body_index = self.builders.len();
+            self.builders.push(Builder::new(Ref::from("on start"), frame));
+            self.open_body(body_index, frame, 0);
+            self.block_discard(body);
+            self.emit(Op::Nothing, body.span);
+            self.emit(Op::Return, body.span);
+            self.open.pop();
+            self.program.on_start = Some(body_index);
+        }
+
         if let (Some(before_frame), Some(before_block)) = (checked.before, &serve.before) {
             let body_index = self.builders.len();
             let name = Ref::from("before every request");
@@ -362,6 +373,7 @@ impl<'a> Compiler<'a> {
             self.open.pop();
 
             self.program.routes.push(RouteHandler {
+                kind: RouteKind::Http,
                 method: route.method.clone(),
                 path: route.path.clone(),
                 body: body_index,
@@ -389,6 +401,29 @@ impl<'a> Compiler<'a> {
                     .expecting
                     .as_ref()
                     .is_some_and(|(declared, _)| matches!(declared, vaab_types::Type::Map { .. })),
+            });
+        }
+
+        for (socket, socket_decl) in checked.sockets.iter().zip(&serve.sockets) {
+            let body_index = self.builders.len();
+            let name = Ref::from("socket route");
+            self.builders.push(Builder::new(name, socket.frame));
+            self.open_body(body_index, socket.frame, 1);
+            self.block_discard(&socket_decl.body);
+            self.emit(Op::Return, socket_decl.span);
+            self.open.pop();
+
+            self.program.routes.push(RouteHandler {
+                kind: RouteKind::Socket,
+                method: String::new(),
+                path: socket.path.clone(),
+                body: body_index,
+                frame: socket.frame,
+                path_param_count: 0,
+                path_param_types: Vec::new(),
+                expects_body: false,
+                body_layout: None,
+                body_is_map: false,
             });
         }
 

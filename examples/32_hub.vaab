@@ -1,0 +1,38 @@
+# A WebSocket server route and a broadcast Hub.
+# Clients share one fan-out. A live proof that a client receives a
+# broadcast, and that a slow client is dropped when its buffer fills,
+# lives in the server tests.
+
+let hub = Hub.new(of: Text)
+let count = Shared.new(0)
+
+to tick() {
+    count.update(n -> n + 1)
+    hub.broadcast("{count.value}")
+}
+
+to listen(client: Socket) {
+    while yes {
+        match receive from client.messages {
+            when found message then {}
+            when nothing then { return }
+        }
+    }
+}
+
+serve on port 8765 {
+    on start {
+        start { every(milliseconds: 1000, f: tick) }
+    }
+
+    route get "/" {
+        reply text "<!doctype html><html><body><p id=\"n\">0</p><script>let s=new WebSocket(\"ws://\"+location.host+\"/ws\");s.onmessage=function(e)\{document.getElementById(\"n\").textContent=e.data\}</script></body></html>" as "text/html"
+    }
+
+    socket "/ws" as client {
+        hub.join(client)
+        listen(client)
+    }
+}
+
+print("hub")

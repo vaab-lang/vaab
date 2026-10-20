@@ -8,8 +8,8 @@
 use vaab_syntax::ast::{Expr, ExprKind, Name};
 use vaab_syntax::span::Span;
 
-use super::{Checker, Global, Wanted};
 use super::Inside;
+use super::{Checker, Global, Wanted};
 use crate::checked::{CastId, ChoiceId, Constructor, Resolution, TypeId};
 use crate::messages;
 use crate::prelude;
@@ -19,9 +19,16 @@ use crate::types::{Parameter, Signature, Type};
 pub(super) enum Member {
     /// Something to read: a field, a property such as `.is_empty`, or a variant with
     /// no payload.
-    Value { declared: Type, resolution: Resolution },
+    Value {
+        declared: Type,
+        resolution: Resolution,
+    },
     /// Something to call.
-    Callable { signature: Signature, resolution: Resolution, shape: CallShape },
+    Callable {
+        signature: Signature,
+        resolution: Resolution,
+        shape: CallShape,
+    },
     /// `Channel.new` and `Shared.new`, which take a type rather than a value and so
     /// are checked on their own.
     Handle(Handle),
@@ -32,6 +39,7 @@ pub(super) enum Member {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Handle {
     Channel,
+    Hub,
     Shared,
     Db,
     Store,
@@ -100,12 +108,7 @@ impl CallShape {
     }
 
     /// Filling in a type's fields, by name, as `.new`, `.raw` and `.with` all do.
-    fn fields(
-        name: String,
-        owner: String,
-        declared: Span,
-        missing: WhenMissing,
-    ) -> Self {
+    fn fields(name: String, owner: String, declared: Span, missing: WhenMissing) -> Self {
         CallShape {
             name,
             owner: Some(owner),
@@ -121,7 +124,10 @@ impl Checker {
     /// `account.balance`, read rather than called.
     pub(super) fn member(&mut self, expression: &Expr, target: &Expr, name: &Name) -> Type {
         match self.look_up_member(target, name) {
-            Member::Value { declared, resolution } => {
+            Member::Value {
+                declared,
+                resolution,
+            } => {
                 self.resolve_to(expression.id, resolution);
                 declared
             }
@@ -168,6 +174,16 @@ impl Checker {
         // type called `account`.
         if let ExprKind::Name(written) = &target.kind {
             if self.lookup_local(&written.text).is_none() {
+                if written.text == "Json" && name.text == "parse" {
+                    return Member::Callable {
+                        signature: Signature::new(
+                            vec![Parameter::new("text", Type::Text)],
+                            Type::fallible(Type::named("Json"), Type::named("JsonError")),
+                        ),
+                        resolution: Resolution::BuiltinMethod("json_parse"),
+                        shape: CallShape::function("Json.parse", None),
+                    };
+                }
                 match self.globals.get(&written.text).copied() {
                     Some(Global::Type(id)) => return self.type_member(id, name),
                     Some(Global::Cast(id)) => return self.cast_member(id, name),
@@ -187,8 +203,79 @@ impl Checker {
                         shape: CallShape::function("File.read", None),
                     };
                 }
+                if written.text == "Socket" {
+                    return match name.text.as_str() {
+                        "connect" => Member::Callable {
+                            signature: Signature::new(
+                                vec![
+                                    Parameter::new("url", Type::Text),
+                                    Parameter::optional(
+                                        "headers",
+                                        Type::map(Type::Text, Type::Text),
+                                    ),
+                                    Parameter::optional("buffer", Type::Int),
+                                ],
+                                Type::fallible(Type::Socket, Type::named("SocketError")),
+                            ),
+                            resolution: Resolution::BuiltinMethod("socket_connect"),
+                            shape: CallShape::function("Socket.connect", None),
+                        },
+                        _ => {
+                            self.report(messages::unknown_member(
+                                &Type::named("Socket"),
+                                &name.text,
+                                name.span,
+                                &["connect".into()],
+                            ));
+                            Member::Unknown
+                        }
+                    };
+                }
+                if written.text == "Bytes" {
+                    return match name.text.as_str() {
+                        "from_base64" => Member::Callable {
+                            signature: Signature::new(
+                                vec![Parameter::new("text", Type::Text)],
+                                Type::fallible(Type::Bytes, Type::named("BytesError")),
+                            ),
+                            resolution: Resolution::BuiltinMethod("bytes_from_base64"),
+                            shape: CallShape::function("Bytes.from_base64", None),
+                        },
+                        "from_hex" => Member::Callable {
+                            signature: Signature::new(
+                                vec![Parameter::new("text", Type::Text)],
+                                Type::fallible(Type::Bytes, Type::named("BytesError")),
+                            ),
+                            resolution: Resolution::BuiltinMethod("bytes_from_hex"),
+                            shape: CallShape::function("Bytes.from_hex", None),
+                        },
+                        "from_base58" => Member::Callable {
+                            signature: Signature::new(
+                                vec![Parameter::new("text", Type::Text)],
+                                Type::fallible(Type::Bytes, Type::named("BytesError")),
+                            ),
+                            resolution: Resolution::BuiltinMethod("bytes_from_base58"),
+                            shape: CallShape::function("Bytes.from_base58", None),
+                        },
+                        _ => {
+                            self.report(messages::unknown_bytes_member(
+                                &name.text,
+                                name.span,
+                                &[
+                                    "from_base64".into(),
+                                    "from_hex".into(),
+                                    "from_base58".into(),
+                                ],
+                            ));
+                            Member::Unknown
+                        }
+                    };
+                }
                 if written.text == "Channel" && name.text == "new" {
                     return Member::Handle(Handle::Channel);
+                }
+                if written.text == "Hub" && name.text == "new" {
+                    return Member::Handle(Handle::Hub);
                 }
                 if written.text == "Shared" && name.text == "new" {
                     return Member::Handle(Handle::Shared);
@@ -334,7 +421,10 @@ impl Checker {
                     },
                     "post" => Member::Callable {
                         signature: Signature::new(
-                            vec![Parameter::new("url", Type::Text), Parameter::new("body", Type::Text)],
+                            vec![
+                                Parameter::new("url", Type::Text),
+                                Parameter::new("body", Type::Text),
+                            ],
                             Type::fallible(Type::Text, Type::named("HttpError")),
                         ),
                         resolution: Resolution::BuiltinMethod("http_post"),
@@ -364,6 +454,50 @@ impl Checker {
                     }
                 };
             }
+            if self.lookup_local(&written.text).is_none() && written.text == "Clock" {
+                return match name.text.as_str() {
+                    "millis" => Member::Callable {
+                        signature: Signature::new(Vec::new(), Type::Int),
+                        resolution: Resolution::BuiltinMethod("clock_millis"),
+                        shape: CallShape::function("Clock.millis", None),
+                    },
+                    "monotonic_millis" => Member::Callable {
+                        signature: Signature::new(Vec::new(), Type::Int),
+                        resolution: Resolution::BuiltinMethod("clock_monotonic_millis"),
+                        shape: CallShape::function("Clock.monotonic_millis", None),
+                    },
+                    _ => {
+                        self.report(messages::unknown_member(
+                            &Type::named("Clock"),
+                            &name.text,
+                            name.span,
+                            &["millis".into(), "monotonic_millis".into()],
+                        ));
+                        Member::Unknown
+                    }
+                };
+            }
+            if self.lookup_local(&written.text).is_none() && written.text == "Float" {
+                return match name.text.as_str() {
+                    "pi" => Member::Value {
+                        declared: Type::Float,
+                        resolution: Resolution::BuiltinMethod("float_pi"),
+                    },
+                    "infinity" => Member::Value {
+                        declared: Type::Float,
+                        resolution: Resolution::BuiltinMethod("float_infinity"),
+                    },
+                    _ => {
+                        self.report(messages::unknown_member(
+                            &Type::named("Float"),
+                            &name.text,
+                            name.span,
+                            &["pi".into(), "infinity".into()],
+                        ));
+                        Member::Unknown
+                    }
+                };
+            }
         }
 
         let found = self.expression(target, Wanted::Anything);
@@ -376,7 +510,9 @@ impl Checker {
 
     /// `Account.new`, `Email.raw`.
     fn type_member(&mut self, id: TypeId, name: &Name) -> Member {
-        let Some(declared) = self.checked.declared_type(id) else { return Member::Unknown };
+        let Some(declared) = self.checked.declared_type(id) else {
+            return Member::Unknown;
+        };
         let owner = declared.name.clone();
         let constructor = declared.constructor;
         let fields = declared.fields.clone();
@@ -410,7 +546,10 @@ impl Checker {
                     };
                     Member::Callable {
                         signature: found.signature.clone(),
-                        resolution: Resolution::UserNew { declared: id, function },
+                        resolution: Resolution::UserNew {
+                            declared: id,
+                            function,
+                        },
                         shape: CallShape::function(format!("{owner}.new"), Some(found.span)),
                     }
                 }
@@ -426,9 +565,7 @@ impl Checker {
                     signature: Signature::new(
                         fields
                             .iter()
-                            .map(|field| {
-                                Parameter::new(field.name.clone(), field.declared.clone())
-                            })
+                            .map(|field| Parameter::new(field.name.clone(), field.declared.clone()))
                             .collect(),
                         Type::named(&owner),
                     ),
@@ -457,14 +594,18 @@ impl Checker {
 
     /// `Counter.new`, `Counter.zero`, `Counter.raw`.
     fn cast_member(&mut self, id: CastId, name: &Name) -> Member {
-        let Some(declared) = self.checked.declared_cast(id) else { return Member::Unknown };
+        let Some(declared) = self.checked.declared_cast(id) else {
+            return Member::Unknown;
+        };
         let owner = declared.name.clone();
         let constructor = declared.constructor;
         let fields = declared.fields.clone();
         let at = declared.span;
 
         if let Some(function) = self.checked.cast_class_method(id, &name.text) {
-            let Some(method) = self.checked.function(function) else { return Member::Unknown };
+            let Some(method) = self.checked.function(function) else {
+                return Member::Unknown;
+            };
             return Member::Callable {
                 signature: method.signature.clone(),
                 resolution: Resolution::CastClassMethod { cast: id, function },
@@ -530,17 +671,12 @@ impl Checker {
 
             _ => {
                 let mut known = vec!["new".to_string(), "raw".to_string()];
-                known.extend(
-                    declared
-                        .methods
-                        .iter()
-                        .filter_map(|function| {
-                            self.checked
-                                .function(*function)
-                                .filter(|function| function.class_method)
-                                .map(|function| function.name.clone())
-                        }),
-                );
+                known.extend(declared.methods.iter().filter_map(|function| {
+                    self.checked
+                        .function(*function)
+                        .filter(|function| function.class_method)
+                        .map(|function| function.name.clone())
+                }));
                 self.report(messages::unknown_member(
                     &Type::named(&owner),
                     &name.text,
@@ -554,20 +690,33 @@ impl Checker {
 
     /// `AccountError.Frozen`, `AccountError.InvalidAmount(5)`.
     fn variant_member(&mut self, id: ChoiceId, name: &Name) -> Member {
-        let Some(choice) = self.checked.choice(id) else { return Member::Unknown };
+        let Some(choice) = self.checked.choice(id) else {
+            return Member::Unknown;
+        };
         let owner = choice.name.clone();
         let at = choice.span;
 
         let Some((index, variant)) = choice.variant(&name.text) else {
-            let known: Vec<String> =
-                choice.variants.iter().map(|variant| variant.name.clone()).collect();
-            self.report(messages::unknown_variant(&owner, &name.text, name.span, &known));
+            let known: Vec<String> = choice
+                .variants
+                .iter()
+                .map(|variant| variant.name.clone())
+                .collect();
+            self.report(messages::unknown_variant(
+                &owner, &name.text, name.span, &known,
+            ));
             return Member::Unknown;
         };
 
-        let resolution = Resolution::Variant { choice: id, variant: index };
+        let resolution = Resolution::Variant {
+            choice: id,
+            variant: index,
+        };
         if variant.fields.is_empty() {
-            return Member::Value { declared: Type::named(&owner), resolution };
+            return Member::Value {
+                declared: Type::named(&owner),
+                resolution,
+            };
         }
 
         let fields = variant.fields.clone();
@@ -595,13 +744,69 @@ impl Checker {
         }
 
         match &found {
+            Type::Named(owner) if owner == "Json" => self.json_value_member(name),
+            Type::Maybe(inner) if matches!(inner.as_ref(), Type::Named(owner) if owner == "Json") => {
+                self.json_value_member(name)
+            }
             Type::Named(owner) => self.named_member(owner, &found, name),
             Type::Ability(ability) => self.ability_member(ability, &found, name),
             Type::Db => self.builtin_member(&found, name, target),
             Type::Store => self.store_member(name, target),
             Type::Logger => self.logger_member(name),
+            Type::Socket => self.socket_member(name),
+            Type::Hub(item) => self.hub_member(item, name),
             Type::Query { error } => self.query_member(error, name),
             _ => self.builtin_member(&found, name, target),
+        }
+    }
+
+    /// Walking methods on a `Json` document, or on `maybe Json` so `.at` chains.
+    fn json_value_member(&mut self, name: &Name) -> Member {
+        let json = Type::named("Json");
+        match name.text.as_str() {
+            "at" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("key", Type::parameter("K"))],
+                    Type::maybe(json),
+                ),
+                resolution: Resolution::BuiltinMethod("json_at"),
+                shape: CallShape::function("Json.at", None),
+            },
+            "as_text" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::Text)),
+                resolution: Resolution::BuiltinMethod("json_as_text"),
+                shape: CallShape::function("Json.as_text", None),
+            },
+            "as_int" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::Int)),
+                resolution: Resolution::BuiltinMethod("json_as_int"),
+                shape: CallShape::function("Json.as_int", None),
+            },
+            "as_float" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+                resolution: Resolution::BuiltinMethod("json_as_float"),
+                shape: CallShape::function("Json.as_float", None),
+            },
+            "as_list" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::list(json))),
+                resolution: Resolution::BuiltinMethod("json_as_list"),
+                shape: CallShape::function("Json.as_list", None),
+            },
+            _ => {
+                self.report(messages::unknown_member(
+                    &json,
+                    &name.text,
+                    name.span,
+                    &[
+                        "at".into(),
+                        "as_text".into(),
+                        "as_int".into(),
+                        "as_float".into(),
+                        "as_list".into(),
+                    ],
+                ));
+                Member::Unknown
+            }
         }
     }
 
@@ -617,13 +822,18 @@ impl Checker {
             self.report(messages::unknown_member(found, &name.text, name.span, &[]));
             return Member::Unknown;
         };
-        let Some(declared) = self.checked.declared_type(id) else { return Member::Unknown };
+        let Some(declared) = self.checked.declared_type(id) else {
+            return Member::Unknown;
+        };
         let at = declared.span;
 
         if let Some((index, field)) = declared.field(&name.text) {
             return Member::Value {
                 declared: field.declared.clone(),
-                resolution: Resolution::Field { declared: id, field: index },
+                resolution: Resolution::Field {
+                    declared: id,
+                    field: index,
+                },
             };
         }
 
@@ -654,38 +864,46 @@ impl Checker {
         }
 
         if let Some(function) = self.checked.method(id, &name.text) {
-            let Some(method) = self.checked.function(function) else { return Member::Unknown };
+            let Some(method) = self.checked.function(function) else {
+                return Member::Unknown;
+            };
             return Member::Callable {
                 signature: method.signature.clone(),
-                resolution: Resolution::Method { declared: id, function },
+                resolution: Resolution::Method {
+                    declared: id,
+                    function,
+                },
                 shape: CallShape::function(format!("{owner}.{}", name.text), Some(method.span)),
             };
         }
 
         let known = self.members_of_named(id);
-        self.report(messages::unknown_member(found, &name.text, name.span, &known));
+        self.report(messages::unknown_member(
+            found, &name.text, name.span, &known,
+        ));
         Member::Unknown
     }
 
     /// A field or an instance method on a cast value. Casts have no `.with`.
-    fn cast_named_member(
-        &mut self,
-        id: CastId,
-        owner: &str,
-        found: &Type,
-        name: &Name,
-    ) -> Member {
-        let Some(declared) = self.checked.declared_cast(id) else { return Member::Unknown };
+    fn cast_named_member(&mut self, id: CastId, owner: &str, found: &Type, name: &Name) -> Member {
+        let Some(declared) = self.checked.declared_cast(id) else {
+            return Member::Unknown;
+        };
 
         if let Some((index, field)) = declared.field(&name.text) {
             return Member::Value {
                 declared: field.declared.clone(),
-                resolution: Resolution::CastField { cast: id, field: index },
+                resolution: Resolution::CastField {
+                    cast: id,
+                    field: index,
+                },
             };
         }
 
         if let Some(function) = self.checked.cast_method(id, &name.text) {
-            let Some(method) = self.checked.function(function) else { return Member::Unknown };
+            let Some(method) = self.checked.function(function) else {
+                return Member::Unknown;
+            };
             return Member::Callable {
                 signature: method.signature.clone(),
                 resolution: Resolution::CastMethod { cast: id, function },
@@ -694,7 +912,9 @@ impl Checker {
         }
 
         let known = self.members_of_cast(id);
-        self.report(messages::unknown_member(found, &name.text, name.span, &known));
+        self.report(messages::unknown_member(
+            found, &name.text, name.span, &known,
+        ));
         Member::Unknown
     }
 
@@ -703,19 +923,29 @@ impl Checker {
         let Some(Global::Ability(id)) = self.globals.get(ability).copied() else {
             return Member::Unknown;
         };
-        let Some(declared) = self.checked.ability(id) else { return Member::Unknown };
+        let Some(declared) = self.checked.ability(id) else {
+            return Member::Unknown;
+        };
 
         let Some((slot, required)) = declared.required(&name.text) else {
-            let known: Vec<String> =
-                declared.functions.iter().map(|function| function.name.clone()).collect();
-            self.report(messages::unknown_member(found, &name.text, name.span, &known));
+            let known: Vec<String> = declared
+                .functions
+                .iter()
+                .map(|function| function.name.clone())
+                .collect();
+            self.report(messages::unknown_member(
+                found, &name.text, name.span, &known,
+            ));
             return Member::Unknown;
         };
 
         let at = required.span;
         Member::Callable {
             signature: required.signature.clone(),
-            resolution: Resolution::AbilityMethod { ability: id, function: slot },
+            resolution: Resolution::AbilityMethod {
+                ability: id,
+                function: slot,
+            },
             shape: CallShape::function(format!("{ability}.{}", name.text), Some(at)),
         }
     }
@@ -786,14 +1016,88 @@ impl Checker {
         }
     }
 
+    /// Methods on a process-wide `Hub`.
+    fn hub_member(&mut self, item: &Type, name: &Name) -> Member {
+        match name.text.as_str() {
+            "join" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("client", Type::Socket)],
+                    Type::Nothing,
+                ),
+                resolution: Resolution::BuiltinMethod("hub_join"),
+                shape: CallShape::function("hub.join", None),
+            },
+            "broadcast" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("value", item.clone())],
+                    Type::Nothing,
+                ),
+                resolution: Resolution::BuiltinMethod("hub_broadcast"),
+                shape: CallShape::function("hub.broadcast", None),
+            },
+            _ => {
+                self.report(messages::unknown_member(
+                    &Type::hub(item.clone()),
+                    &name.text,
+                    name.span,
+                    &["join".into(), "broadcast".into()],
+                ));
+                Member::Unknown
+            }
+        }
+    }
+
+    /// Properties and methods on an open `Socket`.
+    fn socket_member(&mut self, name: &Name) -> Member {
+        match name.text.as_str() {
+            "messages" => Member::Value {
+                declared: Type::channel(Type::Text),
+                resolution: Resolution::BuiltinMethod("socket_messages"),
+            },
+            "binary" => Member::Value {
+                declared: Type::channel(Type::Bytes),
+                resolution: Resolution::BuiltinMethod("socket_binary"),
+            },
+            "closed_because" => Member::Value {
+                declared: Type::maybe(Type::Text),
+                resolution: Resolution::BuiltinMethod("socket_closed_because"),
+            },
+            "send" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("text", Type::Text)],
+                    Type::fallible(Type::Nothing, Type::named("SocketError")),
+                ),
+                resolution: Resolution::BuiltinMethod("socket_send"),
+                shape: CallShape::function("socket.send", None),
+            },
+            "close" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::Nothing),
+                resolution: Resolution::BuiltinMethod("socket_close"),
+                shape: CallShape::function("socket.close", None),
+            },
+            _ => {
+                self.report(messages::unknown_member(
+                    &Type::Socket,
+                    &name.text,
+                    name.span,
+                    &[
+                        "messages".into(),
+                        "binary".into(),
+                        "closed_because".into(),
+                        "send".into(),
+                        "close".into(),
+                    ],
+                ));
+                Member::Unknown
+            }
+        }
+    }
+
     /// Methods on a configured `Logger`.
     fn logger_member(&mut self, name: &Name) -> Member {
         match name.text.as_str() {
             "set_level" => Member::Callable {
-                signature: Signature::new(
-                    vec![Parameter::new("level", Type::Text)],
-                    Type::Nothing,
-                ),
+                signature: Signature::new(vec![Parameter::new("level", Type::Text)], Type::Nothing),
                 resolution: Resolution::BuiltinMethod("logger_set_level"),
                 shape: CallShape::function("logger.set_level", None),
             },
@@ -892,23 +1196,22 @@ impl Checker {
                 resolution: Resolution::BuiltinMethod("query_where_column"),
                 shape: CallShape::function("query.where", None),
             },
-            "is" | "is_not" | "is_above" | "is_at_least" | "is_below" | "is_at_most" | "is_like" => {
-                Member::Callable {
-                    signature: Signature::new(
-                        vec![Parameter::new("value", Type::Text)],
-                        query_type.clone(),
-                    ),
-                    resolution: Resolution::BuiltinMethod(match name.text.as_str() {
-                        "is" => "query_is",
-                        "is_not" => "query_is_not",
-                        "is_above" => "query_is_above",
-                        "is_at_least" => "query_is_at_least",
-                        "is_below" => "query_is_below",
-                        "is_at_most" => "query_is_at_most",
-                        _ => "query_is_like",
-                    }),
-                    shape: CallShape::function(format!("query.{}", name.text), None),
-                }
+            "is" | "is_not" | "is_above" | "is_at_least" | "is_below" | "is_at_most"
+            | "is_like" => Member::Callable {
+                signature: Signature::new(
+                    vec![Parameter::new("value", Type::Text)],
+                    query_type.clone(),
+                ),
+                resolution: Resolution::BuiltinMethod(match name.text.as_str() {
+                    "is" => "query_is",
+                    "is_not" => "query_is_not",
+                    "is_above" => "query_is_above",
+                    "is_at_least" => "query_is_at_least",
+                    "is_below" => "query_is_below",
+                    "is_at_most" => "query_is_at_most",
+                    _ => "query_is_like",
+                }),
+                shape: CallShape::function(format!("query.{}", name.text), None),
             },
             "order" | "order_desc" => Member::Callable {
                 signature: Signature::new(
@@ -923,10 +1226,7 @@ impl Checker {
                 shape: CallShape::function(format!("query.{}", name.text), None),
             },
             "limit" | "offset" => Member::Callable {
-                signature: Signature::new(
-                    vec![Parameter::new("n", Type::Int)],
-                    query_type.clone(),
-                ),
+                signature: Signature::new(vec![Parameter::new("n", Type::Int)], query_type.clone()),
                 resolution: Resolution::BuiltinMethod(if name.text == "limit" {
                     "query_limit"
                 } else {
@@ -943,10 +1243,7 @@ impl Checker {
                 shape: CallShape::function("query.select", None),
             },
             "all" => Member::Callable {
-                signature: Signature::new(
-                    Vec::new(),
-                    Type::fallible(rows, error.clone()),
-                ),
+                signature: Signature::new(Vec::new(), Type::fallible(rows, error.clone())),
                 resolution: Resolution::BuiltinMethod("query_all"),
                 shape: CallShape::function("query.all", None),
             },
@@ -959,17 +1256,18 @@ impl Checker {
                 shape: CallShape::function("query.first", None),
             },
             "count" => Member::Callable {
-                signature: Signature::new(
-                    Vec::new(),
-                    Type::fallible(Type::Int, error.clone()),
-                ),
+                signature: Signature::new(Vec::new(), Type::fallible(Type::Int, error.clone())),
                 resolution: Resolution::BuiltinMethod("query_count"),
                 shape: CallShape::function("query.count", None),
             },
             "insert" | "update" => Member::Callable {
                 signature: Signature::new(
                     vec![Parameter::new(
-                        if name.text == "insert" { "row" } else { "values" },
+                        if name.text == "insert" {
+                            "row"
+                        } else {
+                            "values"
+                        },
                         Type::map(Type::Text, Type::Text),
                     )],
                     Type::fallible(Type::Int, error.clone()),
@@ -982,10 +1280,7 @@ impl Checker {
                 shape: CallShape::function(format!("query.{}", name.text), None),
             },
             "delete" => Member::Callable {
-                signature: Signature::new(
-                    Vec::new(),
-                    Type::fallible(Type::Int, error.clone()),
-                ),
+                signature: Signature::new(Vec::new(), Type::fallible(Type::Int, error.clone())),
                 resolution: Resolution::BuiltinMethod("query_delete"),
                 shape: CallShape::function("query.delete", None),
             },
@@ -1014,7 +1309,10 @@ impl Checker {
                     &query_type,
                     &name.text,
                     name.span,
-                    &known.iter().map(|name| (*name).to_string()).collect::<Vec<_>>(),
+                    &known
+                        .iter()
+                        .map(|name| (*name).to_string())
+                        .collect::<Vec<_>>(),
                 ));
                 Member::Unknown
             }
@@ -1023,50 +1321,74 @@ impl Checker {
 
     /// A method from the prelude, such as `.map` or `.get`.
     fn builtin_member(&mut self, found: &Type, name: &Name, target: Span) -> Member {
-        let candidate = self
-            .builtin_methods
-            .iter()
-            .find(|method| {
-                method.name == name.text && prelude::same_shape(&method.receiver, found)
-            })
-            .map(|method| (method.name, method.receiver.clone(), method.signature.clone(), method.property));
-
-        let Some((name_of, receiver, signature, property)) = candidate else {
-            let known = prelude::members_of(found);
-            self.report(messages::unknown_member(found, &name.text, name.span, &known));
-            return Member::Unknown;
-        };
-
-        // The receiver and the signature share their type parameters, so they have to
-        // be given the same fresh variables: that is what carries the `T` of a
-        // `list of T` into what `.map` gives back.
-        let (receiver, signature) = self.variables.instantiate_together(&receiver, &signature);
-
-        if !self.variables.fits(found, &receiver) {
-            let receiver = self.variables.resolve(&receiver);
-            self.report(messages::bad_receiver(&name.text, &receiver, found, target));
+        if matches!(found, Type::Db) && name.text == "transaction" {
+            self.report(messages::transaction_needs_block(name.span));
             return Member::Unknown;
         }
 
-        if property {
-            return Member::Value {
-                declared: signature.returns,
-                resolution: Resolution::BuiltinMethod(name_of),
+        let mut mismatch: Option<Type> = None;
+        for method in &self.builtin_methods {
+            if method.name != name.text || !prelude::same_shape(&method.receiver, found) {
+                continue;
+            }
+
+            // The receiver and the signature share their type parameters, so they have
+            // to be given the same fresh variables: that is what carries the `T` of a
+            // `list of T` into what `.map` gives back.
+            let (receiver, signature) = self
+                .variables
+                .instantiate_together(&method.receiver, &method.signature);
+
+            if !self.variables.fits(found, &receiver) {
+                if mismatch.is_none() {
+                    mismatch = Some(self.variables.resolve(&receiver));
+                }
+                continue;
+            }
+
+            let code = prelude::builtin_code(method.name, &method.receiver);
+            if method.property {
+                return Member::Value {
+                    declared: signature.returns,
+                    resolution: Resolution::BuiltinMethod(code),
+                };
+            }
+
+            return Member::Callable {
+                signature,
+                resolution: Resolution::BuiltinMethod(code),
+                shape: CallShape::function(method.name, None),
             };
         }
 
-        Member::Callable {
-            signature,
-            resolution: Resolution::BuiltinMethod(name_of),
-            shape: CallShape::function(name_of, None),
+        if let Some(wanted) = mismatch {
+            self.report(messages::bad_receiver(&name.text, &wanted, found, target));
+            return Member::Unknown;
         }
+
+        let known = prelude::members_of(found);
+        if matches!(found, Type::Bytes) {
+            self.report(messages::unknown_bytes_member(
+                &name.text, name.span, &known,
+            ));
+        } else {
+            self.report(messages::unknown_member(
+                found, &name.text, name.span, &known,
+            ));
+        }
+        Member::Unknown
     }
 
     /// Everything a value of a declared type offers, for a "did you mean".
     fn members_of_named(&self, id: TypeId) -> Vec<String> {
-        let Some(declared) = self.checked.declared_type(id) else { return Vec::new() };
-        let mut known: Vec<String> =
-            declared.fields.iter().map(|field| field.name.clone()).collect();
+        let Some(declared) = self.checked.declared_type(id) else {
+            return Vec::new();
+        };
+        let mut known: Vec<String> = declared
+            .fields
+            .iter()
+            .map(|field| field.name.clone())
+            .collect();
         for method in &declared.methods {
             if let Some(function) = self.checked.function(*method) {
                 known.push(function.name.clone());
@@ -1077,9 +1399,14 @@ impl Checker {
     }
 
     fn members_of_cast(&self, id: CastId) -> Vec<String> {
-        let Some(declared) = self.checked.declared_cast(id) else { return Vec::new() };
-        let mut known: Vec<String> =
-            declared.fields.iter().map(|field| field.name.clone()).collect();
+        let Some(declared) = self.checked.declared_cast(id) else {
+            return Vec::new();
+        };
+        let mut known: Vec<String> = declared
+            .fields
+            .iter()
+            .map(|field| field.name.clone())
+            .collect();
         for method in &declared.methods {
             if let Some(function) = self.checked.function(*method) {
                 if !function.class_method {

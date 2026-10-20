@@ -7,8 +7,9 @@ use vaab_syntax::ast::{
     AbilityDecl, ArmBody, ArmPattern, Argument, AssignStmt, Block, CastDecl, ChoiceDecl,
     ElseBranch, ExpectingDecl, Expr, ExprKind, Field, ForEachStmt, FunctionBody, FunctionDecl,
     IfExpr, LetStmt, MapEntry, MatchArm, MatchExpr, Module, MountDecl, MountUse, Name, NodeId,
-    Parameter, Pattern, PatternKind, RepeatStmt, ReplyKind, ReplyStmt, RouteDecl, RouteSegment,
-    SelectArm, SelectExpr, SendStmt, ServeDecl, ServeErrorHandler, Stmt, StmtKind, TextPart,
+    Parameter, Pattern, PatternKind, RepeatStmt,     ReplyKind, ReplyStmt, RouteDecl, RouteSegment,
+    SelectArm, SelectExpr, SendStmt, ServeDecl, ServeErrorHandler, SocketRouteDecl, Stmt, StmtKind,
+    TextPart,
     TypeDecl, TypeExpr, TypeKind, Variant, VariantField, WhileStmt,
 };
 
@@ -224,6 +225,7 @@ impl Mapper {
     fn map_serve(&mut self, serve: ServeDecl) -> ServeDecl {
         ServeDecl {
             port: self.map_expr(serve.port),
+            on_start: serve.on_start.map(|block| self.map_block(block)),
             before: serve.before.map(|block| {
                 self.push_scope();
                 self.bind_local("request");
@@ -241,10 +243,46 @@ impl Mapper {
                 .into_iter()
                 .map(|route| self.map_route(route))
                 .collect(),
+            sockets: serve
+                .sockets
+                .into_iter()
+                .map(|socket| self.map_socket_route(socket))
+                .collect(),
             error_handler: serve
                 .error_handler
                 .map(|handler| self.map_serve_error_handler(handler)),
             span: serve.span,
+        }
+    }
+
+    fn map_socket_route(&mut self, socket: SocketRouteDecl) -> SocketRouteDecl {
+        self.push_scope();
+        self.bind_local(&socket.binding.text);
+        let path = socket
+            .path
+            .into_iter()
+            .map(|segment| match segment {
+                RouteSegment::Literal(text) => RouteSegment::Literal(text),
+                RouteSegment::Param { name, declared } => {
+                    self.bind_local(&name.text);
+                    RouteSegment::Param {
+                        name,
+                        declared: declared.map(|ty| self.map_type_expr(ty)),
+                    }
+                }
+                RouteSegment::CatchAll { name } => {
+                    self.bind_local(&name.text);
+                    RouteSegment::CatchAll { name }
+                }
+            })
+            .collect();
+        let body = self.map_block_in_current_scope(socket.body);
+        self.pop_scope();
+        SocketRouteDecl {
+            path,
+            binding: socket.binding,
+            body,
+            span: socket.span,
         }
     }
 
@@ -561,6 +599,7 @@ impl Mapper {
             TypeKind::Channel(inner) => TypeKind::Channel(Box::new(self.map_type_expr(*inner))),
             TypeKind::Task(inner) => TypeKind::Task(Box::new(self.map_type_expr(*inner))),
             TypeKind::Shared(inner) => TypeKind::Shared(Box::new(self.map_type_expr(*inner))),
+            TypeKind::Hub(inner) => TypeKind::Hub(Box::new(self.map_type_expr(*inner))),
             TypeKind::Tuple(items) => {
                 TypeKind::Tuple(items.into_iter().map(|item| self.map_type_expr(item)).collect())
             }
@@ -742,6 +781,10 @@ impl Mapper {
                 channel: Box::new(self.map_expr(*channel)),
             },
             ExprKind::Start(body) => ExprKind::Start(Box::new(self.map_block(*body))),
+            ExprKind::Transaction { database, body } => ExprKind::Transaction {
+                database: Box::new(self.map_expr(*database)),
+                body: Box::new(self.map_block(*body)),
+            },
             ExprKind::Select(select) => ExprKind::Select(Box::new(self.map_select(*select))),
             other => other,
         };
@@ -1028,11 +1071,17 @@ impl Renumber {
             }
             StmtKind::Serve(serve) => {
                 self.expr(&mut serve.port);
+                if let Some(on_start) = &mut serve.on_start {
+                    self.block(on_start);
+                }
                 if let Some(before) = &mut serve.before {
                     self.block(before);
                 }
                 for route in &mut serve.routes {
                     self.block(&mut route.body);
+                }
+                for socket in &mut serve.sockets {
+                    self.block(&mut socket.body);
                 }
                 if let Some(handler) = &mut serve.error_handler {
                     self.block(&mut handler.body);
@@ -1159,6 +1208,10 @@ impl Renumber {
             }
             ExprKind::Receive { channel } => self.expr(channel),
             ExprKind::Start(body) => self.block(body),
+            ExprKind::Transaction { database, body } => {
+                self.expr(database);
+                self.block(body);
+            }
             ExprKind::Select(select) => {
                 for arm in &mut select.arms {
                     match arm {

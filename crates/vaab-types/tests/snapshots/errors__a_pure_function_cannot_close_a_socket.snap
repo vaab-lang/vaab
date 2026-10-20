@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to stop(socket: Socket) = socket.close()\\n\")"
+---
+[not-pure] Error: `stop` is declared `pure`, so it cannot close a socket
+   ╭─[ example.vaab:1:32 ]
+   │
+ 1 │ pure to stop(socket: Socket) = socket.close()
+   │         ──┬─                   ───────┬──────  
+   │           │                           ╰──────── this closes a socket
+   │           │                                    
+   │           ╰──────────────────────────────────── `stop` is declared `pure` here
+   │ 
+   │ Help: close the socket outside the `pure` function
+───╯

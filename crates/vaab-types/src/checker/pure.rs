@@ -27,11 +27,15 @@ impl Checker {
         id: FunctionId,
         locals_begin: usize,
     ) {
-        let Some(function) = self.checked.function(id) else { return };
+        let Some(function) = self.checked.function(id) else {
+            return;
+        };
         if !function.pure {
             return;
         }
-        let Some(body) = &declaration.body else { return };
+        let Some(body) = &declaration.body else {
+            return;
+        };
 
         let signature_span = declaration
             .returns
@@ -84,6 +88,9 @@ impl Visit for ImpureFinder<'_> {
                 Some(PureViolation::Effect("wait for a value on a channel"))
             }
             ExprKind::Start(_) => Some(PureViolation::Effect("start a task")),
+            ExprKind::Transaction { .. } => {
+                Some(PureViolation::Effect("run a database transaction"))
+            }
             ExprKind::Select(_) => {
                 Some(PureViolation::Effect("wait for something to become ready"))
             }
@@ -107,7 +114,9 @@ impl ImpureFinder<'_> {
     }
 
     fn changes_outside(&self, target: &Expr) -> bool {
-        let ExprKind::Name(_) = &target.kind else { return false };
+        let ExprKind::Name(_) = &target.kind else {
+            return false;
+        };
         let Some(Resolution::Local(found)) = self.checked.resolution(target.id) else {
             return false;
         };
@@ -118,6 +127,9 @@ impl ImpureFinder<'_> {
         match self.checked.resolution(expression.id) {
             Some(Resolution::BuiltinMethod("value")) => {
                 Some(PureViolation::Effect("read a `shared` value"))
+            }
+            Some(Resolution::BuiltinMethod("socket_closed_because")) => {
+                Some(PureViolation::Effect("read why a socket closed"))
             }
             _ => None,
         }
@@ -140,6 +152,8 @@ impl ImpureFinder<'_> {
             Some(Resolution::Builtin("read_file")) => {
                 Some(PureViolation::Effect("call `read_file`"))
             }
+            Some(Resolution::Builtin("sleep")) => Some(PureViolation::Effect("call `sleep`")),
+            Some(Resolution::Builtin("every")) => Some(PureViolation::Effect("call `every`")),
             Some(Resolution::Builtin(_)) => None,
             Some(Resolution::BuiltinMethod("wait")) => {
                 Some(PureViolation::Effect("wait for a task"))
@@ -151,25 +165,50 @@ impl ImpureFinder<'_> {
                 Some(PureViolation::Effect("read a `shared` value"))
             }
             Some(Resolution::NewChannel) => Some(PureViolation::Effect("build a channel")),
+            Some(Resolution::NewHub) => Some(PureViolation::Effect("build a hub")),
+            Some(Resolution::BuiltinMethod("hub_join")) => {
+                Some(PureViolation::Effect("join a socket to a hub"))
+            }
+            Some(Resolution::BuiltinMethod("hub_broadcast")) => {
+                Some(PureViolation::Effect("broadcast on a hub"))
+            }
             Some(Resolution::NewShared) => Some(PureViolation::Effect("build a `shared` value")),
             Some(Resolution::NewDb) => Some(PureViolation::Effect("connect to a database")),
             Some(Resolution::NewStore) => Some(PureViolation::Effect("open a store")),
-            Some(Resolution::NewLoggerStdout | Resolution::NewLoggerStderr | Resolution::NewLoggerFile
-                | Resolution::NewLoggerMemory | Resolution::NewLoggerMulti) => {
-                Some(PureViolation::Effect("build a logger"))
-            }
+            Some(
+                Resolution::NewLoggerStdout
+                | Resolution::NewLoggerStderr
+                | Resolution::NewLoggerFile
+                | Resolution::NewLoggerMemory
+                | Resolution::NewLoggerMulti,
+            ) => Some(PureViolation::Effect("build a logger")),
             Some(Resolution::BuiltinMethod("env_get" | "env_required")) => {
                 Some(PureViolation::Effect("read the environment"))
+            }
+            Some(Resolution::BuiltinMethod("clock_millis" | "clock_monotonic_millis")) => {
+                Some(PureViolation::Effect("read the clock"))
             }
             Some(Resolution::BuiltinMethod("http_get" | "http_post" | "http_send")) => {
                 Some(PureViolation::Effect("make an HTTP request"))
             }
+            Some(Resolution::BuiltinMethod("socket_connect")) => {
+                Some(PureViolation::Effect("connect a socket"))
+            }
+            Some(Resolution::BuiltinMethod("socket_send")) => {
+                Some(PureViolation::Effect("send on a socket"))
+            }
+            Some(Resolution::BuiltinMethod("socket_close")) => {
+                Some(PureViolation::Effect("close a socket"))
+            }
+            Some(Resolution::BuiltinMethod("socket_closed_because")) => {
+                Some(PureViolation::Effect("read why a socket closed"))
+            }
             Some(Resolution::BuiltinMethod("execute" | "query")) => {
                 Some(PureViolation::Effect("talk to a database"))
             }
-            Some(Resolution::BuiltinMethod("store_get" | "store_set" | "store_remove" | "store_keys")) => {
-                Some(PureViolation::Effect("talk to a store"))
-            }
+            Some(Resolution::BuiltinMethod(
+                "store_get" | "store_set" | "store_remove" | "store_keys",
+            )) => Some(PureViolation::Effect("talk to a store")),
             Some(Resolution::BuiltinMethod(
                 "logger_set_level" | "logger_set_format" | "logger_debug" | "logger_info"
                 | "logger_warn" | "logger_error" | "logger_write" | "logger_lines",

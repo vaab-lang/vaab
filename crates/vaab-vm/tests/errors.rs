@@ -65,6 +65,11 @@ fn rounding_a_decimal_too_large_to_be_a_whole_number() {
     assert_snapshot!(stops("let huge = 99_999_999_999_999_999_999_999.0\nprint(huge.round())\n"));
 }
 
+#[test]
+fn the_square_root_of_a_negative_number_is_not_a_real_number() {
+    assert_snapshot!(stops("print((-1.0).sqrt())\n"));
+}
+
 // ---------------------------------------------------------------------------
 // Dividing by zero
 // ---------------------------------------------------------------------------

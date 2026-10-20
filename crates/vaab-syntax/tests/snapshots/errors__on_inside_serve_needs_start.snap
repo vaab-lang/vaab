@@ -1,0 +1,22 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(r#\"\nserve on port 8080 {\n    on stop { print(\"no\") }\n    route get \"/hello\" { reply with \"hello\" }\n}\n\"#)"
+---
+[on-start-expected] Error: `on` inside `serve` begins `on start`, which runs once after the listener binds
+   ╭─[ example.vaab:3:8 ]
+   │
+ 3 │     on stop { print("no") }
+   │        ──┬─  
+   │          ╰─── Vaab expected `start` here
+   │ 
+   │ Help: write `on start { ... }`
+───╯
+[unmatched-brace] Error: this `}` does not close anything
+   ╭─[ example.vaab:5:1 ]
+   │
+ 5 │ }
+   │ ┬  
+   │ ╰── there is no open `{` above it
+   │ 
+   │ Help: remove it, or add the matching `{`
+───╯

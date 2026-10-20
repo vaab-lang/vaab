@@ -1,0 +1,20 @@
+# Rolling mean, a z-score, and a short timed wait.
+
+let samples = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+let mean = samples.mean() otherwise 0.0
+
+# Last three readings: a rolling window over the same list.
+let window = [5.0, 7.0, 9.0]
+print((window.mean() otherwise 0.0).round())
+
+# Spread chosen so the last sample's z-score is a whole number.
+let spread = 2.0
+let z = (9.0 - mean) / spread
+print(z.round())
+
+print(if Clock.millis() > 0 { "yes" } else { "no" })
+
+let started = Clock.monotonic_millis()
+sleep(milliseconds: 100)
+let elapsed = Clock.monotonic_millis() - started
+print(if elapsed >= 100 { "yes" } else { "no" })

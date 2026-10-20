@@ -708,9 +708,8 @@ closed channel.
 `.update` is synchronous with respect to the caller: it builds a one-off
 `Machine` for the closure, runs it to completion on the same thread, and writes
 the result back. It may not wait (D57); the runtime enforces that by refusing to
-park inside the nested run. Concurrent `.update` from several tasks is serialised
-by the single-threaded scheduler visiting one task at a time; phase 7 will need
-a real lock around the shared cell.
+park inside the nested run. Concurrent `.update` from several tasks is
+serialised by a lock on the shared cell (D104).
 
 ---
 
@@ -1048,4 +1047,256 @@ structure is JSON-safe. Claiming `can Json` is optional documentation, not requi
 
 `.equals` / `.differs` / `.above` / … alias `.where_eq` / …. Prefer
 `.where("owner").is("ada")` for column-then-comparison fluency.
+
+---
+
+## Time, maths, JSON, and bytes
+
+### D87. `Clock` and `sleep`
+
+`now()` stays whole seconds. Sub-second work uses `Clock.millis()` (wall time
+since the Unix epoch) and `Clock.monotonic_millis()` (a steady clock for
+durations). `Clock` is a namespace like `http` and `env`, not a value: unknown
+members use the existing unknown-member diagnostic and name `millis` and
+`monotonic_millis`.
+
+`sleep(milliseconds:)` parks the task with the same deadline list that backs
+`when timeout after` in `select`. The scheduler thread sleeps until the next
+deadline only when nothing else is runnable. It never blocks the OS thread
+while another task can run. `Clock.millis`, `Clock.monotonic_millis`, and
+`sleep` are not `pure`; read the clock or wait outside a `pure` function.
+
+### D88. Float and list maths
+
+`Float` gains `sqrt`, `ln`, `exp`, `pow`, `floor`, `ceil`, `min`, `max`,
+`is_finite`, `to_int`, and `divided_by`. `Float.pi` and `Float.infinity` are
+properties on the `Float` namespace, not calls. `/` by zero stays an error;
+`divided_by` returns `nothing` when the divisor is zero or not finite. `sqrt`
+of a negative number is a runtime fault, not a NaN. `to_int` truncates toward
+zero and uses the same overflow fault as `round` when the number is not finite
+or does not fit in an Int.
+
+Lists of Int and lists of Float offer `sum`, `min`, `max`, `mean`, and
+`sorted`. Empty `sum` is `0` or `0.0`; empty `min` / `max` / `mean` is
+`nothing`; `sorted` returns a new list. Method lookup tries every same-name
+prelude method whose receiver fits, so a `sum` registered on `list of Int`
+does not reject `list of Float`. A non-numeric list still gets the existing
+bad-receiver diagnostic. Maths is `pure`.
+
+### D89. JSON decoding
+
+`from_json(text, as: T)` decodes JSON text into a declared type, returning
+`T or fails JsonError`. `Json.parse(text)` returns `Json or fails JsonError` so
+unknown structure can be walked with `.at`, `.as_text`, `.as_int`, `.as_float`
+and `.as_list` (each a `maybe`). This supersedes D77's record that
+"deserialization is deferred".
+
+`Json` is a prelude choice (`Null | Bool | Number | Text | List | Object`).
+`JsonError.Failed(message)` joins the prelude error choices (D80); redeclaring it
+is a duplicate. Missing `maybe` fields decode to `nothing`. `from_json`,
+`Json.parse` and the walking methods are pure.
+
+### D90. `Bytes` and `BytesError`
+
+`Type::Bytes` / `Value::Bytes(Ref<[u8]>)` store raw bytes the same way `Text`
+stores `Ref<str>`: one atomic pointer, sendable, compared byte-wise, printed as
+`bytes(hex…)` in lowercase. Constructors `Bytes.from_hex`, `Bytes.from_base64`
+and `Bytes.from_base58` are namespace members like `File.read`. Instance methods
+live in the prelude.
+
+Reads that do not fit (`slice`, `u8`, `u32_le`, `u64_le`, `i64_le`, `bool`,
+`borsh_text`) return `T or fails BytesError` rather than stopping the program.
+`starts_with` is a plain `Bool`: a longer prefix is `no`. A `u64` that does not
+fit in `i64` is `BytesError.TooLarge`, not a wrap. `to_json` writes `Bytes` as a
+lowercase hex string so a record that holds bytes stays JSON-safe.
+
+`BytesError` joins the prelude error choices: `OutOfRange(at, length)`,
+`TooLarge(at)`, `Invalid(message)`. Redeclaring the name is a duplicate.
+Decoding uses the `base64` and `bs58` crates; hex uses the existing `hex`
+dependency. `slice`'s `to` is exclusive, matching `from..to`.
+
+---
+
+## Long-lived servers
+
+### D91. Process-wide handle globals
+
+A top-level `let` in a file that `serve`s is created once, when the process
+starts, and every request machine reads the same slots. Only `Shared`,
+`Channel`, `Db`, `Store` and `Logger` values may live there. Anything else is
+a checker error that points at `Shared.new` (or the matching constructor).
+
+Ordinary values would look like process state but would be the wrong kind:
+an `Int` cannot change in place, and a fresh copy per request was the old
+behaviour people already found surprising. Handles are the values that are
+meant to be shared. `Channel` needs the same scheduler `Host` as the requests,
+which is why the server keeps one `World` and one scheduler for the process.
+
+### D92. `on start` runs on the request scheduler
+
+`on start` is compiled like a route body with no `request`, and run once after
+the listener binds. Tasks it `start`s are ordinary scheduler tasks, so they
+outlive the block. The scheduler does not stop when the `on start` machine
+finishes — that is the difference from `vaab run`, which ends when the
+top-level task returns.
+
+A second `on start` is an error. `on` followed by anything other than `start`
+is an error that shows `on start { ... }`.
+
+### D93. `http.get`, `http.post` and `http.send` park
+
+Those three builtins submit work to a small I/O thread pool and park on
+`WaitSite::Io { ticket }`. The scheduler thread never blocks on the network.
+The same wait site is honoured in the single-threaded loop and in the
+work-stealing pool, and deadlock text names "waiting for I/O" so a stuck
+outbound call is visible. `File.read` and `db.*` stay blocking in this
+milestone.
+
+### D94. `every` is a compiled loop
+
+`every(milliseconds:, f)` is not a Rust builtin that calls `f` recursively.
+The compiler writes sleep, call `f`, jump. `f` is `()` — a function of no
+arguments that returns nothing. The call is `every(milliseconds: 100, f: tick)`
+or `every(100, tick)`; a named argument cannot be followed by a positional one,
+so `every(milliseconds: 100, tick)` is refused like any other call. `every`
+itself returns nothing and does not stop until the task is cancelled, which is
+what Ctrl-C does through `TaskMeta.cancelled`.
+
+---
+
+## Sockets
+
+### D95. `Socket.connect` parks; frames land on channels
+
+`Socket.connect(url)` / `Socket.connect(url, headers:)` / `Socket.connect(url, buffer:)`
+returns `Socket or fails SocketError`. Headers default to an empty map. Buffer
+default is 1024 and is the capacity of `socket.messages` (`Channel of Text`) and
+`socket.binary` (`Channel of Bytes`). That capacity is the backpressure: a full
+channel stops the reader from taking the next frame.
+
+Connect, send and close park on `WaitSite::Io`. The handshake and writes run on
+a dedicated Tokio runtime (`tokio-tungstenite` with rustls native roots). A
+reader task posts frames to a host mailbox; the scheduler injects them with
+`Host` send so `receive`, `select` and `when timeout after` already work. No
+new select syntax. An open socket counts as pending I/O so a receive waiter
+does not deadlock.
+
+### D96. `SocketError` is a prelude error
+
+`SocketError.Failed(message: Text)` sits next to `HttpError`. Redeclaring the
+name is a duplicate.
+
+### D97. Pings are library work; reconnect is the program's
+
+The client answers pings and ignores pongs. `socket.close()` closes the
+connection. When the connection drops, both channels close and
+`socket.closed_because` holds the reason (`Text or nothing`). Reconnection is a
+`while yes` around `connect`, with `sleep` for backoff.
+
+### D98. Socket I/O is not `pure`
+
+`Socket.connect`, `socket.send`, `socket.close` and reading `closed_because`
+are not `pure`. Open the socket, send, close, or read the close reason outside
+the function, and pass values in. `.messages` and `.binary` are properties
+that yield handles already held.
+
+### D99. `socket "/path" as name` is a serve item
+
+`socket` is recognised only inside `serve`, the same way `route` is. It is not
+a reserved word, so `let socket = try Socket.connect(url)` stays legal. The
+path is parsed with the same quoted-path grammar as `route`. The binding is a
+`Socket`, so one set of members covers both directions: `.messages`,
+`.binary`, `.send`, `.close`, `.closed_because`.
+
+The body runs once per accepted connection, on the same live scheduler as HTTP
+routes. It is not an HTTP route: there is no `request`, and `reply` is
+refused. The router matches socket routes by path only.
+
+### D100. Upgrade is GET plus the WebSocket headers
+
+A socket path answers an HTTP GET with `Upgrade: websocket` and
+`Connection: upgrade` by completing hyper's upgrade and handing the stream to
+`tokio-tungstenite` as a server. Unknown paths are still 404. A request that
+hits a socket path without those headers is 400. The HTTP/1 listener uses
+`with_upgrades` so the 101 response can finish.
+
+### D101. `Hub` is a process-wide fan-out handle
+
+`Hub.new(of: T)` builds a handle, spelled `hub of T`. `hub.join(client)`
+registers a connected `Socket`. `hub.broadcast(value)` sends a text frame to
+every joined client (`Text` is sent as written; anything else uses the same
+display as `print`). Clients that close are dropped from every hub. Broadcast
+never parks: it `try_send`s onto the socket's outbound command queue. If that
+queue is full, or the socket is already gone, that client is disconnected
+with `closed_because` `buffer full` rather than allowed to stall the
+broadcaster.
+
+`Hub` may live as a server global next to `Shared`, `Channel`, `Db`, `Store`
+and `Logger`. The `server-global-must-be-handle` help names `Hub.new`.
+
+### D102. Hub work is not `pure`
+
+`Hub.new`, `hub.join` and `hub.broadcast` are not `pure`. Build the hub, join,
+and broadcast outside a `pure` function, and pass values in.
+
+---
+
+## Throughput
+
+### D103. `vaab serve` runs on the work-stealing pool
+
+Route bodies, `on start` tasks, and socket bodies are scheduled on the
+worker pool in `parallel.rs`. The pool size is `VAAB_WORKERS`, or the machine's
+parallelism, and is always at least 1. A size of 1 uses the same `WaitSite`
+parking as the single-thread loop (Sleep, Io, channels, select). Incoming work
+and I/O completions wake idle workers through a condvar rather than a busy
+spin.
+
+### D104. `.update` holds a mutex for the whole change
+
+This supersedes the last sentence of D68. The shared cell is a `Mutex`.
+`.update` holds that mutex while the closure runs, so two workers cannot
+interleave a read-modify-write on the same `Shared`. The closure still runs to
+completion and may not park (D57). Sequential `.update` calls on one task
+unlock between calls, so they do not deadlock. A nested `.update` on the same
+cell is refused at compile time (D57) and, if it reaches the machine, is a
+runtime fault rather than a hang. `.value` during an update on the same thread
+reads the snapshot the change was given, so it does not re-enter the mutex.
+
+### D105. `db.transaction` is one SQLite transaction; nested use is an error
+
+`db.transaction { ... }` begins `BEGIN IMMEDIATE`, runs the block on a nested
+machine, and `COMMIT`s if the block succeeds. A `try`/`fail` that produces
+`failure`, or a runtime fault, `ROLLBACK`s. The expression's type is the
+block's type, or `T or fails DbError` when the block is not already fallible.
+
+Nested `db.transaction` is a checker error and a runtime error. Vaab does not
+use savepoints: one block is one transaction, and that is easier to explain
+than a second layer of commit rules.
+
+### D106. File databases open in WAL mode
+
+`Db.connect` on a file path sets `PRAGMA journal_mode=WAL` and a 5 second busy
+timeout. `:memory:` and other in-memory URLs are left as SQLite creates them.
+Existing `Db` programs keep working; a file database reports `wal` from
+`PRAGMA journal_mode`.
+
+### D107. Replay throughput
+
+The checked-in harness is `crates/vaab-vm/benches/throughput.rs`. It generates
+a JSON-lines fixture of `{id, amount}` records, then for each line decodes
+with `from_json`, updates a rolling mean on a `Shared` value, inserts inside
+one batched `db.transaction`, and `hub.broadcast`s the encoded row.
+
+Measured on this machine (release, `cargo bench -p vaab-vm --bench throughput`,
+4,000 events, three consecutive runs after the binary was already built):
+
+* **206,000 events/s** (runs were 197,705 / 205,859 / 216,820)
+* **p99 0 ms** per event
+
+`Clock.monotonic_millis` is the finest clock the program can read, and no event
+crossed a millisecond. Wall time for the 4,000-event replay was about 19 ms
+(~5 µs per event implied). That is above the 2,000 events/s target and under
+the 5 ms p99, so no further interpreter work was applied on this path. The
+harness was not profiled with `cargo flamegraph`.
 

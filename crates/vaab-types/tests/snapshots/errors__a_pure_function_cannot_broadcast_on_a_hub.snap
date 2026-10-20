@@ -1,0 +1,16 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to shout(hub: hub of Text) {\\n\\\n         \\x20   hub.broadcast(\\\"hi\\\")\\n\\\n         }\\n\")"
+---
+[not-pure] Error: `shout` is declared `pure`, so it cannot broadcast on a hub
+   ╭─[ example.vaab:2:5 ]
+   │
+ 1 │ pure to shout(hub: hub of Text) {
+   │         ──┬──  
+   │           ╰──── `shout` is declared `pure` here
+ 2 │     hub.broadcast("hi")
+   │     ─────────┬─────────  
+   │              ╰─────────── this broadcasts on a hub
+   │ 
+   │ Help: join and broadcast outside the `pure` function
+───╯

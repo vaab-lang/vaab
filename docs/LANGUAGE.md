@@ -16,7 +16,9 @@ time.
 Concurrency is here. The compile-time rules — which values may cross into a task
 or down a channel, and the `let changing` variable a task may never use — make a
 data race a compile error, and channels, tasks, `select`, `together` and `shared`
-run on a single-threaded scheduler with cooperative preemption.
+run on a work-stealing scheduler with cooperative preemption. `vaab serve` uses
+the same pool for route bodies, `on start` tasks, and socket bodies. A pool of
+one worker keeps the single-thread parking behaviour.
 
 Design choices this document does not explain — the ones the original
 specification left open — are recorded in [DECISIONS.md](DECISIONS.md).
@@ -93,6 +95,7 @@ conversions, and there is no null.
 | `Float` | a decimal number (64-bit) |
 | `Bool` | `yes` or `no` |
 | `Text` | text |
+| `Bytes` | raw bytes, decoded from hex, base64 or base58 |
 | `Nothing` | the unit type, returned by a function with no `returns` |
 | `list of T` | a list |
 | `map of K to V` | a map |
@@ -412,7 +415,7 @@ select {
 }
 
 let counter = Shared.new(0)                   # shared Int
-counter.update(n -> n + 1)                    # atomic read-modify-write
+counter.update(n -> n + 1)                    # holds a lock for the change
 print(counter.value)
 ```
 
@@ -532,10 +535,18 @@ print("héllo".length)                    # 5, counted in characters
 | `items.count` | how many items it holds |
 | `items.first` | `maybe` the first item, since the list may be empty |
 | `items.join(separator: Text)` | one piece of text, for a list of Text |
+| `numbers.sum()` | the total, `0` or `0.0` when the list is empty |
+| `numbers.min()` / `numbers.max()` | `maybe` the least or greatest, `nothing` when empty |
+| `numbers.mean()` | `maybe` the average as a Float, `nothing` when empty |
+| `numbers.sorted()` | a new list in order; the original is unchanged |
+
+`sum`, `min`, `max`, `mean` and `sorted` belong to lists of Int and lists of
+Float. A list of anything else is told so.
 
 ```vaab
 print([1, 2, 3].map(n -> n * 2))          # [2, 4, 6]
 print(["ada", "alan"].map(n -> n.upper()).join(", "))
+print([2.0, 4.0, 4.0].mean())             # found 3.333...
 ```
 
 ### Maps
@@ -564,14 +575,26 @@ for each name in ages.keys {
 | `n.to_float()` | the same number as a Float |
 | `x.abs()` | the size of a decimal, without its sign |
 | `x.round()` | the nearest whole number, halves away from zero |
+| `x.sqrt()` | the non-negative square root; a negative number stops the program |
+| `x.ln()` / `x.exp()` | natural logarithm and e to the power of `x` |
+| `x.pow(exponent: Float)` | `x` raised to `exponent` |
+| `x.floor()` / `x.ceil()` | the nearest whole decimals toward −∞ and +∞ |
+| `x.min(other)` / `x.max(other)` | the smaller or larger of two decimals |
+| `x.is_finite()` | `no` for NaN and both infinities |
+| `x.to_int()` | toward zero, if the number is finite and fits in an Int |
+| `x.divided_by(other)` | `maybe` the quotient; `nothing` when `other` is 0 or not finite |
+| `Float.pi` / `Float.infinity` | π and +∞ |
 
 Vaab never turns an `Int` into a `Float` behind your back, so `.to_float()` is
 how a calculation mixes them. A method binds tighter than a minus sign, so the
-size of a negative literal is written `(-7).abs()`.
+size of a negative literal is written `(-7).abs()`. Dividing by zero with `/`
+is still an error; `.divided_by` is for code that expects a missing answer.
 
 ```vaab
 print(3.to_float() / 2.0)   # 1.5
 print(2.5.round())          # 3
+print((9.0).sqrt())         # 3.0
+print(Float.pi)
 ```
 
 ### Query (Db and Store)
@@ -608,6 +631,48 @@ let sessions = try store
 Raw `db.query` / `db.execute` stay available for SQL the fluent surface cannot
 express yet.
 
+`db.transaction { ... }` runs the block inside one SQLite transaction. The
+block's value is the expression's value; a `try` or `fail` inside the block
+rolls the transaction back. Nested `db.transaction` is an error — Vaab does
+not use savepoints. File databases open in WAL mode; in-memory databases are
+unchanged.
+
+```vaab
+let empty: list of Text = []
+try db.transaction {
+    try db.execute("insert into events (id, amount) values (1, 2.5)", empty)
+    try db.execute("insert into totals (n) values (1)", empty)
+}
+```
+
+### Bytes
+
+`Bytes` is a bag of raw bytes. Constructors live on the `Bytes` name, like
+`File.read`. Reads that step past the end return `failure BytesError` so the
+program can skip the bad input.
+
+```vaab
+let raw = try Bytes.from_hex("010000002a")
+print(raw.length)                         # 5
+print(try raw.u32_le(at: 0))              # 1
+print(raw.starts_with(try Bytes.from_hex("01000000")))
+print(try raw.slice(from: 0, to: 2).to_hex())
+```
+
+| | |
+|---|---|
+| `Bytes.from_hex(text)` / `.from_base64` / `.from_base58` | decode, or `BytesError.Invalid` |
+| `raw.length` | how many bytes it holds |
+| `raw.slice(from:, to:)` | a copy of `from..to` (`to` is exclusive), or `OutOfRange` |
+| `raw.u8(at:)` / `.u32_le` / `.u64_le` / `.i64_le` | little-endian integer, or `OutOfRange` |
+| `raw.bool(at:)` | the byte at `at` as `yes` when it is not zero |
+| `raw.to_hex()` / `.to_base58()` / `.to_base64()` | encode the whole value |
+| `raw.starts_with(prefix)` | `yes` when `raw` begins with `prefix`; longer prefixes are `no` |
+| `raw.borsh_text(at:)` | `(Text, Int)`: a u32-length UTF-8 string and the offset after it |
+
+`u64_le` fails with `BytesError.TooLarge` when the unsigned value does not fit
+in an `Int`. `BytesError` is built-in; redeclaring the name is a duplicate.
+
 ### File I/O
 
 `FileError` is built-in. Prefer `File.read`; `read_file` remains as an alias.
@@ -624,6 +689,92 @@ match File.read("config.txt") {
 | | |
 |---|---|
 | `now()` | whole seconds since 1970-01-01 UTC |
+| `Clock.millis()` | whole milliseconds since 1970-01-01 UTC |
+| `Clock.monotonic_millis()` | milliseconds from a steady clock, for measuring durations |
+| `sleep(milliseconds: Int)` | parks this task until that many milliseconds have passed |
+
+`sleep` never parks the operating-system thread: other tasks keep running. Use
+`Clock.monotonic_millis` to time a wait; `Clock.millis` is wall time and can
+jump. `now()` is unchanged.
+
+```vaab
+let started = Clock.monotonic_millis()
+sleep(milliseconds: 100)
+let elapsed = Clock.monotonic_millis() - started
+print(if elapsed >= 100 { "yes" } else { "no" })
+```
+
+### Sockets
+
+`Socket.connect` opens a WebSocket and parks until the handshake finishes.
+Incoming text frames land on `socket.messages`; binary frames land on
+`socket.binary`. Those are ordinary channels, so `receive`, `select` and
+`when timeout after` already work. Pings and pongs are handled by the library.
+Reconnection is the program's job: wrap `connect` in `while yes` and `sleep`
+between attempts.
+
+```vaab
+let socket = try Socket.connect(url)
+try socket.send(to_json(payload))
+
+while yes {
+    select {
+        when receive from socket.messages as message { handle(message) }
+        when timeout after 30 seconds {
+            log.warn("no message for 30s, reconnecting")
+            return
+        }
+    }
+}
+```
+
+| | |
+|---|---|
+| `Socket.connect(url)` | handshake, or `SocketError.Failed` |
+| `Socket.connect(url, headers:)` | extra HTTP headers; default is `{}` |
+| `Socket.connect(url, buffer:)` | channel capacity; default is `1024` |
+| `socket.messages` | `channel of Text` |
+| `socket.binary` | `channel of Bytes` |
+| `socket.closed_because` | `maybe Text` — why the connection dropped |
+| `socket.send(text)` | a text frame, or `SocketError.Failed` |
+| `socket.close()` | close the connection |
+
+The channels close when the connection drops. `SocketError` is built-in;
+redeclaring the name is a duplicate. Connect, send, close and reading
+`closed_because` are not `pure`.
+
+A `serve` block may also accept sockets. `socket "/path" as name` upgrades a
+matching request and runs the body for that connection on the same scheduler as
+HTTP routes. `name` is a `Socket` — the same `.messages`, `.send`, `.close`,
+`.binary` and `.closed_because` as `Socket.connect`.
+
+`Hub.new(of: T)` is a process-wide fan-out. `hub.join(client)` registers a
+connected socket. `hub.broadcast(value)` sends a text frame to every joined
+client. Clients that disconnect are dropped. A slow client whose outbound
+buffer fills is disconnected so it cannot stall the broadcaster. `Hub` is a
+server handle, like `Shared` and `Channel`. It is not `pure`.
+
+```vaab
+let hub = Hub.new(of: Text)
+
+to listen(client: Socket) {
+    while yes {
+        match receive from client.messages {
+            when found message then { }
+            when nothing then { return }
+        }
+    }
+}
+
+serve on port 8765 {
+    socket "/ws" as client {
+        hub.join(client)
+        listen(client)
+    }
+}
+
+hub.broadcast(to_json(snapshot))
+```
 
 ### Logging
 
@@ -659,20 +810,36 @@ The HTTP server logs every request (method, path, status, duration) to stderr.
 ### JSON
 
 Plain data types encode with `to_json` when their structure is JSON-safe.
-Claiming `can Json` is optional.
+Claiming `can Json` is optional. Decode with `from_json` into a declared type, or
+walk unknown structure with `Json.parse`. Both are pure and fail with
+`JsonError.Failed(message)`.
 
 ```vaab
-type Person {
-    name: Text
-    score: Int
+type Note {
+    title: Text
+    tags: list of Text
+    hint: maybe Text
 }
 
-print(to_json(Person.new(name: "Ada", score: 36)))
+print(to_json(Note.new(title: "packing list", tags: ["travel"], hint: nothing)))
+
+let note = try from_json(text, as: Note)
+let doc = try Json.parse(text)
+let title = doc.at("title").as_text() otherwise ""
+let tags = doc.at("tags").as_list() otherwise []
 ```
 
+`from_json(text, as: T)` needs a type name for `as`, not a value. Missing `maybe`
+fields decode to `nothing`. `Json` is a prelude choice — `Null`, `Bool`, `Number`,
+`Text`, `List`, `Object` — so a program can match `Json.Null` or `Json.Text(t)`.
+`.at` takes a Text key or an Int index; `.at`, `.as_text`, `.as_int`, `.as_float`
+and `.as_list` each return `maybe`, and the wrong kind or a missing key is
+`nothing` rather than a crash.
+
 Built-in scalars, lists, maps with `Text` keys, tuples, records, and choices whose
-parts are JSON-safe may be encoded. Functions, channels, tasks and other values
-that cannot be written as JSON are rejected by the checker.
+parts are JSON-safe may be encoded or decoded. `Bytes` encodes as a lowercase hex string.
+Functions, channels, tasks and other values that cannot be written as JSON are
+rejected by the checker. Redeclaring `JsonError` is a duplicate, the same as `FileError`.
 
 ---
 
@@ -724,14 +891,30 @@ serve on port 8080 {
         reply with created status 201
     }
 
+    on start {
+        start { every(milliseconds: 100, f: tick) }
+    }
+
     when anything fails with ApiError as error {
         reply explain(error)
     }
 }
 ```
 
+`on start` runs once after the listener binds, on the same scheduler that runs
+requests. Tasks it `start`s keep running for the life of the process.
+
+A top-level `let` in a serve file is created once and given to every request.
+Only `Shared`, `Channel`, `Hub`, `Db`, `Store` and `Logger` values may live
+there — wrap ordinary data in `Shared.new`, then read `.value` and change it
+with `.update`. `Hub.new(of: T)` fans text out to joined sockets. `every(milliseconds:, f)` sleeps, calls `f`, and loops until the
+task is cancelled; `f` takes no arguments and returns nothing.
+
 Every route body has type `Response or fails ApiError`. JSON-encodable values are
 serialised and deserialised automatically. Each request runs as its own task.
+`http.get`, `http.post` and `http.send` park the task instead of blocking the
+worker, so a slow outbound call does not stall other requests. Ctrl-C cancels
+background tasks and closes the listener.
 
 ---
 

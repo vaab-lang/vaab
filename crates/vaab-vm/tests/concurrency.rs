@@ -173,11 +173,35 @@ fn deadlock_on_a_rendezvous_with_no_partner_is_reported() {
     let source = "let alone = Channel.new(of: Int, size: 0)\n\
                   send 1 to alone\n";
     let rendered = stops(source);
-    assert!(rendered.contains("deadlock") || rendered.contains("blocked"), "{rendered}");
+    assert!(
+        rendered.contains("deadlock") || rendered.contains("blocked"),
+        "{rendered}"
+    );
     assert_snapshot!(rendered);
 }
 
 #[test]
+fn two_tasks_updating_one_shared_under_the_pool_end_consistent() {
+    let source = "let counter = Shared.new(0)\n\
+                  together {\n\
+                  \x20   start {\n\
+                  \x20       repeat 200 times { counter.update(n -> n + 1) }\n\
+                  \x20   }\n\
+                  \x20   start {\n\
+                  \x20       repeat 200 times { counter.update(n -> n + 1) }\n\
+                  \x20   }\n\
+                  }\n\
+                  counter.update(n -> n + 1)\n\
+                  counter.update(n -> n + 1)\n\
+                  print(counter.value)\n";
+    let parsed = vaab_syntax::parse(source);
+    let checked = vaab_types::check(&parsed.module).expect("source should type-check");
+    let mut world = vaab_vm::prepare(&parsed.module, &checked, vaab_vm::Output::collected());
+    let result = vaab_vm::run_with_workers(&mut world, 4);
+    assert!(result.is_ok(), "run failed: {:?}", result.err());
+    assert_eq!(world.output.lines(), ["402"]);
+}
+
 fn a_two_task_cycle_is_reported_as_deadlock() {
     let source = "let left = Channel.new(of: Int, size: 0)\n\
                   let right = Channel.new(of: Int, size: 0)\n\
@@ -189,6 +213,9 @@ fn a_two_task_cycle_is_reported_as_deadlock() {
                   receive from left\n\
                   job.wait()\n";
     let rendered = stops(source);
-    assert!(rendered.contains("deadlock") || rendered.contains("blocked"), "{rendered}");
+    assert!(
+        rendered.contains("deadlock") || rendered.contains("blocked"),
+        "{rendered}"
+    );
     assert_snapshot!(rendered);
 }

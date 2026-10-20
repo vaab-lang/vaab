@@ -57,6 +57,32 @@ pub fn functions() -> Vec<Function> {
             ),
         },
         Function {
+            name: "sleep",
+            signature: Signature::new(
+                vec![Parameter::new("milliseconds", Type::Int)],
+                Type::Nothing,
+            ),
+        },
+        Function {
+            name: "every",
+            signature: Signature::new(
+                vec![
+                    Parameter::new("milliseconds", Type::Int),
+                    Parameter::new("f", Type::function(Vec::new(), Type::Nothing)),
+                ],
+                Type::Nothing,
+            ),
+        },
+        Function {
+            // `as` is a type, not a value, so the checker special-cases the call.
+            // The signature here is what `from_json` looks like as a name.
+            name: "from_json",
+            signature: Signature::new(
+                vec![Parameter::new("text", Type::Text)],
+                Type::fallible(Type::parameter("T"), Type::named("JsonError")),
+            ),
+        },
+        Function {
             // `Authorization: Basic …` check for gated mounts (rig Studio, etc.).
             name: "basic_auth_ok",
             signature: Signature::new(
@@ -126,6 +152,66 @@ pub fn methods() -> Vec<Method> {
             ),
             property: false,
         },
+        Method {
+            name: "sum",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: false,
+        },
+        Method {
+            name: "sum",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "min",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Int)),
+            property: false,
+        },
+        Method {
+            name: "min",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+            property: false,
+        },
+        Method {
+            name: "max",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Int)),
+            property: false,
+        },
+        Method {
+            name: "max",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+            property: false,
+        },
+        Method {
+            name: "mean",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+            property: false,
+        },
+        Method {
+            name: "mean",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::maybe(Type::Float)),
+            property: false,
+        },
+        Method {
+            name: "sorted",
+            receiver: Type::list(Type::Int),
+            signature: Signature::new(Vec::new(), Type::list(Type::Int)),
+            property: false,
+        },
+        Method {
+            name: "sorted",
+            receiver: Type::list(Type::Float),
+            signature: Signature::new(Vec::new(), Type::list(Type::Float)),
+            property: false,
+        },
         // ---- Maps ---------------------------------------------------------
         Method {
             name: "get",
@@ -190,6 +276,106 @@ pub fn methods() -> Vec<Method> {
             signature: Signature::new(Vec::new(), Type::Int),
             property: true,
         },
+        // ---- Bytes --------------------------------------------------------
+        Method {
+            name: "length",
+            receiver: Type::Bytes,
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: true,
+        },
+        Method {
+            name: "slice",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("from", Type::Int), Parameter::new("to", Type::Int)],
+                Type::fallible(Type::Bytes, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "u8",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Int, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "u32_le",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Int, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "u64_le",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Int, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "i64_le",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Int, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "bool",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(Type::Bool, Type::named("BytesError")),
+            ),
+            property: false,
+        },
+        Method {
+            name: "to_hex",
+            receiver: Type::Bytes,
+            signature: Signature::new(Vec::new(), Type::Text),
+            property: false,
+        },
+        Method {
+            name: "to_base58",
+            receiver: Type::Bytes,
+            signature: Signature::new(Vec::new(), Type::Text),
+            property: false,
+        },
+        Method {
+            name: "to_base64",
+            receiver: Type::Bytes,
+            signature: Signature::new(Vec::new(), Type::Text),
+            property: false,
+        },
+        Method {
+            name: "starts_with",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("prefix", Type::Bytes)],
+                Type::Bool,
+            ),
+            property: false,
+        },
+        Method {
+            name: "borsh_text",
+            receiver: Type::Bytes,
+            signature: Signature::new(
+                vec![Parameter::new("at", Type::Int)],
+                Type::fallible(
+                    Type::Tuple(vec![Type::Text, Type::Int]),
+                    Type::named("BytesError"),
+                ),
+            ),
+            property: false,
+        },
         // ---- Numbers ------------------------------------------------------
         Method {
             name: "abs",
@@ -227,6 +413,78 @@ pub fn methods() -> Vec<Method> {
             name: "round",
             receiver: Type::Float,
             signature: Signature::new(Vec::new(), Type::Int),
+            property: false,
+        },
+        Method {
+            name: "sqrt",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "ln",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "exp",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "pow",
+            receiver: Type::Float,
+            signature: Signature::new(
+                vec![Parameter::new("exponent", Type::Float)],
+                Type::Float,
+            ),
+            property: false,
+        },
+        Method {
+            name: "floor",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "ceil",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Float),
+            property: false,
+        },
+        Method {
+            name: "min",
+            receiver: Type::Float,
+            signature: Signature::new(vec![Parameter::new("other", Type::Float)], Type::Float),
+            property: false,
+        },
+        Method {
+            name: "max",
+            receiver: Type::Float,
+            signature: Signature::new(vec![Parameter::new("other", Type::Float)], Type::Float),
+            property: false,
+        },
+        Method {
+            name: "is_finite",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Bool),
+            property: false,
+        },
+        Method {
+            name: "to_int",
+            receiver: Type::Float,
+            signature: Signature::new(Vec::new(), Type::Int),
+            property: false,
+        },
+        Method {
+            name: "divided_by",
+            receiver: Type::Float,
+            signature: Signature::new(
+                vec![Parameter::new("other", Type::Float)],
+                Type::maybe(Type::Float),
+            ),
             property: false,
         },
         // ---- Tasks and shared state ---------------------------------------
@@ -290,11 +548,28 @@ pub fn methods() -> Vec<Method> {
 
 /// Everything a value of this type offers, for the "did you mean" in an error.
 pub fn members_of(receiver: &Type) -> Vec<String> {
-    methods()
-        .into_iter()
-        .filter(|method| same_shape(&method.receiver, receiver))
-        .map(|method| method.name.to_string())
-        .collect()
+    let mut names = Vec::new();
+    for method in methods() {
+        if same_shape(&method.receiver, receiver) && !names.iter().any(|name| name == method.name) {
+            names.push(method.name.to_string());
+        }
+    }
+    names
+}
+
+/// The compiler/runtime name for a prelude method, when the user-facing name is
+/// shared by more than one receiver (list `sum` of Int vs Float, list `min` vs
+/// number `min`).
+pub fn builtin_code(name: &'static str, receiver: &Type) -> &'static str {
+    match (name, receiver) {
+        ("sum", Type::List(item)) if **item == Type::Int => "sum_int",
+        ("sum", Type::List(item)) if **item == Type::Float => "sum_float",
+        ("min", Type::List(_)) => "list_min",
+        ("max", Type::List(_)) => "list_max",
+        ("mean", Type::List(_)) => "list_mean",
+        ("sorted", Type::List(_)) => "list_sorted",
+        _ => name,
+    }
 }
 
 /// Whether two types are built the same way, ignoring what they hold.
@@ -309,9 +584,11 @@ pub fn same_shape(left: &Type, right: &Type) -> bool {
             | (Type::Task(_), Type::Task(_))
             | (Type::Shared(_), Type::Shared(_))
             | (Type::Channel(_), Type::Channel(_))
+            | (Type::Hub(_), Type::Hub(_))
             | (Type::Db, Type::Db)
             | (Type::Store, Type::Store)
             | (Type::Logger, Type::Logger)
+            | (Type::Socket, Type::Socket)
             | (Type::Query { .. }, Type::Query { .. })
             | (Type::Maybe(_), Type::Maybe(_)) => true,
         (left, right) => left == right,
@@ -325,7 +602,19 @@ mod tests {
     #[test]
     fn the_prelude_holds_exactly_what_the_examples_need() {
         let names: Vec<&str> = functions().iter().map(|function| function.name).collect();
-        assert_eq!(names, ["print", "read_file", "now", "to_json", "basic_auth_ok"]);
+        assert_eq!(
+            names,
+            [
+                "print",
+                "read_file",
+                "now",
+                "to_json",
+                "sleep",
+                "every",
+                "from_json",
+                "basic_auth_ok",
+            ]
+        );
     }
 
     #[test]
@@ -333,6 +622,16 @@ mod tests {
         assert!(same_shape(&Type::list(Type::Text), &Type::list(Type::Int)));
         assert!(!same_shape(&Type::list(Type::Text), &Type::Text));
         assert!(same_shape(&Type::Text, &Type::Text));
+        assert!(same_shape(&Type::Bytes, &Type::Bytes));
+    }
+
+    #[test]
+    fn bytes_offers_the_methods_a_bytes_value_should() {
+        let offered = members_of(&Type::Bytes);
+        for expected in ["length", "slice", "u8", "u32_le", "u64_le", "i64_le", "bool", "to_hex", "starts_with", "borsh_text"] {
+            assert!(offered.iter().any(|name| name == expected), "missing {expected}");
+        }
+        assert!(!offered.iter().any(|name| name == "upper"));
     }
 
     #[test]

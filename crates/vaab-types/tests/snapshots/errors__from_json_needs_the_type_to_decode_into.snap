@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: rendered
+---
+[from-json-type] Error: `from_json` needs the type to decode into
+   ╭─[ example.vaab:2:12 ]
+   │
+ 2 │ let note = from_json(text)
+   │            ───────┬───────  
+   │                   ╰───────── Vaab expected a type name here
+   │ 
+   │ Help: write `from_json(text, as: Person)`
+───╯

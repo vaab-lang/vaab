@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"print(Bytes.decode(\\\"aa\\\"))\\n\")"
+---
+[unknown-member] Error: a Bytes has nothing called `decode`
+   ╭─[ example.vaab:1:13 ]
+   │
+ 1 │ print(Bytes.decode("aa"))
+   │             ───┬──  
+   │                ╰──── this asks a Bytes for `decode`
+   │ 
+   │ Help: decode with `Bytes.from_base64`, `Bytes.from_hex` or `Bytes.from_base58`; read with `.u8(at:)`, `.u64_le(at:)` or `.slice(from:, to:)`
+───╯

@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"print(Clock.seconds())\\n\")"
+---
+[unknown-member] Error: a `Clock` has nothing called `seconds`
+   ╭─[ example.vaab:1:13 ]
+   │
+ 1 │ print(Clock.seconds())
+   │             ───┬───  
+   │                ╰───── this asks a `Clock` for `seconds`
+   │ 
+   │ Help: a `Clock` offers `millis` and `monotonic_millis`
+───╯

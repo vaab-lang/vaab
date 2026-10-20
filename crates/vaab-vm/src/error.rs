@@ -113,6 +113,8 @@ pub enum Fault {
     NotYet(Feature),
     /// Every task is blocked and nothing can wake them.
     Deadlock { detail: String },
+    /// The square root of a negative number, which is not a real number.
+    NotARealNumber,
     /// The machine found its own state impossible. Reported rather than panicked,
     /// because a compiler that crashes teaches nobody anything.
     Confused(&'static str),
@@ -226,6 +228,16 @@ impl RuntimeError {
                 .at(at, "nothing here can make progress")
                 .with_help("check that some task can still run, send, or receive")
                 .with_note(detail),
+
+            Fault::NotARealNumber => Diagnostic::error(
+                "not-a-real-number",
+                "the square root of a negative number is not a real number",
+            )
+            .at(at, "this number is less than zero")
+            .with_help(
+                "square root is only defined for zero and positive numbers; check the \
+                 value first, as in `if x >= 0.0 { x.sqrt() }`",
+            ),
 
             Fault::Confused(detail) => {
                 Diagnostic::error("confused", "the Vaab machine found a state it cannot explain")

@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::ThreadId;
 
 use hmac::{Hmac, Mac};
 use indexmap::IndexMap;
@@ -153,6 +154,9 @@ pub struct Databases {
     connections: Mutex<Vec<DbBackend>>,
     dialects: Mutex<Vec<Dialect>>,
     by_path: Mutex<HashMap<String, u32>>,
+    /// Handles that currently have an open `db.transaction`. Nested use is an
+    /// error; two tasks cannot own the same connection's transaction at once.
+    transactions: Mutex<HashMap<u32, ThreadId>>,
 }
 
 impl Databases {
@@ -177,9 +181,18 @@ impl Databases {
             }
         }
         let backend = match dialect {
-            Dialect::Sqlite => DbBackend::Sqlite(Arc::new(Mutex::new(
-                Connection::open(&cache_key).map_err(|error| error.to_string())?,
-            ))),
+            Dialect::Sqlite => {
+                let connection = Connection::open(&cache_key).map_err(|error| error.to_string())?;
+                if !is_memory_sqlite_path(&cache_key) {
+                    connection
+                        .pragma_update(None, "journal_mode", "WAL")
+                        .map_err(|error| error.to_string())?;
+                    connection
+                        .busy_timeout(std::time::Duration::from_millis(5_000))
+                        .map_err(|error| error.to_string())?;
+                }
+                DbBackend::Sqlite(Arc::new(Mutex::new(connection)))
+            }
             Dialect::Postgres => DbBackend::Postgres(PostgresWorker::connect(url)?),
         };
         let mut held = self.connections.lock().map_err(|_| "database lock poisoned".to_string())?;
@@ -200,7 +213,10 @@ impl Databases {
     }
 
     pub fn dialect(&self, handle: u32) -> Result<Dialect, String> {
-        let held = self.dialects.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let held = self
+            .dialects
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
         held.get(handle as usize)
             .copied()
             .ok_or_else(|| "that database handle is gone".to_string())
@@ -247,6 +263,90 @@ impl Databases {
             DbBackend::Postgres(worker) => worker.query(sql, pg_binds_from_values(args)?),
         }
     }
+
+    pub fn begin_transaction(&self, handle: u32) -> Result<(), String> {
+        let me = std::thread::current().id();
+        let mut owners = self
+            .transactions
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        if owners.contains_key(&handle) {
+            return Err("this database is already in a transaction".to_string());
+        }
+        sqlite_or_postgres(self, handle, "BEGIN IMMEDIATE", "BEGIN")?;
+        owners.insert(handle, me);
+        Ok(())
+    }
+
+    pub fn commit_transaction(&self, handle: u32) -> Result<(), String> {
+        self.finish_transaction(handle, "COMMIT")
+    }
+
+    pub fn rollback_transaction(&self, handle: u32) -> Result<(), String> {
+        self.finish_transaction(handle, "ROLLBACK")
+    }
+
+    fn finish_transaction(&self, handle: u32, sql: &str) -> Result<(), String> {
+        let mut owners = self
+            .transactions
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        let result = sqlite_or_postgres(self, handle, sql, sql);
+        owners.remove(&handle);
+        result
+    }
+
+    pub fn journal_mode(&self, handle: u32) -> Result<String, String> {
+        let backend = {
+            let held = self
+                .connections
+                .lock()
+                .map_err(|_| "database lock poisoned".to_string())?;
+            match held.get(handle as usize) {
+                Some(DbBackend::Sqlite(connection)) => DbBackend::Sqlite(Arc::clone(connection)),
+                Some(DbBackend::Postgres(worker)) => DbBackend::Postgres(worker.clone()),
+                None => return Err("that database handle is gone".to_string()),
+            }
+        };
+        match backend {
+            DbBackend::Sqlite(connection) => {
+                let connection = connection.lock().map_err(|_| "database lock poisoned".to_string())?;
+                connection
+                    .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+                    .map_err(|error| error.to_string())
+            }
+            DbBackend::Postgres(_) => Ok("postgres".to_string()),
+        }
+    }
+}
+
+fn sqlite_or_postgres(databases: &Databases, handle: u32, sqlite_sql: &str, postgres_sql: &str) -> Result<(), String> {
+    let backend = {
+        let held = databases
+            .connections
+            .lock()
+            .map_err(|_| "database lock poisoned".to_string())?;
+        match held.get(handle as usize) {
+            Some(DbBackend::Sqlite(connection)) => DbBackend::Sqlite(Arc::clone(connection)),
+            Some(DbBackend::Postgres(worker)) => DbBackend::Postgres(worker.clone()),
+            None => return Err("that database handle is gone".to_string()),
+        }
+    };
+    match backend {
+        DbBackend::Sqlite(connection) => {
+            let connection = connection.lock().map_err(|_| "database lock poisoned".to_string())?;
+            connection.execute_batch(sqlite_sql).map_err(|error| error.to_string())
+        }
+        DbBackend::Postgres(worker) => worker.execute(postgres_sql, Vec::new()).map(|_| ()),
+    }
+}
+
+fn is_memory_sqlite_path(path: &str) -> bool {
+    let trimmed = path.trim();
+    trimmed == ":memory:"
+        || trimmed.eq_ignore_ascii_case(":memory:")
+        || trimmed.starts_with("file::memory:")
+        || trimmed.contains("mode=memory")
 }
 
 fn pg_binds_from_values(args: &[Value]) -> Result<Vec<PgBind>, String> {
@@ -474,7 +574,9 @@ pub fn http_send(
     let response = if body.is_empty() {
         request.call().map_err(|error| error.to_string())?
     } else {
-        request.send_string(body).map_err(|error| error.to_string())?
+        request
+            .send_string(body)
+            .map_err(|error| error.to_string())?
     };
     response.into_string().map_err(|error| error.to_string())
 }
@@ -607,7 +709,10 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
     }
-    left.iter().zip(right).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+    left.iter()
+        .zip(right)
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
 }
 
 const KV: TableDefinition<&str, &str> = TableDefinition::new("kv");
@@ -643,7 +748,10 @@ impl StoreState {
     }
 
     fn get(&self, key: &str) -> Result<Value, String> {
-        let overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let overlay = self
+            .overlay
+            .lock()
+            .map_err(|_| "store lock poisoned".to_string())?;
         if overlay.removed.contains(key) {
             return Ok(Value::absent());
         }
@@ -652,12 +760,18 @@ impl StoreState {
         }
         drop(overlay);
 
-        let read = self.database.begin_read().map_err(|error| error.to_string())?;
+        let read = self
+            .database
+            .begin_read()
+            .map_err(|error| error.to_string())?;
         let table = read.open_table(KV).map_err(|error| error.to_string())?;
         match table.get(key).map_err(|error| error.to_string())? {
             Some(value) => {
                 let text = value.value().to_string();
-                let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+                let mut overlay = self
+                    .overlay
+                    .lock()
+                    .map_err(|_| "store lock poisoned".to_string())?;
                 if !overlay.removed.contains(key) {
                     overlay.values.insert(key.to_string(), text.clone());
                 }
@@ -668,7 +782,10 @@ impl StoreState {
     }
 
     fn set(&self, key: &str, value: &str) -> Result<(), String> {
-        let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let mut overlay = self
+            .overlay
+            .lock()
+            .map_err(|_| "store lock poisoned".to_string())?;
         overlay.removed.remove(key);
         overlay.values.insert(key.to_string(), value.to_string());
         overlay.dirty.insert(key.to_string());
@@ -683,7 +800,10 @@ impl StoreState {
         // Drop the overlay lock before any disk read — holding it across a
         // second lock() deadlocks the request worker (Clear / delete hung).
         let existed = {
-            let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+            let mut overlay = self
+                .overlay
+                .lock()
+                .map_err(|_| "store lock poisoned".to_string())?;
             if overlay.values.remove(key).is_some() {
                 true
             } else {
@@ -691,7 +811,10 @@ impl StoreState {
                 self.read_disk(key)?.is_some()
             }
         };
-        let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let mut overlay = self
+            .overlay
+            .lock()
+            .map_err(|_| "store lock poisoned".to_string())?;
         overlay.removed.insert(key.to_string());
         overlay.values.remove(key);
         overlay.dirty.insert(key.to_string());
@@ -703,13 +826,19 @@ impl StoreState {
     }
 
     fn keys(&self, prefix: &str) -> Result<Vec<String>, String> {
-        let mut overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let mut overlay = self
+            .overlay
+            .lock()
+            .map_err(|_| "store lock poisoned".to_string())?;
         Self::flush_locked(&self.database, &mut overlay)?;
         drop(overlay);
 
         let mut keys: HashSet<String> = HashSet::new();
         {
-            let overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+            let overlay = self
+                .overlay
+                .lock()
+                .map_err(|_| "store lock poisoned".to_string())?;
             for key in overlay.values.keys() {
                 if key.starts_with(prefix) {
                     keys.insert(key.clone());
@@ -717,9 +846,15 @@ impl StoreState {
             }
         }
 
-        let read = self.database.begin_read().map_err(|error| error.to_string())?;
+        let read = self
+            .database
+            .begin_read()
+            .map_err(|error| error.to_string())?;
         let table = read.open_table(KV).map_err(|error| error.to_string())?;
-        let overlay = self.overlay.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let overlay = self
+            .overlay
+            .lock()
+            .map_err(|_| "store lock poisoned".to_string())?;
         for item in table.iter().map_err(|error| error.to_string())? {
             let (key, _) = item.map_err(|error| error.to_string())?;
             let key = key.value();
@@ -734,7 +869,10 @@ impl StoreState {
     }
 
     fn read_disk(&self, key: &str) -> Result<Option<String>, String> {
-        let read = self.database.begin_read().map_err(|error| error.to_string())?;
+        let read = self
+            .database
+            .begin_read()
+            .map_err(|error| error.to_string())?;
         let table = read.open_table(KV).map_err(|error| error.to_string())?;
         Ok(table
             .get(key)
@@ -752,13 +890,17 @@ impl StoreState {
             let mut table = write.open_table(KV).map_err(|error| error.to_string())?;
             for key in pending {
                 if overlay.removed.contains(&key) {
-                    table.remove(key.as_str()).map_err(|error| error.to_string())?;
+                    table
+                        .remove(key.as_str())
+                        .map_err(|error| error.to_string())?;
                 } else if let Some(value) = overlay.values.get(&key) {
                     table
                         .insert(key.as_str(), value.as_str())
                         .map_err(|error| error.to_string())?;
                 } else {
-                    table.remove(key.as_str()).map_err(|error| error.to_string())?;
+                    table
+                        .remove(key.as_str())
+                        .map_err(|error| error.to_string())?;
                 }
             }
         }
@@ -782,13 +924,19 @@ impl Stores {
 
     pub fn open(&self, path: &str) -> Result<u32, String> {
         {
-            let known = self.by_path.lock().map_err(|_| "store lock poisoned".to_string())?;
+            let known = self
+                .by_path
+                .lock()
+                .map_err(|_| "store lock poisoned".to_string())?;
             if let Some(handle) = known.get(path) {
                 return Ok(*handle);
             }
         }
         let store = Arc::new(StoreState::open(path)?);
-        let mut held = self.stores.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let mut held = self
+            .stores
+            .lock()
+            .map_err(|_| "store lock poisoned".to_string())?;
         let index = held.len() as u32;
         held.push(store);
         drop(held);
@@ -816,7 +964,10 @@ impl Stores {
     }
 
     fn store(&self, handle: u32) -> Result<Arc<StoreState>, String> {
-        let held = self.stores.lock().map_err(|_| "store lock poisoned".to_string())?;
+        let held = self
+            .stores
+            .lock()
+            .map_err(|_| "store lock poisoned".to_string())?;
         held.get(handle as usize)
             .cloned()
             .ok_or_else(|| format!("store {handle} is not open"))

@@ -8,12 +8,15 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64.workspace = true
+bs58.workspace = true
 cranelift-codegen = "0.115.1"
 cranelift-frontend = "0.115.1"
 cranelift-jit = "0.115.1"
 cranelift-module = "0.115.1"
 cranelift-native = "0.115.1"
 crossbeam-deque.workspace = true
+futures-util.workspace = true
 hex.workspace = true
 hmac.workspace = true
 indexmap.workspace = true
@@ -26,9 +29,15 @@ sea-query.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 target-lexicon = "0.12.16"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "sync", "io-util"] }
+tokio-tungstenite.workspace = true
 ureq.workspace = true
 vaab-syntax.workspace = true
 vaab-types.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+
+[[bench]]
+name = "throughput"
+harness = false

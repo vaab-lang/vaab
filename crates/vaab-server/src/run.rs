@@ -3,24 +3,58 @@ use std::sync::Arc;
 
 use http_body_util::Full;
 use hyper::body::Bytes;
+use hyper::header::{HeaderValue, CONNECTION, UPGRADE};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
+use tokio_tungstenite::tungstenite::protocol::{Role, WebSocketConfig};
+use tokio_tungstenite::WebSocketStream;
 use indexmap::IndexMap;
 use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 use vaab_syntax::Module;
 use vaab_types::Checked;
-use vaab_vm::app_io::{Databases, Stores};
 use vaab_vm::bytecode::Program;
-use vaab_vm::concurrency::Host;
-use vaab_vm::log::{server_logger, Loggers};
-use vaab_vm::machine::{Budget, HttpResponse, Machine, Output, Step, World};
+use vaab_vm::log::server_logger;
+use vaab_vm::machine::{HttpResponse, Machine, Output};
 use vaab_vm::value::{Key, Ref, Value};
+use vaab_vm::LiveRuntime;
 
 use crate::{playground, router};
 
+pub struct Serving {
+    pub port: u16,
+    state: Arc<ServerState>,
+    stop: Option<oneshot::Sender<()>>,
+    accept: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Serving {
+    pub async fn shutdown(mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(accept) = self.accept.take() {
+            let _ = accept.await;
+        }
+        self.state.runtime.shutdown();
+    }
+}
+
 pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Result<(), String> {
+    let serving = start(module, checked).await?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {}
+        _ = std::future::pending::<()>() => {}
+    }
+    serving.state.log.info("shutting down");
+    serving.shutdown().await;
+    Ok(())
+}
+
+pub async fn start(module: &Module, checked: &Checked) -> Result<Serving, String> {
     let serve = checked
         .serves
         .values()
@@ -41,41 +75,77 @@ pub async fn serve_file(_source: &str, module: &Module, checked: &Checked) -> Re
         .await
         .map_err(|error| format!("could not listen on port {}: {}", serve.port, error))?;
 
+    let runtime = Arc::new(LiveRuntime::start(world));
+    let top = runtime.run_to_completion(Machine::start(&program));
+    if let Err(error) = top.value {
+        runtime.shutdown();
+        return Err(format!("the file's top-level statements failed: {:?}", error.fault));
+    }
+    if let Some(body) = program.on_start {
+        let started = runtime.run_to_completion(Machine::entering(&program, body, 0));
+        if let Err(error) = started.value {
+            runtime.shutdown();
+            return Err(format!("`on start` failed: {:?}", error.fault));
+        }
+    }
+
     let log = server_logger();
     log.info(&format!("listening on http://127.0.0.1:{}", serve.port));
     let state = Arc::new(ServerState {
         program,
-        globals: world.globals,
-        databases: Arc::clone(&world.databases),
-        stores: Arc::clone(&world.stores),
-        loggers: Arc::clone(&world.loggers),
+        runtime,
         log,
     });
 
+    let (stop, stop_rx) = oneshot::channel();
+    let accept_state = Arc::clone(&state);
+    let accept = tokio::spawn(async move {
+        accept_loop(listener, accept_state, stop_rx).await;
+    });
+
+    Ok(Serving {
+        port: serve.port,
+        state,
+        stop: Some(stop),
+        accept: Some(accept),
+    })
+}
+
+async fn accept_loop(
+    listener: TcpListener,
+    state: Arc<ServerState>,
+    mut stop: oneshot::Receiver<()>,
+) {
     loop {
-        let (stream, peer) = listener.accept().await.map_err(|error| error.to_string())?;
-        let io = TokioIo::new(stream);
-        let state = Arc::clone(&state);
-        tokio::spawn(async move {
-            let log = state.log.clone();
-            let service = service_fn(move |request| handle(state.clone(), request));
-            if let Err(error) = http1::Builder::new().serve_connection(io, service).await {
-                log.write(
-                    vaab_vm::LogLevel::Warn,
-                    "connection error",
-                    &[("peer", &peer.to_string()), ("error", &error.to_string())],
-                );
+        tokio::select! {
+            _ = &mut stop => break,
+            accepted = listener.accept() => {
+                let Ok((stream, peer)) = accepted else { break };
+                let io = TokioIo::new(stream);
+                let state = Arc::clone(&state);
+                tokio::spawn(async move {
+                    let log = state.log.clone();
+                    let service = service_fn(move |request| handle(state.clone(), request));
+                    if let Err(error) = http1::Builder::new()
+                        .serve_connection(io, service)
+                        .with_upgrades()
+                        .await
+                    {
+                        log.write(
+                            vaab_vm::LogLevel::Warn,
+                            "connection error",
+                            &[("peer", &peer.to_string()), ("error", &error.to_string())],
+                        );
+                    }
+                });
             }
-        });
+        }
     }
 }
 
 struct ServerState {
     program: Ref<Program>,
-    globals: Vec<Value>,
-    databases: Arc<Databases>,
-    stores: Arc<Stores>,
-    loggers: Arc<Loggers>,
+    runtime: Arc<LiveRuntime>,
     log: vaab_vm::Logger,
 }
 
@@ -90,6 +160,17 @@ async fn handle(
     }
 
     let path = request.uri().path().to_string();
+
+    if let Some(matched) = router::find_socket_route(&state.program.routes, &path) {
+        if is_websocket_upgrade(&request) {
+            return upgrade_socket(state, request, matched.handler).await;
+        }
+        return Ok(cors_response(
+            StatusCode::BAD_REQUEST,
+            "application/json",
+            Bytes::from("{\"error\":\"websocket upgrade required\"}"),
+        ));
+    }
 
     if method.eq_ignore_ascii_case("POST") && path == "/api/run" {
         let body_bytes = http_body_util::BodyExt::collect(request.into_body())
@@ -130,30 +211,28 @@ async fn handle(
         .map(|collected| collected.to_bytes())
         .unwrap_or_default();
 
-    let response = match router::find_route(&state.program.routes, &method, &path) {
-        Some(matched) => {
-            let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
-            let state_for_route = Arc::clone(&state);
-            let method_for_route = method.clone();
-            let path_for_route = path.clone();
-            let handler_index = matched.handler;
-            let params = matched.params;
-            tokio::task::spawn_blocking(move || {
-                let route = &state_for_route.program.routes[handler_index];
-                run_route(
-                    &state_for_route,
-                    route,
-                    &method_for_route,
-                    &path_for_route,
-                    body_text,
-                    headers,
-                    params,
-                )
-            })
-            .await
-            .unwrap_or_else(|_| HttpResponse::json(500, "{\"error\":\"route failed\"}".to_string()))
-        }
-        None => HttpResponse::json(404, "{\"error\":\"not found\"}".to_string()),
+    let matched = router::find_route(&state.program.routes, &method, &path);
+    let response = if let Some(matched) = matched {
+        let route = state.program.routes[matched.handler].clone();
+        let body_text = String::from_utf8_lossy(&body_bytes).into_owned();
+        let state = Arc::clone(&state);
+        let method_for_route = method.clone();
+        let path_for_route = path.clone();
+        tokio::task::spawn_blocking(move || {
+            run_route(
+                &state,
+                &route,
+                &method_for_route,
+                &path_for_route,
+                body_text,
+                headers,
+                matched.params,
+            )
+        })
+        .await
+        .unwrap_or_else(|_| HttpResponse::json(500, "{\"error\":\"route failed\"}".to_string()))
+    } else {
+        HttpResponse::json(404, "{\"error\":\"not found\"}".to_string())
     };
 
     let elapsed_ms = started.elapsed().as_millis().to_string();
@@ -200,16 +279,6 @@ fn run_route(
     headers: IndexMap<Key, Value>,
     params: Vec<String>,
 ) -> HttpResponse {
-    let mut world = World::with_app_io(
-        Ref::clone(&state.program),
-        Output::collected(),
-        Arc::clone(&state.databases),
-        Arc::clone(&state.stores),
-        Arc::clone(&state.loggers),
-    );
-    world.globals = state.globals.clone();
-    world.response = None;
-
     let request = Value::Tuple(Ref::from(vec![
         Value::Text(Ref::from(method)),
         Value::Text(Ref::from(path)),
@@ -220,9 +289,8 @@ fn run_route(
     if let Some(before_body) = state.program.before_route {
         let mut before_machine = Machine::entering(&state.program, before_body, 0);
         let _ = before_machine.set_argument(0, request.clone());
-        let mut before_host = Host::scratch(&state.program);
-        let _ = before_machine.resume(&mut world, &mut before_host, Budget::unlimited());
-        if let Some(response) = world.response.take() {
+        let before = state.runtime.run_to_completion(before_machine);
+        if let Some(response) = before.response {
             return response;
         }
     }
@@ -269,45 +337,118 @@ fn run_route(
         let _ = machine.set_argument(slot, argument);
     }
 
-    let mut host = Host::scratch(&state.program);
-    match machine.resume(&mut world, &mut host, Budget::unlimited()) {
-        Step::Finished(value) => {
-            if world.response.is_none() {
-                if let Value::Failure(held) = &value {
-                    if let Some(error_body) = state.program.error_handler {
-                        let mut error_machine = Machine::entering(&state.program, error_body, 0);
-                        let _ = error_machine.set_argument(0, held.as_ref().clone());
-                        let mut error_host = Host::scratch(&state.program);
-                        let _ = error_machine.resume(
-                            &mut world,
-                            &mut error_host,
-                            Budget::unlimited(),
-                        );
-                    }
-                    if world.response.is_none() {
-                        if let Ok(body) = vaab_vm::json::encode(held) {
-                            world.response = Some(HttpResponse::json(400, body));
-                        }
-                    }
-                }
+    let done = state.runtime.run_to_completion(machine);
+    if let Some(response) = done.response {
+        return response;
+    }
+    if let Ok(Value::Failure(held)) = &done.value {
+        if let Some(error_body) = state.program.error_handler {
+            let mut error_machine = Machine::entering(&state.program, error_body, 0);
+            let _ = error_machine.set_argument(0, held.as_ref().clone());
+            let handled = state.runtime.run_to_completion(error_machine);
+            if let Some(response) = handled.response {
+                return response;
             }
         }
-        Step::Yielded | Step::Parked(_) => {}
-        Step::Failed(error) => {
-            state.log.write(
-                vaab_vm::LogLevel::Error,
-                "route fault",
-                &[
-                    ("method", method),
-                    ("path", path),
-                    ("fault", &format!("{:?}", error.fault)),
-                ],
-            );
+        if let Ok(body) = vaab_vm::json::encode(held) {
+            return HttpResponse::json(400, body);
         }
     }
+    if let Err(error) = &done.value {
+        state.log.write(
+            vaab_vm::LogLevel::Error,
+            "route fault",
+            &[
+                ("method", method),
+                ("path", path),
+                ("fault", &format!("{:?}", error.fault)),
+            ],
+        );
+    }
 
-    world.response.unwrap_or(HttpResponse::json(
-        500,
-        "{\"error\":\"route failed\"}".to_string(),
-    ))
+    HttpResponse::json(500, "{\"error\":\"route failed\"}".to_string())
+}
+
+fn is_websocket_upgrade(request: &Request<hyper::body::Incoming>) -> bool {
+    let upgrade = request
+        .headers()
+        .get(UPGRADE)
+        .and_then(|value| value.to_str().ok())
+        .map_or(false, |value| value.eq_ignore_ascii_case("websocket"));
+    let connection = request
+        .headers()
+        .get(CONNECTION)
+        .and_then(|value| value.to_str().ok())
+        .map_or(false, |value| value.to_ascii_lowercase().contains("upgrade"));
+    request.method() == hyper::Method::GET && upgrade && connection
+}
+
+async fn upgrade_socket(
+    state: Arc<ServerState>,
+    request: Request<hyper::body::Incoming>,
+    handler: usize,
+) -> Result<Response<Full<Bytes>>, hyper::Error> {
+    let key = request
+        .headers()
+        .get("sec-websocket-key")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    if key.is_empty() {
+        return Ok(cors_response(
+            StatusCode::BAD_REQUEST,
+            "application/json",
+            Bytes::from("{\"error\":\"missing websocket key\"}"),
+        ));
+    }
+
+    let accept = derive_accept_key(key.as_bytes());
+    let on_upgrade = hyper::upgrade::on(request);
+    let program = Ref::clone(&state.program);
+    let runtime = Arc::clone(&state.runtime);
+    let route = state.program.routes[handler].clone();
+    tokio::spawn(async move {
+        let upgraded = match on_upgrade.await {
+            Ok(upgraded) => upgraded,
+            Err(error) => {
+                state.log.write(
+                    vaab_vm::LogLevel::Warn,
+                    "websocket upgrade failed",
+                    &[("error", &error.to_string())],
+                );
+                return;
+            }
+        };
+        let mut config = WebSocketConfig::default();
+        config.max_write_buffer_size = 16 * 1024;
+        config.write_buffer_size = 1024;
+        let stream = WebSocketStream::from_raw_socket(
+            TokioIo::new(upgraded),
+            Role::Server,
+            Some(config),
+        )
+        .await;
+        let live = vaab_vm::socket::LiveSocket::from_stream(stream);
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        runtime.attach_socket_and_spawn(
+            live,
+            move |socket| {
+                let mut machine = Machine::entering(&program, route.body, 0);
+                let _ = machine.set_argument(0, socket);
+                machine
+            },
+            Some(Box::new(move |done| {
+                let _ = done_tx.send(done);
+            })),
+        );
+        let _ = done_rx.await;
+    });
+
+    Ok(Response::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header(UPGRADE, HeaderValue::from_static("websocket"))
+        .header(CONNECTION, HeaderValue::from_static("Upgrade"))
+        .header("sec-websocket-accept", accept)
+        .body(Full::new(Bytes::new()))
+        .expect("upgrade response is valid"))
 }

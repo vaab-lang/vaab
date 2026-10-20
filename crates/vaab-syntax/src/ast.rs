@@ -46,7 +46,10 @@ pub struct Name {
 
 impl Name {
     pub fn new(text: impl Into<String>, span: Span) -> Self {
-        Name { text: text.into(), span }
+        Name {
+            text: text.into(),
+            span,
+        }
     }
 
     /// Vaab spells types in `UpperCamelCase` and everything else in `snake_case`.
@@ -129,8 +132,13 @@ pub struct NeedStmt {
 pub enum NeedSource {
     /// `need supabase` — resolved from `riff install` / `needed.lock`.
     Installed,
-    Registry { owner: Name },
-    Path { path: String, span: Span },
+    Registry {
+        owner: Name,
+    },
+    Path {
+        path: String,
+        span: Span,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -143,9 +151,11 @@ pub enum NeedImports {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServeDecl {
     pub port: Expr,
+    pub on_start: Option<Block>,
     pub before: Option<Block>,
     pub mounts: Vec<MountUse>,
     pub routes: Vec<RouteDecl>,
+    pub sockets: Vec<SocketRouteDecl>,
     pub error_handler: Option<ServeErrorHandler>,
     pub span: Span,
 }
@@ -307,12 +317,26 @@ pub struct RouteDecl {
     pub span: Span,
 }
 
+/// `socket "/ws" as client { ... }` — one accepted WebSocket, same shape as `Socket.connect`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SocketRouteDecl {
+    pub path: Vec<RouteSegment>,
+    pub binding: Name,
+    pub body: Block,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum RouteSegment {
     Literal(String),
-    Param { name: Name, declared: Option<TypeExpr> },
+    Param {
+        name: Name,
+        declared: Option<TypeExpr>,
+    },
     /// `{*path}` — matches the rest of the path, including slashes.
-    CatchAll { name: Name },
+    CatchAll {
+        name: Name,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -329,9 +353,15 @@ pub struct ReplyStmt {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReplyKind {
-    With { value: Expr, status: Option<Expr> },
+    With {
+        value: Expr,
+        status: Option<Expr>,
+    },
     /// `reply file path` — serve a file from disk with a guessed content type.
-    File { path: Expr, status: Option<Expr> },
+    File {
+        path: Expr,
+        status: Option<Expr>,
+    },
     /// `reply text body as "text/html"` — raw body with an explicit content type.
     Text {
         body: Expr,
@@ -533,22 +563,44 @@ pub enum ExprKind {
     /// `(1, "a")`
     Tuple(Vec<Expr>),
     /// `1..10`, inclusive at both ends.
-    Range { start: Box<Expr>, end: Box<Expr> },
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+    },
 
     /// `not ready`, `-count`
-    Unary { operator: UnaryOp, operand: Box<Expr> },
+    Unary {
+        operator: UnaryOp,
+        operand: Box<Expr>,
+    },
     /// `a + b`, `a and b`
-    Binary { operator: BinaryOp, left: Box<Expr>, right: Box<Expr> },
+    Binary {
+        operator: BinaryOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
 
     /// `greet("Ada", greeting: "hi")`
-    Call { callee: Box<Expr>, arguments: Vec<Argument> },
+    Call {
+        callee: Box<Expr>,
+        arguments: Vec<Argument>,
+    },
     /// `account.balance`, `Account.new`
-    Member { target: Box<Expr>, name: Name },
+    Member {
+        target: Box<Expr>,
+        name: Name,
+    },
     /// `items[0]`
-    Index { target: Box<Expr>, index: Box<Expr> },
+    Index {
+        target: Box<Expr>,
+        index: Box<Expr>,
+    },
 
     /// `n -> n * n`, `(a, b) -> a + b`, `item -> { ... }`
-    Closure { parameters: Vec<Name>, body: Box<FunctionBody> },
+    Closure {
+        parameters: Vec<Name>,
+        body: Box<FunctionBody>,
+    },
 
     /// `if a > b { ... } else { ... }`, which is an expression.
     If(Box<IfExpr>),
@@ -564,12 +616,22 @@ pub enum ExprKind {
     /// `try expr`: on failure, return the failure from the enclosing function.
     Try(Box<Expr>),
     /// `expr otherwise fallback`
-    Otherwise { value: Box<Expr>, fallback: Box<Expr> },
+    Otherwise {
+        value: Box<Expr>,
+        fallback: Box<Expr>,
+    },
 
     /// `receive from inbox`, which evaluates to `maybe T`.
-    Receive { channel: Box<Expr> },
+    Receive {
+        channel: Box<Expr>,
+    },
     /// `start { ... }`, which evaluates to `task of T`.
     Start(Box<Block>),
+    /// `db.transaction { ... }`, which runs the block in one SQLite transaction.
+    Transaction {
+        database: Box<Expr>,
+        body: Box<Block>,
+    },
     /// `select { when ... }`
     Select(Box<SelectExpr>),
 }
@@ -706,9 +768,19 @@ pub struct SelectExpr {
 #[derive(Clone, Debug, PartialEq)]
 pub enum SelectArm {
     /// `when receive from inbox as message { ... }`
-    Receive { channel: Expr, binding: Option<Name>, body: Block, span: Span },
+    Receive {
+        channel: Expr,
+        binding: Option<Name>,
+        body: Block,
+        span: Span,
+    },
     /// `when timeout after 2 seconds { ... }`
-    Timeout { amount: Expr, unit: Name, body: Block, span: Span },
+    Timeout {
+        amount: Expr,
+        unit: Name,
+        body: Block,
+        span: Span,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -740,9 +812,15 @@ pub enum PatternKind {
     /// `failure e`
     Failure(Box<Pattern>),
     /// `AccountError.InvalidAmount(amount)`, or a bare `Frozen`.
-    Variant { path: Vec<Name>, fields: Vec<Pattern> },
+    Variant {
+        path: Vec<Name>,
+        fields: Vec<Pattern>,
+    },
     /// `[first, second]`, or `[first, ...]` where `rest` is true.
-    List { elements: Vec<Pattern>, rest: bool },
+    List {
+        elements: Vec<Pattern>,
+        rest: bool,
+    },
     /// `(a, b)`
     Tuple(Vec<Pattern>),
 }
@@ -765,11 +843,16 @@ pub enum TypeKind {
     /// `list of T`
     List(Box<TypeExpr>),
     /// `map of K to V`
-    Map { key: Box<TypeExpr>, value: Box<TypeExpr> },
+    Map {
+        key: Box<TypeExpr>,
+        value: Box<TypeExpr>,
+    },
     /// `maybe T`
     Maybe(Box<TypeExpr>),
     /// `channel of T`
     Channel(Box<TypeExpr>),
+    /// `hub of T`
+    Hub(Box<TypeExpr>),
     /// `task of T`
     Task(Box<TypeExpr>),
     /// `shared T`
@@ -777,9 +860,15 @@ pub enum TypeKind {
     /// `(A, B)`
     Tuple(Vec<TypeExpr>),
     /// `to(A, B) returns C`. `returns` is `None` for a function yielding `Nothing`.
-    Function { parameters: Vec<TypeExpr>, returns: Option<Box<TypeExpr>> },
+    Function {
+        parameters: Vec<TypeExpr>,
+        returns: Option<Box<TypeExpr>>,
+    },
     /// `T or fails E`
-    Fallible { ok: Box<TypeExpr>, error: Box<TypeExpr> },
+    Fallible {
+        ok: Box<TypeExpr>,
+        error: Box<TypeExpr>,
+    },
 }
 
 #[cfg(test)]

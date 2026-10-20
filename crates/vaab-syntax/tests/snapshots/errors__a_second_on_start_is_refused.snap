@@ -1,0 +1,13 @@
+---
+source: crates/vaab-syntax/tests/errors.rs
+expression: "errors(r#\"\nserve on port 8080 {\n    on start { print(\"one\") }\n    on start { print(\"two\") }\n    route get \"/hello\" { reply with \"hello\" }\n}\n\"#)"
+---
+[duplicate-on-start] Error: a server may have only one `on start` block
+   ╭─[ example.vaab:4:14 ]
+   │
+ 4 │     on start { print("two") }
+   │              ────────┬───────  
+   │                      ╰───────── this is a second `on start`
+   │ 
+   │ Help: move this work into the existing `on start` block
+───╯

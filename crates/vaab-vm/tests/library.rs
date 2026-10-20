@@ -29,7 +29,10 @@ fn print_shows_text_as_it_is_and_quotes_it_inside_a_list() {
 
 #[test]
 fn upper_and_lower_change_the_case() {
-    assert_eq!(output("print(\"ada\".upper())\nprint(\"ADA\".lower())\n"), ["ADA", "ada"]);
+    assert_eq!(
+        output("print(\"ada\".upper())\nprint(\"ADA\".lower())\n"),
+        ["ADA", "ada"]
+    );
 }
 
 #[test]
@@ -40,7 +43,10 @@ fn contains_says_whether_one_piece_of_text_is_inside_another() {
 
 #[test]
 fn text_is_empty_when_it_has_no_characters() {
-    assert_eq!(output("print(\"\".is_empty)\nprint(\"a\".is_empty)\n"), ["yes", "no"]);
+    assert_eq!(
+        output("print(\"\".is_empty)\nprint(\"a\".is_empty)\n"),
+        ["yes", "no"]
+    );
 }
 
 #[test]
@@ -59,7 +65,10 @@ fn map_gives_back_a_list_the_same_length_as_the_one_it_walked() {
 
 #[test]
 fn map_over_an_empty_list_gives_an_empty_list() {
-    assert_eq!(printed("let items: list of Int = []\nprint(items.map(n -> n * 2))\n"), "[]");
+    assert_eq!(
+        printed("let items: list of Int = []\nprint(items.map(n -> n * 2))\n"),
+        "[]"
+    );
 }
 
 #[test]
@@ -86,7 +95,10 @@ fn the_first_of_a_list_is_a_maybe_because_the_list_may_be_empty() {
 
 #[test]
 fn join_puts_a_separator_between_every_piece_of_text() {
-    assert_eq!(printed("print([\"a\", \"b\", \"c\"].join(\", \"))\n"), "a, b, c");
+    assert_eq!(
+        printed("print([\"a\", \"b\", \"c\"].join(\", \"))\n"),
+        "a, b, c"
+    );
 }
 
 #[test]
@@ -118,12 +130,18 @@ fn count_says_how_many_entries_a_map_holds() {
 
 #[test]
 fn keys_come_back_in_the_order_they_were_first_put_in() {
-    assert_eq!(printed("print({\"b\": 1, \"a\": 2}.keys)\n"), "[\"b\", \"a\"]");
+    assert_eq!(
+        printed("print({\"b\": 1, \"a\": 2}.keys)\n"),
+        "[\"b\", \"a\"]"
+    );
 }
 
 #[test]
 fn a_map_can_be_keyed_by_something_other_than_text() {
-    assert_eq!(printed("let names = {1: \"one\"}\nprint(names.get(1) otherwise \"?\")\n"), "one");
+    assert_eq!(
+        printed("let names = {1: \"one\"}\nprint(names.get(1) otherwise \"?\")\n"),
+        "one"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +152,10 @@ fn a_map_can_be_keyed_by_something_other_than_text() {
 fn abs_drops_the_sign_of_a_whole_number_and_of_a_decimal() {
     // A method binds tighter than a minus sign, so the brackets are the ones
     // anyone writing this would have to put in.
-    assert_eq!(output("print((-7).abs())\nprint((-1.5).abs())\n"), ["7", "1.5"]);
+    assert_eq!(
+        output("print((-7).abs())\nprint((-1.5).abs())\n"),
+        ["7", "1.5"]
+    );
 }
 
 #[test]
@@ -149,12 +170,115 @@ fn a_whole_number_becomes_a_decimal_only_when_asked() {
 
 #[test]
 fn rounding_goes_to_the_nearest_whole_number() {
-    assert_eq!(output("print(2.4.round())\nprint(2.6.round())\n"), ["2", "3"]);
+    assert_eq!(
+        output("print(2.4.round())\nprint(2.6.round())\n"),
+        ["2", "3"]
+    );
 }
 
 #[test]
 fn a_half_rounds_away_from_zero_the_way_it_is_taught_at_school() {
-    assert_eq!(output("print(2.5.round())\nprint((-2.5).round())\n"), ["3", "-3"]);
+    assert_eq!(
+        output("print(2.5.round())\nprint((-2.5).round())\n"),
+        ["3", "-3"]
+    );
+}
+
+#[test]
+fn float_maths_covers_the_new_methods() {
+    let source = "\
+print((9.0).sqrt())\n\
+print((1.0).exp().ln().round())\n\
+print((2.0).pow(3.0))\n\
+print((1.5).floor())\n\
+print((1.5).ceil())\n\
+print((1.0).min(2.0))\n\
+print((1.0).max(2.0))\n\
+print((1.0).is_finite())\n\
+print(Float.infinity.is_finite())\n\
+print((2.9).to_int())\n\
+print((-2.9).to_int())\n\
+print((10.0).divided_by(2.0))\n\
+print((10.0).divided_by(0.0))\n\
+print(Float.pi > 3.0)\n\
+";
+    assert_eq!(
+        output(source),
+        [
+            "3.0",
+            "1",
+            "8.0",
+            "1.0",
+            "2.0",
+            "1.0",
+            "2.0",
+            "yes",
+            "no",
+            "2",
+            "-2",
+            "found 5.0",
+            "nothing",
+            "yes",
+        ]
+    );
+}
+
+#[test]
+fn a_list_of_numbers_can_be_summed_averaged_and_sorted() {
+    let source = "\
+print([1, 3, 2].sum())\n\
+print([1.5, 2.5].sum())\n\
+print([3, 1, 2].min())\n\
+print([3, 1, 2].max())\n\
+print([1.0, 3.0, 2.0].mean())\n\
+print([3, 1, 2].sorted())\n\
+let empty_ints: list of Int = []\n\
+let empty_floats: list of Float = []\n\
+print(empty_ints.sum())\n\
+print(empty_floats.sum())\n\
+print(empty_ints.min())\n\
+print(empty_floats.mean())\n\
+let original = [2, 1]\n\
+let ordered = original.sorted()\n\
+print(ordered)\n\
+print(original)\n\
+";
+    assert_eq!(
+        output(source),
+        [
+            "6",
+            "4.0",
+            "found 1",
+            "found 3",
+            "found 2.0",
+            "[1, 2, 3]",
+            "0",
+            "0.0",
+            "nothing",
+            "nothing",
+            "[1, 2]",
+            "[2, 1]",
+        ]
+    );
+}
+
+#[test]
+fn clock_millis_is_a_whole_number_since_1970() {
+    let millis = printed("print(Clock.millis())\n")
+        .parse::<i64>()
+        .expect("a whole number");
+    assert!(millis > 1_600_000_000_000);
+}
+
+#[test]
+fn sleep_parks_until_the_deadline() {
+    let source = "\
+let started = Clock.monotonic_millis()\n\
+sleep(milliseconds: 20)\n\
+let elapsed = Clock.monotonic_millis() - started\n\
+print(if elapsed >= 20 { \"yes\" } else { \"no\" })\n\
+";
+    assert_eq!(printed(source), "yes");
 }
 
 // ---------------------------------------------------------------------------
@@ -163,13 +287,88 @@ fn a_half_rounds_away_from_zero_the_way_it_is_taught_at_school() {
 
 #[test]
 fn now_returns_seconds_since_1970() {
-    let seconds = printed("print(now())\n").parse::<i64>().expect("a whole number");
+    let seconds = printed("print(now())\n")
+        .parse::<i64>()
+        .expect("a whole number");
     assert!(seconds > 1_600_000_000);
 }
 
 #[test]
 fn to_json_turns_a_map_into_text() {
     assert_eq!(printed("print(to_json({\"a\": 1}))\n"), "{\"a\":1}");
+}
+
+#[test]
+fn from_json_decodes_a_record_and_missing_maybe_fields() {
+    let source = "\
+type Note {\n\
+    title: Text\n\
+    hint: maybe Text\n\
+}\n\
+match from_json(\"\\{\\\"title\\\":\\\"hi\\\"\\}\", as: Note) {\n\
+    when success note then {\n\
+        print(note.title)\n\
+        print(note.hint otherwise \"none\")\n\
+    }\n\
+    when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["hi", "none"]);
+}
+
+#[test]
+fn from_json_reports_invalid_json() {
+    let source = "\
+match from_json(\"not json\", as: Int) {\n\
+    when success n then print(n)\n\
+    when failure error then match error {\n\
+        when Failed(message) then print(message.contains(\"valid JSON\"))\n\
+    }\n\
+}\n";
+    assert_eq!(printed(source), "yes");
+}
+
+#[test]
+fn from_json_reports_when_the_value_does_not_match() {
+    let source = "\
+type Note {\n\
+    title: Text\n\
+}\n\
+match from_json(\"\\{\\\"title\\\": 1\\}\", as: Note) {\n\
+    when success note then print(note.title)\n\
+    when failure error then match error {\n\
+        when Failed(message) then print(message.contains(\"did not match\"))\n\
+    }\n\
+}\n";
+    assert_eq!(printed(source), "yes");
+}
+
+#[test]
+fn json_parse_walks_an_object_and_a_list() {
+    let source = "\
+match Json.parse(\"\\{\\\"title\\\":\\\"hi\\\",\\\"tags\\\":[\\\"home\\\"]\\}\") {\n\
+    when success doc then {\n\
+        print(doc.at(\"title\").as_text() otherwise \"\")\n\
+        let tags = doc.at(\"tags\").as_list() otherwise []\n\
+        print(tags.first.as_text() otherwise \"\")\n\
+        print(doc.at(\"missing\").as_text() otherwise \"none\")\n\
+        print(doc.at(0).as_text() otherwise \"none\")\n\
+    }\n\
+    when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["hi", "home", "none", "none"]);
+}
+
+#[test]
+fn json_parse_can_be_matched_as_a_choice() {
+    let source = "\
+match Json.parse(\"null\") {\n\
+    when success doc then match doc {\n\
+        when Json.Null then print(\"null\")\n\
+        when other then print(other)\n\
+    }\n\
+    when failure error then print(error)\n\
+}\n";
+    assert_eq!(printed(source), "null");
 }
 
 #[test]
@@ -373,6 +572,184 @@ fn store_delete_after_insert_does_not_deadlock() {
 }
 
 #[test]
+fn a_transaction_commits_on_success_and_rolls_back_on_failure() {
+    let source = "\
+to demo() returns Text or fails DbError {\n\
+    let db = try Db.connect(\"sqlite::memory:\")\n\
+    let empty: list of Text = []\n\
+    try db.execute(\"create table items (id integer primary key)\", empty)\n\
+    match db.transaction {\n\
+        try db.execute(\"insert into items (id) values (1)\", empty)\n\
+        fail DbError.Failed(message: \"boom\")\n\
+    } {\n\
+        when success _ then {}\n\
+        when failure _ then {}\n\
+    }\n\
+    let rows = try db.query(\"select count(*) as n from items\", empty)\n\
+    match rows.first {\n\
+        when found row then row.get(\"n\") otherwise \"missing\"\n\
+        when nothing then \"empty\"\n\
+    }\n\
+}\n\
+match demo() {\n\
+    when success n then print(n)\n\
+    when failure error then print(error)\n\
+}\n";
+    assert_eq!(printed(source), "0");
+}
+
+#[test]
+fn a_file_database_opens_in_wal_mode() {
+    let path = std::env::temp_dir().join("vaab-wal-mode-test.sqlite");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+    let path = path.display();
+    let source = format!(
+        "match Db.connect(\"sqlite:{path}\") {{\n\
+         when success db then {{\n\
+             let empty: list of Text = []\n\
+             match db.query(\"PRAGMA journal_mode\", empty) {{\n\
+                 when success rows then match rows.first {{\n\
+                     when found row then print(row.get(\"journal_mode\") otherwise \"missing\")\n\
+                     when nothing then print(\"empty\")\n\
+                 }}\n\
+                 when failure _ then print(\"query failed\")\n\
+             }}\n\
+         }}\n\
+         when failure _ then print(\"connect failed\")\n\
+         }}\n"
+    );
+    assert_eq!(printed(&source).to_ascii_lowercase(), "wal");
+}
+
+#[test]
+fn bytes_decode_and_read_little_endian_integers() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_hex(\"010000002a0000000000000001\")\n\
+    print(raw.length)\n\
+    print(try raw.u32_le(at: 0))\n\
+    print(try raw.u64_le(at: 4))\n\
+    print(try raw.bool(at: 12))\n\
+    print(raw.to_hex())\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(
+        output(source),
+        ["13", "1", "42", "yes", "010000002a0000000000000001"]
+    );
+}
+
+#[test]
+fn bytes_from_base64_and_base58_round_trip() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_base64(\"YWI=\")\n\
+    print(raw.to_hex())\n\
+    print(raw.to_base64())\n\
+    let again = try Bytes.from_hex(raw.to_hex())\n\
+    print(again.to_base58())\n\
+    let back = try Bytes.from_base58(again.to_base58())\n\
+    print(back.to_hex())\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["6162", "YWI=", "8Qq", "6162"]);
+}
+
+#[test]
+fn bytes_slice_starts_with_and_borsh_text() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_hex(\"ffff03000000416461\")\n\
+    print((try raw.slice(from: 0, to: 2)).to_hex())\n\
+    print(raw.starts_with(try Bytes.from_hex(\"ffff\")))\n\
+    print(raw.starts_with(try Bytes.from_hex(\"ffff00\")))\n\
+    match try raw.borsh_text(at: 2) {\n\
+    when (name, after) then {\n\
+        print(name)\n\
+        print(after)\n\
+    }\n\
+    }\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["ffff", "yes", "no", "Ada", "9"]);
+}
+
+#[test]
+fn bytes_out_of_range_and_invalid_input_are_failures() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_hex(\"00\")\n\
+    match raw.u8(at: 4) {\n\
+    when success value then print(value)\n\
+    when failure error then print(error)\n\
+    }\n\
+    match Bytes.from_hex(\"zz\") {\n\
+    when success _ then print(\"ok\")\n\
+    when failure error then print(error)\n\
+    }\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(
+        output(source),
+        [
+            "BytesError.OutOfRange(4, 1)",
+            "BytesError.Invalid(\"not hex: Invalid character 'z' at position 0\")"
+        ]
+    );
+}
+
+#[test]
+fn bytes_u64_that_does_not_fit_an_int_is_too_large() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    let raw = try Bytes.from_hex(\"ffffffffffffffff\")\n\
+    match raw.u64_le(at: 0) {\n\
+    when success value then print(value)\n\
+    when failure error then print(error)\n\
+    }\n\
+    print(try raw.i64_le(at: 0))\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(output(source), ["BytesError.TooLarge(0)", "-1"]);
+}
+
+#[test]
+fn to_json_writes_bytes_as_hex() {
+    let source = "\
+to peek() returns Int or fails BytesError {\n\
+    print(to_json(try Bytes.from_hex(\"ab\")))\n\
+    return 0\n\
+}\n\
+match peek() {\n\
+when success _ then {}\n\
+when failure error then print(error)\n\
+}\n";
+    assert_eq!(printed(source), "\"ab\"");
+}
+
+#[test]
 fn read_file_returns_the_contents_of_a_file() {
     let path = std::env::temp_dir().join("vaab-read-file-test.txt");
     std::fs::write(&path, "hello from disk").expect("write temp file");
@@ -441,4 +818,3 @@ fn a_file_logger_appends_and_multi_fans_out() {
         .expect("log file");
     assert!(contents.contains("hello"), "{contents}");
 }
-

@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"let n = 1\\nn.transaction { 1 }\\n\")"
+---
+[not-a-database] Error: a transaction needs a database
+   ╭─[ example.vaab:2:1 ]
+   │
+ 2 │ n.transaction { 1 }
+   │ ┬  
+   │ ╰── this is an Int
+   │ 
+   │ Help: write `db.transaction { ... }` on a value from `Db.connect`
+───╯

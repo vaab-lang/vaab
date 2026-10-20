@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: rendered
+---
+[server-global-must-be-handle] Error: `count` is Int, so a server cannot keep it as a process-wide value
+   ╭─[ example.vaab:1:5 ]
+   │
+ 1 │ let count = 0
+   │     ──┬──  
+   │       ╰──── `count` is declared here
+   │ 
+   │ Help: keep a handle such as `Shared.new(...)` or `Hub.new(of: ...)`, then read `count.value` and change it with `count.update(...)`
+───╯

@@ -17,7 +17,8 @@ use vaab_syntax::span::Span;
 
 use crate::builtin::Builtin;
 use crate::error::Feature;
-use crate::value::{Ref, RecordLayout, Value, VariantLayout};
+use crate::json::JsonShape;
+use crate::value::{RecordLayout, Ref, Value, VariantLayout};
 
 /// One instruction.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -85,8 +86,14 @@ pub enum Op {
     Range,
     /// Joins the top `n` values into one piece of text.
     Text(u32),
-    Record { layout: u32, fields: u32 },
-    Variant { layout: u32, fields: u32 },
+    Record {
+        layout: u32,
+        fields: u32,
+    },
+    Variant {
+        layout: u32,
+        fields: u32,
+    },
 
     // -- Reaching inside ---------------------------------------------------
     Field(u32),
@@ -114,7 +121,10 @@ pub enum Op {
     TupleItem(u32),
     /// Whether the list on top is the right length for a list pattern.
     /// `[first, ...]` asks for at least one; `[a, b]` asks for exactly two.
-    ListLengthIs { length: u32, at_least: bool },
+    ListLengthIs {
+        length: u32,
+        at_least: bool,
+    },
 
     // -- Control -----------------------------------------------------------
     Jump(u32),
@@ -127,10 +137,17 @@ pub enum Op {
     Call(u32),
     /// A method on a declared type, which the checker resolved statically. The
     /// receiver sits below the arguments.
-    CallMethod { body: u32, arity: u32 },
+    CallMethod {
+        body: u32,
+        arity: u32,
+    },
     /// A method reached through an ability, so which body runs is only known once
     /// the receiver is in hand.
-    CallAbility { ability: u32, slot: u32, arity: u32 },
+    CallAbility {
+        ability: u32,
+        slot: u32,
+        arity: u32,
+    },
     Builtin(Builtin),
     /// Builds a function value, taking a cell for each of the body's captures.
     MakeFunction(u32),
@@ -151,12 +168,27 @@ pub enum Op {
 
     ReadFile(u32),
     Now,
+    ClockMillis,
+    ClockMonotonicMillis,
+    Sleep,
+    /// A Bytes constructor or method. Error layouts are looked up at compile time
+    /// so a bad offset becomes `failure BytesError` rather than a stop.
+    Bytes {
+        op: BytesOp,
+        errors: BytesErrors,
+    },
 
     EnvGet,
     EnvRequired(u32),
     DbConnect(u32),
     DbExecute(u32),
     DbQuery(u32),
+    /// Runs a compiled block inside one SQLite transaction. The body index is
+    /// the nested machine; the u32 is `DbError.Failed`.
+    DbTransaction {
+        body: u32,
+        error: u32,
+    },
     StoreOpen(u32),
     StoreGet,
     StoreSet(u32),
@@ -208,7 +240,32 @@ pub enum Op {
     HttpGet(u32),
     HttpPost(u32),
     HttpSend(u32),
-    RequestWho { user: u32, unauthorized: u32 },
+    SocketConnect(u32),
+    SocketSend(u32),
+    SocketClose,
+    SocketMessages,
+    SocketBinary,
+    SocketClosedBecause,
+    HubNew,
+    HubJoin,
+    HubBroadcast,
+    RequestWho {
+        user: u32,
+        unauthorized: u32,
+    },
+
+    /// `from_json(text, as: T)` — shape is an index into [`Program::json_shapes`].
+    FromJson {
+        shape: u32,
+        error: u32,
+    },
+    /// `Json.parse(text)`.
+    JsonParse(u32),
+    JsonAt,
+    JsonAsText,
+    JsonAsInt,
+    JsonAsFloat,
+    JsonAsList,
 
     ReplyWith(bool),
     ReplyFile(bool),
@@ -220,6 +277,33 @@ pub enum Op {
     NotYet(Feature),
     /// Reached when no arm of a `match` applied, which a checked program cannot do.
     NoArm,
+}
+
+/// One Bytes constructor or method, compiled as a single instruction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BytesOp {
+    FromBase64,
+    FromHex,
+    FromBase58,
+    Slice,
+    U8,
+    U32Le,
+    U64Le,
+    I64Le,
+    Bool,
+    ToHex,
+    ToBase58,
+    ToBase64,
+    StartsWith,
+    BorshText,
+}
+
+/// Layout indices for the three `BytesError` variants, in the compiled program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BytesErrors {
+    pub out_of_range: u32,
+    pub too_large: u32,
+    pub invalid: u32,
 }
 
 /// Where one of a body's captured values comes from when the function value is
@@ -249,7 +333,14 @@ pub struct Body {
 
 impl Body {
     fn empty(name: Ref<str>) -> Body {
-        Body { name, code: Vec::new(), spans: Vec::new(), slots: 0, parameters: 0, captures: Vec::new() }
+        Body {
+            name,
+            code: Vec::new(),
+            spans: Vec::new(),
+            slots: 0,
+            parameters: 0,
+            captures: Vec::new(),
+        }
     }
 }
 
@@ -274,10 +365,21 @@ pub struct Program {
     pub before_route: Option<usize>,
     pub routes: Vec<RouteHandler>,
     pub error_handler: Option<usize>,
+    /// Body of `on start`, run once after the listener binds.
+    pub on_start: Option<usize>,
+    /// Type shapes for `from_json(..., as: T)`, interned by the compiler.
+    pub json_shapes: Vec<JsonShape>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RouteKind {
+    Http,
+    Socket,
 }
 
 #[derive(Clone, Debug)]
 pub struct RouteHandler {
+    pub kind: RouteKind,
     pub method: String,
     pub path: Vec<vaab_types::RouteSegment>,
     pub body: usize,
@@ -322,6 +424,8 @@ impl Program {
             before_route: None,
             routes: Vec::new(),
             error_handler: None,
+            on_start: None,
+            json_shapes: Vec::new(),
         }
     }
 
@@ -399,7 +503,12 @@ fn write(op: &Op, program: &Program) -> String {
         }
         Op::Builtin(builtin) => format!("Builtin {}", builtin.name()),
         Op::ReadFile(layout) => format!("ReadFile {layout}"),
+        Op::FromJson { shape, error } => format!("FromJson {shape} {error}"),
+        Op::JsonParse(error) => format!("JsonParse {error}"),
         Op::Now => "Now".to_string(),
+        Op::ClockMillis => "ClockMillis".to_string(),
+        Op::ClockMonotonicMillis => "ClockMonotonicMillis".to_string(),
+        Op::Sleep => "Sleep".to_string(),
         Op::NotYet(feature) => format!("NotYet ({feature})"),
         other => format!("{other:?}"),
     }

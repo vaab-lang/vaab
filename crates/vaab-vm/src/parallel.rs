@@ -1,23 +1,103 @@
 //! Work-stealing worker pool for phase 7.
 
-use std::collections::VecDeque;
 #[cfg(test)]
 use std::collections::HashSet;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Condvar, Mutex};
 #[cfg(test)]
 use std::thread::ThreadId;
+use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 use crossbeam_deque::{Injector, Steal, Stealer, Worker};
 
 use crate::app_io::{Databases, Stores};
 use crate::bytecode::Program;
-use crate::concurrency::{Host, PREEMPT_AFTER, Run, TaskLife, WaitSite};
+use crate::concurrency::{Host, Run, TaskLife, WaitSite, PREEMPT_AFTER};
 use crate::error::{Fault, RuntimeError};
 use crate::log::Loggers;
-use crate::machine::{Budget, Machine, Output, Step, World};
+use crate::machine::{Budget, HttpResponse, Machine, Output, Step, World};
 use crate::value::{Ref, Value};
+
+pub type Finish = Box<dyn FnOnce(Result<Value, RuntimeError>, Option<HttpResponse>) + Send>;
+
+enum Job {
+    Spawn {
+        machine: Machine,
+        done: Option<Finish>,
+    },
+    Prepare {
+        build: Box<dyn FnOnce(&mut Host) -> Machine + Send>,
+        done: Option<Finish>,
+    },
+    Shutdown,
+}
+
+#[derive(Clone)]
+pub(crate) struct Pulse {
+    inner: Arc<(Mutex<PulseState>, Condvar)>,
+}
+
+struct PulseState {
+    ready: bool,
+    closed: bool,
+}
+
+impl Pulse {
+    fn new() -> Pulse {
+        Pulse {
+            inner: Arc::new((
+                Mutex::new(PulseState {
+                    ready: false,
+                    closed: false,
+                }),
+                Condvar::new(),
+            )),
+        }
+    }
+
+    fn ping(&self) {
+        if let Ok(mut state) = self.inner.0.lock() {
+            state.ready = true;
+            self.inner.1.notify_all();
+        }
+    }
+
+    fn close(&self) {
+        if let Ok(mut state) = self.inner.0.lock() {
+            state.closed = true;
+            state.ready = true;
+            self.inner.1.notify_all();
+        }
+    }
+
+    fn wait(&self, deadline: Option<Instant>) {
+        let Ok(mut state) = self.inner.0.lock() else {
+            return;
+        };
+        while !state.ready && !state.closed {
+            if let Some(at) = deadline {
+                let now = Instant::now();
+                if at <= now {
+                    break;
+                }
+                let (guard, _) = match self.inner.1.wait_timeout(state, at - now) {
+                    Ok(pair) => pair,
+                    Err(_) => return,
+                };
+                state = guard;
+                break;
+            }
+            state = match self.inner.1.wait(state) {
+                Ok(guard) => guard,
+                Err(_) => return,
+            };
+        }
+        state.ready = false;
+    }
+}
 
 #[cfg(test)]
 static WORKER_THREADS: Mutex<Vec<ThreadId>> = Mutex::new(Vec::new());
@@ -50,6 +130,10 @@ struct Parallel {
     done: AtomicBool,
     outcome: Mutex<Option<Run>>,
     idle_workers: AtomicUsize,
+    persistent: bool,
+    pulse: Pulse,
+    callbacks: Mutex<HashMap<usize, Finish>>,
+    jobs: Mutex<Option<Receiver<Job>>>,
 }
 
 pub fn run_pool(
@@ -105,6 +189,10 @@ fn run_parallel(
         done: AtomicBool::new(false),
         outcome: Mutex::new(None),
         idle_workers: AtomicUsize::new(0),
+        persistent: false,
+        pulse: Pulse::new(),
+        callbacks: Mutex::new(HashMap::new()),
+        jobs: Mutex::new(None),
     });
     queues[0].push(0);
     let handles: Vec<JoinHandle<()>> = queues
@@ -147,8 +235,37 @@ fn run_parallel(
 
 fn worker_loop(queue: Worker<usize>, shared: Arc<Parallel>) {
     while !shared.done.load(Ordering::Acquire) {
+        drain_jobs(&shared);
         if let Some(task) = find_work(&queue, &shared) {
             run_task(task, &queue, &shared);
+            continue;
+        }
+        if shared.persistent {
+            let mut pending = VecDeque::new();
+            if let Ok(mut host) = lock(&shared.host) {
+                host.fire_timeouts(&mut pending);
+                host.drain_io(&mut pending);
+                while let Some(woken) = host.pending_wakeups.pop_front() {
+                    if !pending.iter().any(|id| *id == woken) {
+                        pending.push_back(woken);
+                    }
+                }
+            }
+            let had_work = !pending.is_empty();
+            for task in pending {
+                shared.injector.push(task);
+            }
+            if had_work {
+                shared.pulse.ping();
+                continue;
+            }
+            if shared.done.load(Ordering::Acquire) {
+                return;
+            }
+            let deadline = lock(&shared.host)
+                .ok()
+                .and_then(|host| host.next_deadline());
+            shared.pulse.wait(deadline);
             continue;
         }
         shared.idle_workers.fetch_add(1, Ordering::AcqRel);
@@ -157,7 +274,32 @@ fn worker_loop(queue: Worker<usize>, shared: Arc<Parallel>) {
             return;
         }
         shared.idle_workers.fetch_sub(1, Ordering::AcqRel);
-        thread::yield_now();
+        if let Some(wait) = sleep_until_next_deadline(&shared) {
+            thread::sleep(wait);
+        } else {
+            thread::yield_now();
+        }
+    }
+}
+
+fn sleep_until_next_deadline(shared: &Parallel) -> Option<std::time::Duration> {
+    let host = lock(&shared.host).ok()?;
+    if !shared.injector.is_empty() || shared.stealers.iter().any(|stealer| !stealer.is_empty()) {
+        return None;
+    }
+    if host.has_live_io() {
+        return Some(std::time::Duration::from_millis(1));
+    }
+    if host.timeouts.is_empty() || !host.all_parked() {
+        return None;
+    }
+    let deadline = host.next_deadline()?;
+    drop(host);
+    let now = std::time::Instant::now();
+    if deadline > now {
+        Some(deadline - now)
+    } else {
+        None
     }
 }
 
@@ -185,13 +327,15 @@ fn run_task(task: usize, queue: &Worker<usize>, shared: &Arc<Parallel>) {
         return;
     }
     let skip = match lock(&shared.host) {
-        Ok(host) => {
-            host.tasks
-                .get(task)
-                .is_some_and(|entry| entry.cancelled || entry.state == TaskLife::Done)
-        }
+        Ok(host) => host
+            .tasks
+            .get(task)
+            .is_some_and(|entry| entry.cancelled || entry.state == TaskLife::Done),
         Err(_) => {
-            set_outcome(shared, Run::Failed(confused("the scheduler's host lock was poisoned")));
+            set_outcome(
+                shared,
+                Run::Failed(confused("the scheduler's host lock was poisoned")),
+            );
             return;
         }
     };
@@ -207,18 +351,24 @@ fn run_task(task: usize, queue: &Worker<usize>, shared: &Arc<Parallel>) {
             }
         }
     }
-    let (yielded, pending, wakeups) = {
+    let (yielded, pending, wakeups, finished) = {
         let mut host = match lock(&shared.host) {
             Ok(host) => host,
             Err(_) => {
-                set_outcome(shared, Run::Failed(confused("the scheduler's host lock was poisoned")));
+                set_outcome(
+                    shared,
+                    Run::Failed(confused("the scheduler's host lock was poisoned")),
+                );
                 return;
             }
         };
         let mut world = match lock(&shared.world) {
             Ok(world) => world,
             Err(_) => {
-                set_outcome(shared, Run::Failed(confused("the scheduler's world lock was poisoned")));
+                set_outcome(
+                    shared,
+                    Run::Failed(confused("the scheduler's world lock was poisoned")),
+                );
                 return;
             }
         };
@@ -238,27 +388,35 @@ fn run_task(task: usize, queue: &Worker<usize>, shared: &Arc<Parallel>) {
         let mut machine = match lock(&machines[task]) {
             Ok(machine) => machine,
             Err(_) => {
-                set_outcome(shared, Run::Failed(confused("a task's machine lock was poisoned")));
+                set_outcome(
+                    shared,
+                    Run::Failed(confused("a task's machine lock was poisoned")),
+                );
                 return;
             }
         };
         host.current = task;
         host.tasks[task].state = TaskLife::Running;
         let step = machine.resume(&mut *world, &mut *host, Budget::of(PREEMPT_AFTER));
+        let response = machine.response.take();
         drop(machine);
         let mut pending = Vec::new();
         drain_pending(&mut *host, &mut *machines, &mut pending);
         let mut wakeups = VecDeque::new();
         let yielded = matches!(&step, Step::Yielded);
-        match step {
-            Step::Yielded => host.tasks[task].state = TaskLife::Runnable,
+        let finished = match step {
+            Step::Yielded => {
+                host.tasks[task].state = TaskLife::Runnable;
+                None
+            }
             Step::Parked(site) => {
                 host.tasks[task].state = TaskLife::Parked;
                 host.tasks[task].waiting = Some(site.clone());
                 host.register_wait(task, &site, &mut wakeups);
+                None
             }
             Step::Finished(value) => {
-                if task == 0 {
+                if !shared.persistent && task == 0 {
                     set_outcome(shared, Run::Finished(value));
                     return;
                 }
@@ -266,10 +424,11 @@ fn run_task(task: usize, queue: &Worker<usize>, shared: &Arc<Parallel>) {
                 host.tasks[task].outcome = Some(Ok(value.clone()));
                 host.wake_task_waiters(task, &mut wakeups);
                 host.finish_together_task(task, &mut wakeups);
+                Some((Ok(value), response))
             }
             Step::Failed(error) => {
                 let error = *error;
-                if task == 0 {
+                if !shared.persistent && task == 0 {
                     set_outcome(shared, Run::Failed(error));
                     return;
                 }
@@ -285,10 +444,19 @@ fn run_task(task: usize, queue: &Worker<usize>, shared: &Arc<Parallel>) {
                     fail_together(&mut *host, group, &mut wakeups, machines.as_slice());
                 }
                 host.finish_together_task(task, &mut wakeups);
+                Some((Err(error), response))
+            }
+        };
+        (yielded, pending, wakeups, finished)
+    };
+    if let Some((value, response)) = finished {
+        if let Ok(mut callbacks) = lock(&shared.callbacks) {
+            if let Some(done) = callbacks.remove(&task) {
+                drop(callbacks);
+                done(value, response);
             }
         }
-        (yielded, pending, wakeups)
-    };
+    }
     for id in pending {
         if id == task {
             queue.push(id);
@@ -301,6 +469,9 @@ fn run_task(task: usize, queue: &Worker<usize>, shared: &Arc<Parallel>) {
     }
     if yielded {
         queue.push(task);
+    }
+    if shared.persistent {
+        shared.pulse.ping();
     }
 }
 
@@ -379,6 +550,7 @@ fn try_finish_idle(shared: &Parallel) -> bool {
     let mut pending = VecDeque::new();
     if let Ok(mut host) = lock(&shared.host) {
         host.fire_timeouts(&mut pending);
+        host.drain_io(&mut pending);
     }
     for task in pending {
         shared.injector.push(task);
@@ -391,8 +563,11 @@ fn try_finish_idle(shared: &Parallel) -> bool {
         return false;
     }
     if let Ok(host) = lock(&shared.host) {
-        if host.timeouts.is_empty() && host.all_parked() {
-            set_outcome(shared, Run::Failed(deadlock_parallel(&host, &shared.machines)));
+        if host.timeouts.is_empty() && !host.has_live_io() && host.all_parked() {
+            set_outcome(
+                shared,
+                Run::Failed(deadlock_parallel(&host, &shared.machines)),
+            );
             return true;
         }
     }
@@ -419,6 +594,8 @@ fn deadlock_parallel(host: &Host, machines: &Mutex<Vec<Mutex<Machine>>>) -> Runt
             Some(WaitSite::WaitTask { task, .. }) => format!("waiting for task {task}"),
             Some(WaitSite::Together { .. }) => "waiting in `together`".to_string(),
             Some(WaitSite::Select { .. }) => "waiting in `select`".to_string(),
+            Some(WaitSite::Sleep { .. }) => "sleeping".to_string(),
+            Some(WaitSite::Io { .. }) => "waiting for I/O".to_string(),
             None => "blocked".to_string(),
         };
         lines.push(format!("  task {id} ({name}): {site}"));
@@ -431,6 +608,179 @@ fn deadlock_parallel(host: &Host, machines: &Mutex<Vec<Mutex<Machine>>>) -> Runt
     RuntimeError {
         fault: Fault::Deadlock { detail },
         trace: trace_machine(machines.as_slice(), &host.program, 0),
+    }
+}
+
+fn drain_jobs(shared: &Parallel) {
+    let mut shutdown = false;
+    {
+        let Ok(mut jobs) = lock(&shared.jobs) else {
+            return;
+        };
+        let Some(rx) = jobs.as_mut() else {
+            return;
+        };
+        while let Ok(job) = rx.try_recv() {
+            match job {
+                Job::Spawn { machine, done } => {
+                    if let Some(id) = accept_machine(shared, machine, done) {
+                        shared.injector.push(id);
+                        shared.pulse.ping();
+                    }
+                }
+                Job::Prepare { build, done } => {
+                    let Ok(mut host) = lock(&shared.host) else {
+                        continue;
+                    };
+                    let machine = build(&mut host);
+                    drop(host);
+                    if let Some(id) = accept_machine(shared, machine, done) {
+                        shared.injector.push(id);
+                        shared.pulse.ping();
+                    }
+                }
+                Job::Shutdown => {
+                    shutdown = true;
+                    break;
+                }
+            }
+        }
+    }
+    if shutdown {
+        if let Ok(mut host) = lock(&shared.host) {
+            host.cancel_all();
+        }
+        finish_live_callbacks(shared, "the server is shutting down");
+        shared.done.store(true, Ordering::Release);
+        shared.pulse.close();
+    }
+}
+
+fn accept_machine(shared: &Parallel, machine: Machine, done: Option<Finish>) -> Option<usize> {
+    let Ok(mut host) = lock(&shared.host) else {
+        return None;
+    };
+    let Ok(mut machines) = lock(&shared.machines) else {
+        return None;
+    };
+    let id = host.tasks.len();
+    host.tasks.push(crate::concurrency::TaskMeta {
+        state: TaskLife::Runnable,
+        waiting: None,
+        outcome: None,
+        together: None,
+        cancelled: false,
+        select_fire: None,
+    });
+    debug_assert_eq!(id, machines.len());
+    machines.push(Mutex::new(machine));
+    drop(host);
+    drop(machines);
+    if let Some(done) = done {
+        if let Ok(mut callbacks) = lock(&shared.callbacks) {
+            callbacks.insert(id, done);
+        }
+    }
+    Some(id)
+}
+
+fn finish_live_callbacks(shared: &Parallel, detail: &'static str) {
+    let Ok(mut callbacks) = lock(&shared.callbacks) else {
+        return;
+    };
+    let leftover: Vec<Finish> = callbacks.drain().map(|(_, done)| done).collect();
+    drop(callbacks);
+    for done in leftover {
+        done(
+            Err(RuntimeError {
+                fault: Fault::Confused(detail),
+                trace: Vec::new(),
+            }),
+            None,
+        );
+    }
+}
+
+pub struct LivePool {
+    shared: Arc<Parallel>,
+    jobs: Sender<Job>,
+    workers: Mutex<Vec<JoinHandle<()>>>,
+}
+
+impl LivePool {
+    pub fn start(world: World) -> LivePool {
+        let workers = worker_count();
+        let program = Ref::clone(&world.program);
+        let mut host = Host::empty(&program);
+        let pulse = Pulse::new();
+        let notify = pulse.clone();
+        host.io.set_notify(Arc::new(move || notify.ping()));
+        let (tx, rx) = mpsc::channel();
+        let mut queues: Vec<Worker<usize>> = Vec::with_capacity(workers);
+        let mut stealers: Vec<Stealer<usize>> = Vec::with_capacity(workers);
+        for _ in 0..workers {
+            let queue = Worker::new_fifo();
+            stealers.push(queue.stealer());
+            queues.push(queue);
+        }
+        let shared = Arc::new(Parallel {
+            program,
+            host: Mutex::new(host),
+            world: Mutex::new(world),
+            machines: Mutex::new(Vec::new()),
+            injector: Injector::new(),
+            stealers,
+            done: AtomicBool::new(false),
+            outcome: Mutex::new(None),
+            idle_workers: AtomicUsize::new(0),
+            persistent: true,
+            pulse,
+            callbacks: Mutex::new(HashMap::new()),
+            jobs: Mutex::new(Some(rx)),
+        });
+        let handles: Vec<JoinHandle<()>> = queues
+            .into_iter()
+            .enumerate()
+            .map(|(index, queue)| {
+                let shared = Arc::clone(&shared);
+                thread::Builder::new()
+                    .name(format!("vaab-serve-{index}"))
+                    .spawn(move || worker_loop(queue, shared))
+                    .expect("the server scheduler could start")
+            })
+            .collect();
+        LivePool {
+            shared,
+            jobs: tx,
+            workers: Mutex::new(handles),
+        }
+    }
+
+    pub fn spawn(&self, machine: Machine, done: Option<Finish>) {
+        let _ = self.jobs.send(Job::Spawn { machine, done });
+        self.shared.pulse.ping();
+    }
+
+    pub fn prepare(
+        &self,
+        build: impl FnOnce(&mut Host) -> Machine + Send + 'static,
+        done: Option<Finish>,
+    ) {
+        let _ = self.jobs.send(Job::Prepare {
+            build: Box::new(build),
+            done,
+        });
+        self.shared.pulse.ping();
+    }
+
+    pub fn shutdown(&self) {
+        let _ = self.jobs.send(Job::Shutdown);
+        self.shared.pulse.close();
+        if let Ok(mut workers) = self.workers.lock() {
+            for worker in workers.drain(..) {
+                let _ = worker.join();
+            }
+        }
     }
 }
 
@@ -461,9 +811,7 @@ fn confused(detail: &'static str) -> RuntimeError {
 pub(crate) fn worker_threads_seen() -> usize {
     WORKER_THREADS
         .lock()
-        .map(|seen| {
-            seen.iter().copied().collect::<HashSet<_>>().len()
-        })
+        .map(|seen| seen.iter().copied().collect::<HashSet<_>>().len())
         .unwrap_or(0)
 }
 

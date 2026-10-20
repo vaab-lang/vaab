@@ -13,6 +13,7 @@
 //! here — `Rc` becomes `Arc`, and [`Captured`]'s cell becomes a lock — rather than
 //! a rewrite of the value representation and everything that touches it.
 
+use std::cell::RefCell;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
@@ -37,6 +38,8 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     Text(Ref<str>),
+    /// Raw bytes, stored the same way as Text: one atomic pointer to the payload.
+    Bytes(Ref<[u8]>),
     List(Ref<Vec<Value>>),
     Map(Ref<Table>),
     Tuple(Ref<Vec<Value>>),
@@ -69,6 +72,10 @@ pub enum Value {
     Store(u32),
     /// A configured logger living in [`crate::machine::World::loggers`].
     Logger(u32),
+    /// An open WebSocket living in the scheduler [`crate::concurrency::Host`].
+    Socket(u32),
+    /// A process-wide fan-out living in the scheduler [`crate::concurrency::Host`].
+    Hub(u32),
     /// A fluent AREL-style relation over a Db or Store.
     Query(Ref<crate::query::Query>),
 }
@@ -81,12 +88,35 @@ pub enum Value {
 #[derive(Default)]
 pub struct Captured(Mutex<Value>);
 
+thread_local! {
+    /// Shared cells this thread is already updating. A nested `.update` on the
+    /// same cell would deadlock a non-reentrant mutex; `.value` during an update
+    /// would too. The list lets both reuse the snapshot without taking the lock
+    /// again, and lets a nested update fail instead of hanging.
+    static UPDATING: RefCell<Vec<(usize, Value)>> = RefCell::new(Vec::new());
+}
+
 impl Captured {
     pub fn new(value: Value) -> Captured {
         Captured(Mutex::new(value))
     }
 
+    fn id(&self) -> usize {
+        self as *const Captured as usize
+    }
+
     pub fn get(&self) -> Value {
+        let id = self.id();
+        if let Some(held) = UPDATING.with(|stack| {
+            stack
+                .borrow()
+                .iter()
+                .rev()
+                .find(|(seen, _)| *seen == id)
+                .map(|(_, value)| value.clone())
+        }) {
+            return held;
+        }
         match self.0.lock() {
             Ok(held) => held.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
@@ -97,6 +127,36 @@ impl Captured {
         match self.0.lock() {
             Ok(mut held) => *held = value,
             Err(poisoned) => *poisoned.into_inner() = value,
+        }
+    }
+
+    /// Whether this thread is already inside `.update` on this cell.
+    pub fn updating_here(&self) -> bool {
+        let id = self.id();
+        UPDATING.with(|stack| stack.borrow().iter().any(|(seen, _)| *seen == id))
+    }
+
+    /// Holds the cell lock while `change` runs, so two workers cannot update the
+    /// same shared value at once. Sequential updates on one task unlock between
+    /// calls. A nested update on the same cell is refused rather than deadlocked.
+    pub fn replace<E>(&self, change: impl FnOnce(Value) -> Result<Value, E>) -> Result<Value, E> {
+        let id = self.id();
+        let mut held = match self.0.lock() {
+            Ok(held) => held,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let current = held.clone();
+        UPDATING.with(|stack| stack.borrow_mut().push((id, current.clone())));
+        let result = change(current);
+        UPDATING.with(|stack| {
+            stack.borrow_mut().pop();
+        });
+        match result {
+            Ok(next) => {
+                *held = next;
+                Ok(Value::Nothing)
+            }
+            Err(error) => Err(error),
         }
     }
 }
@@ -183,6 +243,10 @@ impl Value {
         Value::Text(Ref::from(text.as_ref()))
     }
 
+    pub fn bytes(bytes: impl Into<Box<[u8]>>) -> Value {
+        Value::Bytes(Ref::from(bytes.into()))
+    }
+
     pub fn list(items: Vec<Value>) -> Value {
         Value::List(Ref::new(items))
     }
@@ -246,6 +310,7 @@ impl Value {
             Value::Bool(true) => "yes".to_string(),
             Value::Bool(false) => "no".to_string(),
             Value::Text(text) => quote(text),
+            Value::Bytes(bytes) => format!("bytes({})", hex::encode(bytes.as_ref())),
             Value::List(items) => format!("[{}]", joined(items)),
             Value::Map(entries) => {
                 if entries.is_empty() {
@@ -295,6 +360,8 @@ impl Value {
             Value::Db(handle) => format!("db {handle}"),
             Value::Store(handle) => format!("store {handle}"),
             Value::Logger(handle) => format!("logger {handle}"),
+            Value::Socket(handle) => format!("socket {handle}"),
+            Value::Hub(handle) => format!("hub {handle}"),
             Value::Query(_) => "query".to_string(),
         }
     }
@@ -308,7 +375,11 @@ impl fmt::Display for Value {
 }
 
 fn joined(values: &[Value]) -> String {
-    values.iter().map(Value::quoted).collect::<Vec<String>>().join(", ")
+    values
+        .iter()
+        .map(Value::quoted)
+        .collect::<Vec<String>>()
+        .join(", ")
 }
 
 /// Text inside a container, with the escapes Vaab knows put back in.
@@ -348,14 +419,20 @@ fn compare(left: &Value, right: &Value, floats: Floats) -> bool {
         },
         (Value::Bool(left), Value::Bool(right)) => left == right,
         (Value::Text(left), Value::Text(right)) => left == right,
+        (Value::Bytes(left), Value::Bytes(right)) => left.as_ref() == right.as_ref(),
         (Value::List(left), Value::List(right)) | (Value::Tuple(left), Value::Tuple(right)) => {
             left.len() == right.len()
-                && left.iter().zip(right.iter()).all(|(a, b)| compare(a, b, floats))
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(a, b)| compare(a, b, floats))
         }
         (Value::Map(left), Value::Map(right)) => {
             left.len() == right.len()
                 && left.iter().all(|(key, value)| {
-                    right.get(key).is_some_and(|other| compare(value, other, floats))
+                    right
+                        .get(key)
+                        .is_some_and(|other| compare(value, other, floats))
                 })
         }
         (Value::Maybe(None), Value::Maybe(None)) => true,
@@ -388,6 +465,8 @@ fn compare(left: &Value, right: &Value, floats: Floats) -> bool {
         (Value::Db(left), Value::Db(right)) => left == right,
         (Value::Store(left), Value::Store(right)) => left == right,
         (Value::Logger(left), Value::Logger(right)) => left == right,
+        (Value::Socket(left), Value::Socket(right)) => left == right,
+        (Value::Hub(left), Value::Hub(right)) => left == right,
         (Value::Query(left), Value::Query(right)) => left.as_ref() == right.as_ref(),
         _ => false,
     }
@@ -424,6 +503,7 @@ fn hash_value<H: Hasher>(value: &Value, state: &mut H) {
         Value::Float(number) => number.to_bits().hash(state),
         Value::Bool(held) => held.hash(state),
         Value::Text(text) => text.hash(state),
+        Value::Bytes(bytes) => bytes.hash(state),
         Value::List(items) | Value::Tuple(items) => {
             items.len().hash(state);
             for item in items.iter() {
@@ -469,6 +549,8 @@ fn hash_value<H: Hasher>(value: &Value, state: &mut H) {
         Value::Db(id) => id.hash(state),
         Value::Store(id) => id.hash(state),
         Value::Logger(id) => id.hash(state),
+        Value::Socket(id) => id.hash(state),
+        Value::Hub(id) => id.hash(state),
         Value::Query(query) => {
             // Identity by pointer is enough for map keys; queries are not keyed.
             Ref::as_ptr(query).hash(state);
@@ -483,7 +565,17 @@ mod tests {
     #[test]
     fn text_is_bare_on_its_own_and_quoted_inside_a_list() {
         assert_eq!(Value::text("hello").show(), "hello");
-        assert_eq!(Value::list(vec![Value::text("hello")]).show(), "[\"hello\"]");
+        assert_eq!(
+            Value::list(vec![Value::text("hello")]).show(),
+            "[\"hello\"]"
+        );
+    }
+
+    #[test]
+    fn bytes_print_as_lowercase_hex() {
+        assert_eq!(Value::bytes(vec![0xbd, 0xdb, 0x7f]).show(), "bytes(bddb7f)");
+        assert!(Value::bytes(vec![0xaa]).equals(&Value::bytes(vec![0xaa])));
+        assert!(!Value::bytes(vec![0xaa]).equals(&Value::bytes(vec![0xbb])));
     }
 
     #[test]

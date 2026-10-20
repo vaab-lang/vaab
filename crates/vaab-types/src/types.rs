@@ -25,6 +25,8 @@ pub enum Type {
     Float,
     Bool,
     Text,
+    /// A bag of raw bytes, unpacked with little-endian integer reads.
+    Bytes,
     /// The unit type: what a function with no `returns` gives back.
     Nothing,
     List(Box<Type>),
@@ -39,6 +41,8 @@ pub enum Type {
     /// providing it.
     Ability(String),
     Channel(Box<Type>),
+    /// A process-wide fan-out from `Hub.new(of: T)`.
+    Hub(Box<Type>),
     Task(Box<Type>),
     Shared(Box<Type>),
     /// An open database connection from `Db.connect`.
@@ -47,6 +51,8 @@ pub enum Type {
     Store,
     /// A configured logger from `Logger.stdout`, `.stderr`, `.file`, `.memory` or `.multi`.
     Logger,
+    /// An open WebSocket from `Socket.connect`.
+    Socket,
     /// A fluent AREL-style relation from `db.from` / `store.from`.
     ///
     /// Terminals fail with `DbError` or `StoreError` depending on the source.
@@ -92,6 +98,10 @@ impl Type {
         Type::Channel(Box::new(item))
     }
 
+    pub fn hub(item: Type) -> Type {
+        Type::Hub(Box::new(item))
+    }
+
     pub fn task(item: Type) -> Type {
         Type::Task(Box::new(item))
     }
@@ -133,6 +143,7 @@ impl Type {
             Type::List(item)
             | Type::Maybe(item)
             | Type::Channel(item)
+            | Type::Hub(item)
             | Type::Task(item)
             | Type::Shared(item) => item.collect_parameters(found),
             Type::Map { key, value } => {
@@ -169,6 +180,7 @@ impl Type {
             Type::List(item) => Type::list(item.substitute(swaps)),
             Type::Maybe(item) => Type::maybe(item.substitute(swaps)),
             Type::Channel(item) => Type::channel(item.substitute(swaps)),
+            Type::Hub(item) => Type::hub(item.substitute(swaps)),
             Type::Task(item) => Type::task(item.substitute(swaps)),
             Type::Shared(item) => Type::shared(item.substitute(swaps)),
             Type::Map { key, value } => Type::map(key.substitute(swaps), value.substitute(swaps)),
@@ -196,16 +208,19 @@ impl fmt::Display for Type {
             Type::Float => f.write_str("Float"),
             Type::Bool => f.write_str("Bool"),
             Type::Text => f.write_str("Text"),
+            Type::Bytes => f.write_str("Bytes"),
             Type::Nothing => f.write_str("Nothing"),
             Type::List(item) => write!(f, "list of {item}"),
             Type::Map { key, value } => write!(f, "map of {key} to {value}"),
             Type::Maybe(item) => write!(f, "maybe {item}"),
             Type::Channel(item) => write!(f, "channel of {item}"),
+            Type::Hub(item) => write!(f, "hub of {item}"),
             Type::Task(item) => write!(f, "task of {item}"),
             Type::Shared(item) => write!(f, "shared {item}"),
             Type::Db => f.write_str("Db"),
             Type::Store => f.write_str("Store"),
             Type::Logger => f.write_str("Logger"),
+            Type::Socket => f.write_str("Socket"),
             Type::Query { .. } => f.write_str("Query"),
             Type::Fallible { ok, error } => write!(f, "{ok} or fails {error}"),
             Type::Tuple(items) => {
@@ -328,6 +343,7 @@ mod tests {
     #[test]
     fn types_print_the_way_vaab_spells_them() {
         assert_eq!(Type::maybe(Type::Int).to_string(), "maybe Int");
+        assert_eq!(Type::Bytes.to_string(), "Bytes");
         assert_eq!(Type::list(Type::Text).to_string(), "list of Text");
         assert_eq!(Type::map(Type::Text, Type::Int).to_string(), "map of Text to Int");
         assert_eq!(

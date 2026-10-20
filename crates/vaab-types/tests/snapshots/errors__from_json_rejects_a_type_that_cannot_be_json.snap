@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: rendered
+---
+[cannot-from-json] Error: a `Box` cannot be read from JSON
+   ╭─[ example.vaab:2:34 ]
+   │
+ 2 │ let note = from_json("\{\}", as: Box)
+   │                                  ─┬─  
+   │                                   ╰─── this is Box
+   │ 
+   │ Help: decode into a JSON-safe type, such as a record of numbers, text, lists or maps
+   │ 
+   │ Note: functions, channels, tasks and other values that cannot be written as JSON cannot be read back either
+───╯

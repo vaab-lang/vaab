@@ -46,25 +46,30 @@
 pub mod app_io;
 pub mod builtin;
 pub mod bytecode;
+mod bytes;
 mod compile;
-pub mod jit;
-pub mod json;
-pub mod log;
-pub mod query;
-mod static_files;
 pub mod concurrency;
 pub mod error;
+mod io;
+pub mod jit;
+pub mod json;
+pub mod live;
+pub mod log;
 pub mod machine;
+pub mod query;
+pub mod socket;
+mod static_files;
 pub mod value;
 
 use vaab_syntax::Module;
 use vaab_types::Checked;
 
 pub use builtin::Builtin;
-pub use bytecode::{Body, Capture, Op, Program};
+pub use bytecode::{Body, BytesErrors, BytesOp, Capture, Op, Program, RouteKind};
 pub use compile::compile;
+pub use concurrency::{run_with_workers, Host, Scheduler};
 pub use error::{Fault, Feature, Level, Operation, RuntimeError};
-pub use concurrency::Scheduler;
+pub use live::{LiveDone, LiveRuntime};
 pub use log::{server_logger, Format as LogFormat, Level as LogLevel, Logger, Loggers};
 pub use machine::{Budget, HttpResponse, Machine, Output, Step, World};
 pub use value::{Closure, Record, Ref, Value, Variant};

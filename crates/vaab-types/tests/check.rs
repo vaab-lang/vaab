@@ -23,7 +23,10 @@ fn a_number_with_a_point_is_a_float() {
 
 #[test]
 fn text_is_text_even_when_it_interpolates() {
-    assert_answer("let name = \"Ada\"\nlet answer = \"hello {name}\"\n", "Text");
+    assert_answer(
+        "let name = \"Ada\"\nlet answer = \"hello {name}\"\n",
+        "Text",
+    );
 }
 
 #[test]
@@ -58,7 +61,10 @@ fn an_empty_list_takes_its_type_from_the_annotation() {
 
 #[test]
 fn an_empty_map_takes_its_type_from_the_annotation() {
-    assert_answer("let answer: map of Text to Int = {}\n", "map of Text to Int");
+    assert_answer(
+        "let answer: map of Text to Int = {}\n",
+        "map of Text to Int",
+    );
 }
 
 #[test]
@@ -253,7 +259,10 @@ fn a_closure_may_change_the_type_it_gives_back() {
 
 #[test]
 fn a_closure_may_take_a_pair_apart() {
-    assert_answer("let answer = [(1, 2)].map((a, b) -> a + b)\n", "list of Int");
+    assert_answer(
+        "let answer = [(1, 2)].map((a, b) -> a + b)\n",
+        "list of Int",
+    );
 }
 
 #[test]
@@ -271,7 +280,10 @@ fn a_closure_can_read_the_values_around_it() {
 
 #[test]
 fn an_annotated_let_gives_a_closure_its_types() {
-    assert_answer("let answer: to(Int) returns Int = n -> n * 2\n", "to(Int) returns Int");
+    assert_answer(
+        "let answer: to(Int) returns Int = n -> n * 2\n",
+        "to(Int) returns Int",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -288,12 +300,17 @@ const ACCOUNT: &str = "type Account {\n\
 
 #[test]
 fn a_type_is_built_with_new() {
-    assert_answer(&format!("{ACCOUNT}let answer = Account.new(owner: \"Ada\")\n"), "Account");
+    assert_answer(
+        &format!("{ACCOUNT}let answer = Account.new(owner: \"Ada\")\n"),
+        "Account",
+    );
 }
 
 #[test]
 fn a_field_with_no_default_has_to_be_given() {
-    check(&format!("{ACCOUNT}let account = Account.new(owner: \"Ada\", balance: 10)\n"));
+    check(&format!(
+        "{ACCOUNT}let account = Account.new(owner: \"Ada\", balance: 10)\n"
+    ));
 }
 
 #[test]
@@ -371,7 +388,10 @@ const ERRORS: &str = "choice AccountError {\n\
 
 #[test]
 fn a_variant_with_no_payload_is_a_value_of_the_choice() {
-    assert_answer(&format!("{ERRORS}let answer = AccountError.Frozen\n"), "AccountError");
+    assert_answer(
+        &format!("{ERRORS}let answer = AccountError.Frozen\n"),
+        "AccountError",
+    );
 }
 
 #[test]
@@ -421,12 +441,18 @@ fn a_variant_may_be_matched_without_naming_its_choice() {
 
 #[test]
 fn a_map_lookup_gives_back_a_maybe() {
-    assert_answer("let ages = {\"Ada\": 36}\nlet answer = ages.get(\"Ada\")\n", "maybe Int");
+    assert_answer(
+        "let ages = {\"Ada\": 36}\nlet answer = ages.get(\"Ada\")\n",
+        "maybe Int",
+    );
 }
 
 #[test]
 fn otherwise_unwraps_a_maybe() {
-    assert_answer("let ages = {\"Ada\": 36}\nlet answer = ages.get(\"Ada\") otherwise 0\n", "Int");
+    assert_answer(
+        "let ages = {\"Ada\": 36}\nlet answer = ages.get(\"Ada\") otherwise 0\n",
+        "Int",
+    );
 }
 
 #[test]
@@ -508,10 +534,13 @@ fn a_type_may_be_passed_where_its_ability_is_wanted() {
 
 #[test]
 fn an_ability_typed_parameter_offers_its_required_functions() {
-    assert_answer(&format!(
-        "{DESCRIBABLE}to announce(thing: Describable) returns Text = thing.describe()\n\
+    assert_answer(
+        &format!(
+            "{DESCRIBABLE}to announce(thing: Describable) returns Text = thing.describe()\n\
          let answer = announce(Person.new(name: \"Ada\"))\n",
-    ), "Text");
+        ),
+        "Text",
+    );
 }
 
 #[test]
@@ -538,7 +567,10 @@ fn a_type_may_provide_more_than_one_ability() {
 
 #[test]
 fn an_if_used_as_an_expression_takes_the_type_both_branches_agree_on() {
-    assert_answer("let answer = if 1 < 2 { \"yes\" } else { \"no\" }\n", "Text");
+    assert_answer(
+        "let answer = if 1 < 2 { \"yes\" } else { \"no\" }\n",
+        "Text",
+    );
 }
 
 #[test]
@@ -604,9 +636,16 @@ fn every_expression_has_a_type() {
          let numbers = [1, 2, 3].map(n -> double(n))\n",
     );
     // Sixteen nodes is not the point; that nothing was skipped is.
-    assert!(checked.types.len() > 5, "only {} types recorded", checked.types.len());
     assert!(
-        !checked.types.values().any(|declared| declared.to_string() == "_"),
+        checked.types.len() > 5,
+        "only {} types recorded",
+        checked.types.len()
+    );
+    assert!(
+        !checked
+            .types
+            .values()
+            .any(|declared| declared.to_string() == "_"),
         "an unresolved type reached the tables: {:?}",
         support::recorded_types(&checked)
     );
@@ -617,7 +656,10 @@ fn a_local_gets_a_slot_in_a_frame() {
     let checked = check("let first = 1\nlet second = 2\n");
     let slots: Vec<usize> = checked.locals.iter().map(|local| local.slot).collect();
     assert_eq!(slots, [0, 1]);
-    assert!(checked.locals.iter().all(|local| local.frame == vaab_types::Checked::TOP_LEVEL));
+    assert!(checked
+        .locals
+        .iter()
+        .all(|local| local.frame == vaab_types::Checked::TOP_LEVEL));
 }
 
 #[test]
@@ -644,8 +686,14 @@ fn a_captured_value_says_how_far_out_it_lives() {
             _ => None,
         })
         .collect();
-    assert!(hops.contains(&0), "the closure's own parameter should be at hand: {hops:?}");
-    assert!(hops.contains(&1), "`factor` should be one frame out: {hops:?}");
+    assert!(
+        hops.contains(&0),
+        "the closure's own parameter should be at hand: {hops:?}"
+    );
+    assert!(
+        hops.contains(&1),
+        "`factor` should be one frame out: {hops:?}"
+    );
 }
 
 #[test]
@@ -659,7 +707,10 @@ fn a_call_records_where_each_argument_comes_from() {
     let call = checked.calls.values().next().expect("one call");
     // Written out of order and with the default second: the compiler is handed the
     // parameter order, not the written order.
-    assert_eq!(call.arguments, [ArgumentSource::Given(1), ArgumentSource::Given(0)]);
+    assert_eq!(
+        call.arguments,
+        [ArgumentSource::Given(1), ArgumentSource::Given(0)]
+    );
 }
 
 #[test]
@@ -671,7 +722,10 @@ fn a_left_out_argument_is_recorded_as_its_default() {
          let said = greet(\"Ada\")\n",
     );
     let call = checked.calls.values().next().expect("one call");
-    assert_eq!(call.arguments, [ArgumentSource::Given(0), ArgumentSource::Default]);
+    assert_eq!(
+        call.arguments,
+        [ArgumentSource::Given(0), ArgumentSource::Default]
+    );
 }
 
 #[test]
@@ -686,7 +740,10 @@ fn with_keeps_the_fields_it_does_not_mention() {
         .values()
         .find(|call| call.arguments.contains(&ArgumentSource::Kept))
         .expect("`.with` should keep something");
-    assert_eq!(kept.arguments, [ArgumentSource::Kept, ArgumentSource::Given(0)]);
+    assert_eq!(
+        kept.arguments,
+        [ArgumentSource::Kept, ArgumentSource::Given(0)]
+    );
 }
 
 #[test]
@@ -709,7 +766,9 @@ fn a_variant_knows_its_number() {
 fn an_automatic_new_is_told_apart_from_a_written_one() {
     use vaab_types::{Constructor, Resolution};
 
-    let checked = check(&format!("{ACCOUNT}let account = Account.new(owner: \"Ada\")\n"));
+    let checked = check(&format!(
+        "{ACCOUNT}let account = Account.new(owner: \"Ada\")\n"
+    ));
     let declared = checked.declared_types.first().expect("one type");
     assert_eq!(declared.constructor, Constructor::Automatic);
     assert!(checked
@@ -746,8 +805,12 @@ fn a_method_call_is_told_apart_from_a_free_function_call() {
         "{ACCOUNT}to describe(account: Account) returns Text = account.describe()\n"
     ));
     let resolutions: Vec<&Resolution> = checked.resolutions.values().collect();
-    assert!(resolutions.iter().any(|resolution| matches!(resolution, Resolution::Method { .. })));
-    assert!(resolutions.iter().any(|resolution| matches!(resolution, Resolution::Field { .. })));
+    assert!(resolutions
+        .iter()
+        .any(|resolution| matches!(resolution, Resolution::Method { .. })));
+    assert!(resolutions
+        .iter()
+        .any(|resolution| matches!(resolution, Resolution::Field { .. })));
 }
 
 #[test]
@@ -777,9 +840,16 @@ fn an_abilitys_functions_are_numbered_for_a_dispatch_table() {
          \x20   to name() returns Text = \"square\"\n\
          }\n",
     );
-    let ability = checked.abilities.iter().find(|a| a.name == "Shape").expect("Shape ability");
-    let names: Vec<&str> =
-        ability.functions.iter().map(|function| function.name.as_str()).collect();
+    let ability = checked
+        .abilities
+        .iter()
+        .find(|a| a.name == "Shape")
+        .expect("Shape ability");
+    let names: Vec<&str> = ability
+        .functions
+        .iter()
+        .map(|function| function.name.as_str())
+        .collect();
     assert_eq!(names, ["area", "name"]);
 }
 
@@ -807,7 +877,10 @@ fn a_binding_in_a_pattern_becomes_a_local() {
         .expect("`age` should be a local of its own");
     assert_eq!(age.declared.to_string(), "Int");
     assert!(
-        checked.bindings.values().any(|id| checked.local(*id).is_some_and(|l| l.name == "age")),
+        checked
+            .bindings
+            .values()
+            .any(|id| checked.local(*id).is_some_and(|l| l.name == "age")),
         "the pattern should say which local it fills"
     );
 }
@@ -818,12 +891,18 @@ fn a_binding_in_a_pattern_becomes_a_local() {
 
 #[test]
 fn a_fixed_value_may_cross_into_a_task() {
-    assert_answer("let name = \"Ada\"\nlet answer = start { name }\n", "task of Text");
+    assert_answer(
+        "let name = \"Ada\"\nlet answer = start { name }\n",
+        "task of Text",
+    );
 }
 
 #[test]
 fn a_list_may_cross_into_a_task() {
-    assert_answer("let names = [\"Ada\"]\nlet answer = start { names }\n", "task of list of Text");
+    assert_answer(
+        "let names = [\"Ada\"]\nlet answer = start { names }\n",
+        "task of list of Text",
+    );
 }
 
 #[test]
@@ -836,7 +915,10 @@ fn a_map_may_cross_into_a_task() {
 
 #[test]
 fn a_shared_may_cross_into_a_task() {
-    assert_answer("let counter = Shared.new(0)\nlet answer = start { counter.value }\n", "task of Int");
+    assert_answer(
+        "let counter = Shared.new(0)\nlet answer = start { counter.value }\n",
+        "task of Int",
+    );
 }
 
 #[test]
@@ -850,7 +932,10 @@ fn a_channel_may_cross_into_a_task() {
 
 #[test]
 fn a_task_handle_may_cross_into_a_task() {
-    assert_answer("let first = start { 1 }\nlet answer = start { first.wait() }\n", "task of Int");
+    assert_answer(
+        "let first = start { 1 }\nlet answer = start { first.wait() }\n",
+        "task of Int",
+    );
 }
 
 #[test]
@@ -1035,6 +1120,57 @@ fn a_together_whose_body_only_calls_is_allowed_to_start_tasks_in_there() {
 }
 
 #[test]
+fn every_and_on_start_are_accepted() {
+    check(
+        "let count = Shared.new(0)\n\
+         to tick() {\n\
+         \x20   count.update(n -> n + 1)\n\
+         }\n\
+         serve on port 8080 {\n\
+         \x20   on start {\n\
+         \x20       start { every(milliseconds: 100, f: tick) }\n\
+         \x20   }\n\
+         \x20   route get \"/count\" { reply with count.value }\n\
+         }\n",
+    );
+}
+
+#[test]
+fn hub_and_socket_route_type_check() {
+    check(
+        "let hub = Hub.new(of: Text)\n\
+         serve on port 8080 {\n\
+         \x20   socket \"/ws\" as client {\n\
+         \x20       hub.join(client)\n\
+         \x20       hub.broadcast(\"hi\")\n\
+         \x20   }\n\
+         }\n",
+    );
+}
+
+#[test]
+fn socket_connect_and_members_type_check() {
+    check(
+        "to talk(url: Text, payload: Text) {\n\
+         \x20   match Socket.connect(url, headers: {\"X\": \"1\"}, buffer: 8) {\n\
+         \x20       when success socket then {\n\
+         \x20           match socket.send(payload) {\n\
+         \x20               when success _ then {\n\
+         \x20                   print(socket.messages)\n\
+         \x20                   print(socket.binary)\n\
+         \x20                   print(socket.closed_because)\n\
+         \x20                   socket.close()\n\
+         \x20               }\n\
+         \x20               when failure error then {}\n\
+         \x20           }\n\
+         \x20       }\n\
+         \x20       when failure error then {}\n\
+         \x20   }\n\
+         }\n",
+    );
+}
+
+#[test]
 fn every_unit_of_time_a_timeout_may_be_written_in_is_accepted() {
     for unit in [
         "millisecond",
@@ -1096,7 +1232,23 @@ fn a_pure_method_on_a_type_is_checked_like_any_other_pure_function() {
 
 #[test]
 fn a_pure_closure_passed_to_map_may_transform_values() {
-    check(
-        "pure to squares(numbers: list of Int) returns list of Int = numbers.map(n -> n * n)\n",
+    check("pure to squares(numbers: list of Int) returns list of Int = numbers.map(n -> n * n)\n");
+}
+
+#[test]
+fn a_database_transaction_is_fallible() {
+    assert_answer(
+        "to work() returns Int or fails DbError {\n\
+         \x20   let db = try Db.connect(\"sqlite::memory:\")\n\
+         \x20   let empty: list of Text = []\n\
+         \x20   try db.execute(\"create table items (id integer)\", empty)\n\
+         \x20   let answer = db.transaction {\n\
+         \x20       try db.execute(\"insert into items (id) values (1)\", empty)\n\
+         \x20       1\n\
+         \x20   }\n\
+         \x20   return try answer\n\
+         }\n\
+         let answer = work()\n",
+        "Int or fails DbError",
     );
 }

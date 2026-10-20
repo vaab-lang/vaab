@@ -1,0 +1,26 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nlet db = Db.connect(\"sqlite::memory:\")\ndb.transaction {\n    db.execute(\"insert into items (id) values (1)\", [])\n}\n\"#)"
+---
+module
+  let db
+    call
+      callee
+        member .connect
+          name Db
+      argument
+        text
+          literal "sqlite::memory:"
+  transaction
+    database
+      name db
+    block
+      call
+        callee
+          member .execute
+            name db
+        argument
+          text
+            literal "insert into items (id) values (1)"
+        argument
+          list (empty)

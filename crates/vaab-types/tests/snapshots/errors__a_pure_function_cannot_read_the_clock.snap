@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to stamp() returns Int = Clock.millis()\\n\")"
+---
+[not-pure] Error: `stamp` is declared `pure`, so it cannot read the clock
+   ╭─[ example.vaab:1:31 ]
+   │
+ 1 │ pure to stamp() returns Int = Clock.millis()
+   │                         ─┬─   ───────┬──────  
+   │                          │           ╰──────── this reads the clock
+   │                          │                    
+   │                          ╰──────────────────── `stamp` is declared `pure` here
+   │ 
+   │ Help: read the clock before calling the `pure` function, and pass the number in
+───╯

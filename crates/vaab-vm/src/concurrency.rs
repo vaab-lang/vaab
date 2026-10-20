@@ -1,22 +1,36 @@
 //! The work-stealing scheduler tasks and channels run on.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
+use tokio::sync::oneshot;
 use vaab_syntax::span::Span;
 
 use crate::bytecode::{Program, SelectArm, SelectDescriptor};
 use crate::error::{Fault, RuntimeError};
+use crate::io::{IoHub, IoOutcome};
 use crate::machine::{Budget, Machine, Step};
+use crate::socket::{LiveSocket, SocketCmd, SocketEvent, SocketMailbox};
 use crate::value::{Ref, Value};
 
 #[path = "parallel.rs"]
 mod parallel;
 
+pub use parallel::{Finish, LivePool};
+
 pub const PREEMPT_AFTER: u64 = 10_000;
 
 pub fn run(world: &mut crate::machine::World) -> Result<Value, RuntimeError> {
-    let workers = parallel::worker_count();
+    run_with_workers(world, parallel::worker_count())
+}
+
+/// Runs a program on a worker pool of a chosen size. A size of 1 uses the
+/// single-worker loop so parking stays the same as `VAAB_WORKERS=1`.
+pub fn run_with_workers(
+    world: &mut crate::machine::World,
+    workers: usize,
+) -> Result<Value, RuntimeError> {
     let scheduler = Scheduler::new(Ref::clone(&world.program));
     if workers <= 1 {
         let mut scheduler = scheduler;
@@ -42,6 +56,17 @@ pub struct Host {
     pub(crate) pending_spawns: VecDeque<(Machine, usize)>,
     pub(crate) pending_wakeups: VecDeque<usize>,
     completed_sends: HashSet<usize>,
+    pub(crate) io: IoHub,
+    sockets: HashMap<u32, SocketState>,
+    next_socket: u32,
+    hubs: HashMap<u32, HubState>,
+    next_hub: u32,
+    socket_tx: Sender<SocketEvent>,
+    socket_rx: Receiver<SocketEvent>,
+}
+
+struct HubState {
+    members: Vec<u32>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -59,6 +84,8 @@ pub enum WaitSite {
     WaitTask { task: usize, span: Span },
     Together { group: usize },
     Select { descriptor: usize, resume_pc: usize },
+    Sleep { until: Instant },
+    Io { ticket: u64 },
 }
 
 pub(crate) struct TaskMeta {
@@ -67,7 +94,26 @@ pub(crate) struct TaskMeta {
     pub(crate) outcome: Option<Result<Value, RuntimeError>>,
     pub(crate) together: Option<usize>,
     pub(crate) cancelled: bool,
-    select_fire: Option<usize>,
+    pub(crate) select_fire: Option<usize>,
+}
+
+struct SocketState {
+    messages: u32,
+    binary: u32,
+    closed_because: Option<String>,
+    writer: Option<tokio::sync::mpsc::Sender<SocketCmd>>,
+    pending: Option<PendingFrame>,
+}
+
+enum PendingFrame {
+    Text {
+        text: String,
+        ack: oneshot::Sender<()>,
+    },
+    Binary {
+        bytes: Vec<u8>,
+        ack: oneshot::Sender<()>,
+    },
 }
 
 struct ChannelState {
@@ -122,6 +168,7 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new(program: Ref<Program>) -> Scheduler {
+        let (socket_tx, socket_rx) = mpsc::channel();
         Scheduler {
             host: Host {
                 program: Ref::clone(&program),
@@ -142,6 +189,13 @@ impl Scheduler {
                 pending_spawns: VecDeque::new(),
                 pending_wakeups: VecDeque::new(),
                 completed_sends: HashSet::new(),
+                io: IoHub::new(),
+                sockets: HashMap::new(),
+                next_socket: 0,
+                hubs: HashMap::new(),
+                next_hub: 0,
+                socket_tx,
+                socket_rx,
             },
             machines: vec![Machine::start(&program)],
             runnable: VecDeque::from([0]),
@@ -151,13 +205,28 @@ impl Scheduler {
     pub fn run(&mut self, world: &mut crate::machine::World) -> Run {
         loop {
             self.host.fire_timeouts(&mut self.runnable);
+            self.host.drain_io(&mut self.runnable);
+            while let Some(woken) = self.host.pending_wakeups.pop_front() {
+                if !self.runnable.iter().any(|id| *id == woken) {
+                    self.runnable.push_back(woken);
+                }
+            }
 
             if self.runnable.is_empty() {
-                if self.host.timeouts.is_empty() && self.host.all_parked() {
+                let deadline = self.host.next_deadline();
+                let waiting_io = self.host.has_live_io();
+                if deadline.is_none() && !waiting_io {
                     return Run::Failed(self.host.deadlock(&self.machines));
                 }
-                if self.host.timeouts.is_empty() {
-                    return Run::Failed(self.host.deadlock(&self.machines));
+                if waiting_io {
+                    self.host.wait_io(deadline, &mut self.runnable);
+                    continue;
+                }
+                if let Some(deadline) = deadline {
+                    let now = Instant::now();
+                    if deadline > now {
+                        std::thread::sleep(deadline - now);
+                    }
                 }
                 continue;
             }
@@ -167,10 +236,20 @@ impl Scheduler {
                 None => continue,
             };
 
-            if self.host.tasks.get(task).is_some_and(|entry| entry.cancelled) {
+            if self
+                .host
+                .tasks
+                .get(task)
+                .is_some_and(|entry| entry.cancelled)
+            {
                 continue;
             }
-            if self.host.tasks.get(task).is_some_and(|entry| entry.state == TaskLife::Done) {
+            if self
+                .host
+                .tasks
+                .get(task)
+                .is_some_and(|entry| entry.state == TaskLife::Done)
+            {
                 continue;
             }
 
@@ -222,7 +301,8 @@ impl Scheduler {
                                 entry.failed = Some(error.clone());
                             }
                         }
-                        self.host.fail_together(group, &mut self.runnable, &self.machines);
+                        self.host
+                            .fail_together(group, &mut self.runnable, &self.machines);
                     }
                     self.host.finish_together_task(task, &mut self.runnable);
                 }
@@ -232,7 +312,14 @@ impl Scheduler {
 }
 
 impl Host {
+    pub fn empty(program: &Ref<Program>) -> Host {
+        let mut host = Host::scratch(program);
+        host.tasks.clear();
+        host
+    }
+
     pub fn scratch(program: &Ref<Program>) -> Host {
+        let (socket_tx, socket_rx) = mpsc::channel();
         Host {
             program: Ref::clone(program),
             channels: HashMap::new(),
@@ -252,6 +339,13 @@ impl Host {
             pending_spawns: VecDeque::new(),
             pending_wakeups: VecDeque::new(),
             completed_sends: HashSet::new(),
+            io: IoHub::new(),
+            sockets: HashMap::new(),
+            next_socket: 0,
+            hubs: HashMap::new(),
+            next_hub: 0,
+            socket_tx,
+            socket_rx,
         }
     }
 
@@ -261,6 +355,77 @@ impl Host {
 
     pub fn current(&self) -> usize {
         self.current
+    }
+
+    pub fn submit_io(&mut self, work: crate::io::IoWork) -> u64 {
+        self.io.submit(work)
+    }
+
+    pub fn take_io(&mut self, ticket: u64) -> Option<IoOutcome> {
+        self.io.take(ticket)
+    }
+
+    pub fn has_live_io(&self) -> bool {
+        self.io.has_pending() || self.has_open_sockets()
+    }
+
+    pub fn has_open_sockets(&self) -> bool {
+        self.sockets
+            .values()
+            .any(|socket| socket.writer.is_some() || socket.pending.is_some())
+    }
+
+    pub fn drain_io(&mut self, runnable: &mut VecDeque<usize>) {
+        let mut woken = Vec::new();
+        self.io.drain(&mut |task| woken.push(task));
+        self.drain_sockets();
+        for task in woken {
+            self.wake_io_task(task, runnable);
+        }
+        while let Some(task) = self.pending_wakeups.pop_front() {
+            if !runnable.iter().any(|id| *id == task) {
+                runnable.push_back(task);
+            }
+        }
+    }
+
+    pub fn wait_io(&mut self, deadline: Option<Instant>, runnable: &mut VecDeque<usize>) {
+        let mut woken = Vec::new();
+        self.io.wait(deadline, &mut |task| woken.push(task));
+        self.drain_sockets();
+        for task in woken {
+            self.wake_io_task(task, runnable);
+        }
+        while let Some(task) = self.pending_wakeups.pop_front() {
+            if !runnable.iter().any(|id| *id == task) {
+                runnable.push_back(task);
+            }
+        }
+    }
+
+    fn wake_io_task(&mut self, task: usize, runnable: &mut VecDeque<usize>) {
+        if let Some(entry) = self.tasks.get_mut(task) {
+            if entry.cancelled || entry.state == TaskLife::Done {
+                return;
+            }
+            if matches!(entry.waiting, Some(WaitSite::Io { .. })) {
+                entry.waiting = None;
+                entry.state = TaskLife::Runnable;
+                runnable.push_back(task);
+            }
+        }
+    }
+
+    pub fn cancel_all(&mut self) {
+        for entry in &mut self.tasks {
+            if entry.outcome.is_some() {
+                continue;
+            }
+            entry.cancelled = true;
+            entry.state = TaskLife::Done;
+            entry.waiting = None;
+        }
+        self.timeouts.clear();
     }
 
     fn wake(&mut self, task: usize) {
@@ -356,6 +521,292 @@ impl Host {
         OpResult::Done
     }
 
+    pub fn submit_socket_connect(&mut self, url: String, headers: HashMap<String, String>) -> u64 {
+        let ticket = self.io.reserve();
+        crate::socket::submit_connect(url, headers, ticket, self.io.completer(), self.io.notify());
+        ticket
+    }
+
+    pub fn attach_socket(&mut self, live: LiveSocket, buffer: i64) -> Value {
+        let id = self.next_socket;
+        self.next_socket += 1;
+        let messages = match self.channel_new(buffer) {
+            Value::Channel(channel) => channel,
+            _ => unreachable!(),
+        };
+        let binary = match self.channel_new(buffer) {
+            Value::Channel(channel) => channel,
+            _ => unreachable!(),
+        };
+        let mailbox = SocketMailbox::new(
+            self.socket_tx.clone(),
+            self.io.completer(),
+            self.io.notify(),
+        );
+        let writer = live.start(id, mailbox);
+        self.sockets.insert(
+            id,
+            SocketState {
+                messages,
+                binary,
+                closed_because: None,
+                writer: Some(writer),
+                pending: None,
+            },
+        );
+        Value::Socket(id)
+    }
+
+    pub fn socket_messages(&self, handle: u32) -> Result<Value, Fault> {
+        let state = self.socket(handle)?;
+        Ok(Value::Channel(state.messages))
+    }
+
+    pub fn socket_binary(&self, handle: u32) -> Result<Value, Fault> {
+        let state = self.socket(handle)?;
+        Ok(Value::Channel(state.binary))
+    }
+
+    pub fn socket_closed_because(&self, handle: u32) -> Result<Value, Fault> {
+        let state = self.socket(handle)?;
+        Ok(match &state.closed_because {
+            Some(reason) => Value::found(Value::text(reason.clone())),
+            None => Value::absent(),
+        })
+    }
+
+    pub fn submit_socket_send(&mut self, handle: u32, text: String) -> Result<u64, String> {
+        let writer = self
+            .socket(handle)
+            .ok()
+            .and_then(|state| state.writer.clone())
+            .ok_or_else(|| "the socket is closed".to_string())?;
+        let ticket = self.io.reserve();
+        crate::socket::submit_command(
+            writer,
+            |reply| SocketCmd::Send { text, reply },
+            ticket,
+            self.io.completer(),
+            self.io.notify(),
+        );
+        Ok(ticket)
+    }
+
+    pub fn submit_socket_close(&mut self, handle: u32) -> Option<u64> {
+        let writer = self
+            .socket(handle)
+            .ok()
+            .and_then(|state| state.writer.clone())?;
+        let ticket = self.io.reserve();
+        crate::socket::submit_command(
+            writer,
+            |reply| SocketCmd::Close { reply },
+            ticket,
+            self.io.completer(),
+            self.io.notify(),
+        );
+        Some(ticket)
+    }
+
+    fn socket(&self, handle: u32) -> Result<&SocketState, Fault> {
+        self.sockets
+            .get(&handle)
+            .ok_or_else(|| Fault::Confused("that socket handle is gone"))
+    }
+
+    fn drain_sockets(&mut self) {
+        let ids: Vec<u32> = self.sockets.keys().copied().collect();
+        for id in ids {
+            self.flush_pending(id);
+        }
+        while let Ok(event) = self.socket_rx.try_recv() {
+            self.apply_socket_event(event);
+        }
+    }
+
+    fn flush_pending(&mut self, id: u32) {
+        let Some(pending) = self
+            .sockets
+            .get_mut(&id)
+            .and_then(|state| state.pending.take())
+        else {
+            return;
+        };
+        match pending {
+            PendingFrame::Text { text, ack } => {
+                if self.try_push_socket(id, true, Value::text(text.clone())) {
+                    let _ = ack.send(());
+                } else if let Some(state) = self.sockets.get_mut(&id) {
+                    state.pending = Some(PendingFrame::Text { text, ack });
+                }
+            }
+            PendingFrame::Binary { bytes, ack } => {
+                if self.try_push_socket(id, false, Value::bytes(bytes.clone())) {
+                    let _ = ack.send(());
+                } else if let Some(state) = self.sockets.get_mut(&id) {
+                    state.pending = Some(PendingFrame::Binary { bytes, ack });
+                }
+            }
+        }
+    }
+
+    fn apply_socket_event(&mut self, event: SocketEvent) {
+        match event {
+            SocketEvent::Text { socket, text, ack } => {
+                if self.try_push_socket(socket, true, Value::text(text.clone())) {
+                    let _ = ack.send(());
+                } else if let Some(state) = self.sockets.get_mut(&socket) {
+                    state.pending = Some(PendingFrame::Text { text, ack });
+                } else {
+                    let _ = ack.send(());
+                }
+            }
+            SocketEvent::Binary { socket, bytes, ack } => {
+                if self.try_push_socket(socket, false, Value::bytes(bytes.clone())) {
+                    let _ = ack.send(());
+                } else if let Some(state) = self.sockets.get_mut(&socket) {
+                    state.pending = Some(PendingFrame::Binary { bytes, ack });
+                } else {
+                    let _ = ack.send(());
+                }
+            }
+            SocketEvent::Closed { socket, reason } => {
+                self.finish_socket(socket, reason);
+                self.leave_hubs(socket);
+            }
+        }
+    }
+
+    fn try_push_socket(&mut self, socket: u32, text: bool, value: Value) -> bool {
+        let Some(state) = self.sockets.get(&socket) else {
+            return true;
+        };
+        let channel = if text { state.messages } else { state.binary };
+        self.try_push(channel, value)
+    }
+
+    fn try_push(&mut self, channel: u32, value: Value) -> bool {
+        let Some(state) = self.channels.get_mut(&channel) else {
+            return true;
+        };
+        if state.closed {
+            return true;
+        }
+        if let Some(receiver) = state.recv_waiters.first().copied() {
+            state.recv_waiters.remove(0);
+            state.rendezvous_to.insert(receiver, value);
+            if let Some(entry) = self.tasks.get_mut(receiver) {
+                if matches!(
+                    entry.waiting,
+                    Some(WaitSite::Receive { .. } | WaitSite::Select { .. })
+                ) {
+                    entry.waiting = None;
+                    entry.state = TaskLife::Runnable;
+                    self.wake(receiver);
+                }
+            }
+            return true;
+        }
+        if state.buffer.len() < state.capacity {
+            state.buffer.push(value);
+            return true;
+        }
+        false
+    }
+
+    fn finish_socket(&mut self, id: u32, reason: Option<String>) {
+        let Some(state) = self.sockets.get_mut(&id) else {
+            return;
+        };
+        if state.closed_because.is_none() {
+            state.closed_because = Some(reason.unwrap_or_else(|| "connection closed".to_string()));
+        }
+        state.writer = None;
+        if let Some(pending) = state.pending.take() {
+            match pending {
+                PendingFrame::Text { ack, .. } | PendingFrame::Binary { ack, .. } => {
+                    let _ = ack.send(());
+                }
+            }
+        }
+        let messages = state.messages;
+        let binary = state.binary;
+        let _ = self.close(messages);
+        let _ = self.close(binary);
+    }
+
+    pub fn hub_new(&mut self) -> Value {
+        let id = self.next_hub;
+        self.next_hub += 1;
+        self.hubs.insert(
+            id,
+            HubState {
+                members: Vec::new(),
+            },
+        );
+        Value::Hub(id)
+    }
+
+    pub fn hub_join(&mut self, hub: u32, socket: u32) {
+        if !self.sockets.contains_key(&socket) {
+            return;
+        }
+        if let Some(state) = self.hubs.get_mut(&hub) {
+            if !state.members.contains(&socket) {
+                state.members.push(socket);
+            }
+        }
+    }
+
+    pub fn hub_broadcast(&mut self, hub: u32, value: Value) {
+        let text = match &value {
+            Value::Text(text) => text.to_string(),
+            other => other.show(),
+        };
+        let Some(members) = self.hubs.get(&hub).map(|state| state.members.clone()) else {
+            return;
+        };
+        let mut drop = Vec::new();
+        for socket in members {
+            let closed = self.sockets.get(&socket).map_or(true, |state| {
+                state.closed_because.is_some() || state.writer.is_none()
+            });
+            if closed || self.try_hub_send(socket, text.clone()).is_err() {
+                drop.push(socket);
+            }
+        }
+        for socket in drop {
+            let already_closed = self
+                .sockets
+                .get(&socket)
+                .is_some_and(|state| state.closed_because.is_some());
+            if already_closed {
+                self.leave_hubs(socket);
+            } else {
+                self.finish_socket(socket, Some("buffer full".to_string()));
+                self.leave_hubs(socket);
+            }
+        }
+    }
+
+    fn try_hub_send(&self, handle: u32, text: String) -> Result<(), ()> {
+        let writer = self
+            .sockets
+            .get(&handle)
+            .and_then(|state| state.writer.clone())
+            .ok_or(())?;
+        let (reply, _done) = oneshot::channel();
+        writer
+            .try_send(SocketCmd::Send { text, reply })
+            .map_err(|_| ())
+    }
+
+    fn leave_hubs(&mut self, socket: u32) {
+        for state in self.hubs.values_mut() {
+            state.members.retain(|member| *member != socket);
+        }
+    }
+
     pub fn channel_id(value: &Value) -> Option<u32> {
         match value {
             Value::Channel(id) => Some(*id),
@@ -365,12 +816,19 @@ impl Host {
 
     pub fn spawn(&mut self, function: Value) -> Result<Value, RuntimeError> {
         let Value::Function(closure) = function else {
-            return Err(confused("a task was started from something that is not a function"));
+            return Err(confused(
+                "a task was started from something that is not a function",
+            ));
         };
         let body = closure.body as usize;
         let machine = match Machine::for_body(&self.program, body, 0, Some(Ref::clone(&closure))) {
             Ok(machine) => machine,
-            Err(fault) => return Err(RuntimeError { fault, trace: Vec::new() }),
+            Err(fault) => {
+                return Err(RuntimeError {
+                    fault,
+                    trace: Vec::new(),
+                })
+            }
         };
 
         let together = self.active_together.last().copied();
@@ -419,14 +877,20 @@ impl Host {
 
     pub fn end_together(&mut self, group: usize, waiter: usize) -> OpResult {
         let Some(entry) = self.together_groups.get_mut(group) else {
-            return OpResult::Stop(Fault::Confused("a together named a group that is not there"));
+            return OpResult::Stop(Fault::Confused(
+                "a together named a group that is not there",
+            ));
         };
         entry.waiter = Some(waiter);
         if let Some(error) = entry.failed.clone() {
             self.active_together.pop();
             return OpResult::Failed(error);
         }
-        if entry.tasks.iter().all(|id| self.tasks.get(*id).is_some_and(|t| t.outcome.is_some())) {
+        if entry
+            .tasks
+            .iter()
+            .all(|id| self.tasks.get(*id).is_some_and(|t| t.outcome.is_some()))
+        {
             self.active_together.pop();
             return OpResult::Done;
         }
@@ -444,22 +908,37 @@ impl Host {
         for (arm, compiled) in descriptor.arms.iter().enumerate() {
             match compiled {
                 SelectArm::Receive { .. } => {
-                    let Some(channel_value) = channels.get(channel_index) else { continue };
+                    let Some(channel_value) = channels.get(channel_index) else {
+                        continue;
+                    };
                     channel_index += 1;
-                    let Some(channel) = Self::channel_id(channel_value) else { continue };
-                    let Some(state) = self.channels.get_mut(&channel) else { continue };
+                    let Some(channel) = Self::channel_id(channel_value) else {
+                        continue;
+                    };
+                    let Some(state) = self.channels.get_mut(&channel) else {
+                        continue;
+                    };
                     if let Some(value) = state.rendezvous_to.remove(&task) {
-                        return SelectStep::Arm { arm, value: Some(value) };
+                        return SelectStep::Arm {
+                            arm,
+                            value: Some(value),
+                        };
                     }
                     if let Some((sender, value)) = state.rendezvous_sends.pop_front() {
                         state.send_waiters.retain(|waiter| *waiter != sender);
                         self.completed_sends.insert(sender);
                         self.wake(sender);
-                        return SelectStep::Arm { arm, value: Some(value) };
+                        return SelectStep::Arm {
+                            arm,
+                            value: Some(value),
+                        };
                     }
                     if let Some(value) = state.buffer.first().cloned() {
                         state.buffer.remove(0);
-                        return SelectStep::Arm { arm, value: Some(value) };
+                        return SelectStep::Arm {
+                            arm,
+                            value: Some(value),
+                        };
                     }
                     // A closed, drained channel is not ready for `select`; use
                     // `receive` when you want `nothing` from one.
@@ -525,23 +1004,33 @@ impl Host {
         let Value::Function(closure) = change else {
             return Err(confused("`.update` was not given a function"));
         };
+        if held.updating_here() {
+            return Err(confused(
+                "`.update` cannot run inside another `.update` on the same value",
+            ));
+        }
         let body = closure.body as usize;
-        let current = held.get().clone();
-        let mut machine = match Machine::for_body(&self.program, body, 0, Some(Ref::clone(&closure))) {
-            Ok(machine) => machine,
-            Err(fault) => return Err(RuntimeError { fault, trace: Vec::new() }),
-        };
-        if let Err(fault) = machine.set_argument(0, current) {
-            return Err(RuntimeError { fault, trace: Vec::new() });
-        }
-        let mut scratch = Host::scratch(&self.program);
-        match machine.run_alone(world, &mut scratch) {
-            Ok(answer) => {
-                held.set(answer);
-                Ok(Value::Nothing)
+        let program = Ref::clone(&self.program);
+        held.replace(|current| {
+            let mut machine = match Machine::for_body(&program, body, 0, Some(Ref::clone(&closure)))
+            {
+                Ok(machine) => machine,
+                Err(fault) => {
+                    return Err(RuntimeError {
+                        fault,
+                        trace: Vec::new(),
+                    })
+                }
+            };
+            if let Err(fault) = machine.set_argument(0, current) {
+                return Err(RuntimeError {
+                    fault,
+                    trace: Vec::new(),
+                });
             }
-            Err(error) => Err(error),
-        }
+            let mut scratch = Host::scratch(&program);
+            machine.run_alone(world, &mut scratch)
+        })
     }
 
     fn all_parked(&self) -> bool {
@@ -550,7 +1039,12 @@ impl Host {
         })
     }
 
-    fn register_wait(&mut self, task: usize, site: &WaitSite, _runnable: &mut VecDeque<usize>) {
+    pub(crate) fn register_wait(
+        &mut self,
+        task: usize,
+        site: &WaitSite,
+        _runnable: &mut VecDeque<usize>,
+    ) {
         match site {
             WaitSite::Send { channel, .. } => {
                 if let Some(state) = self.channels.get_mut(channel) {
@@ -567,11 +1061,27 @@ impl Host {
                 }
             }
             WaitSite::WaitTask { .. } | WaitSite::Together { .. } | WaitSite::Select { .. } => {}
+            WaitSite::Io { ticket } => {
+                self.io.register(*ticket, task);
+            }
+            WaitSite::Sleep { until } => {
+                self.timeouts.push(PendingTimeout {
+                    at: *until,
+                    task,
+                    select_arm: usize::MAX,
+                });
+            }
         }
     }
 
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
+        self.timeouts.iter().map(|pending| pending.at).min()
+    }
+
     fn try_wake_receiver(&mut self, task: usize, channel: u32) -> bool {
-        let Some(entry) = self.tasks.get_mut(task) else { return false };
+        let Some(entry) = self.tasks.get_mut(task) else {
+            return false;
+        };
         if !matches!(entry.waiting, Some(WaitSite::Receive { channel: c, .. }) if c == channel) {
             return false;
         }
@@ -582,7 +1092,9 @@ impl Host {
     }
 
     fn try_wake_sender(&mut self, task: usize, channel: u32) -> bool {
-        let Some(entry) = self.tasks.get_mut(task) else { return false };
+        let Some(entry) = self.tasks.get_mut(task) else {
+            return false;
+        };
         if !matches!(entry.waiting, Some(WaitSite::Send { channel: c, .. }) if c == channel) {
             return false;
         }
@@ -592,7 +1104,7 @@ impl Host {
         true
     }
 
-    fn wake_task_waiters(&mut self, finished: usize, runnable: &mut VecDeque<usize>) {
+    pub(crate) fn wake_task_waiters(&mut self, finished: usize, runnable: &mut VecDeque<usize>) {
         for (id, entry) in self.tasks.iter_mut().enumerate() {
             if matches!(entry.waiting, Some(WaitSite::WaitTask { task, .. }) if task == finished) {
                 entry.waiting = None;
@@ -602,11 +1114,17 @@ impl Host {
         }
     }
 
-    fn finish_together_task(&mut self, task: usize, runnable: &mut VecDeque<usize>) {
+    pub(crate) fn finish_together_task(&mut self, task: usize, runnable: &mut VecDeque<usize>) {
         let group = self.tasks.get(task).and_then(|entry| entry.together);
         let Some(group) = group else { return };
-        let Some(entry) = self.together_groups.get(group) else { return };
-        if !entry.tasks.iter().all(|id| self.tasks.get(*id).is_some_and(|t| t.outcome.is_some())) {
+        let Some(entry) = self.together_groups.get(group) else {
+            return;
+        };
+        if !entry
+            .tasks
+            .iter()
+            .all(|id| self.tasks.get(*id).is_some_and(|t| t.outcome.is_some()))
+        {
             return;
         }
         let Some(waiter) = entry.waiter else { return };
@@ -619,8 +1137,15 @@ impl Host {
         }
     }
 
-    fn fail_together(&mut self, group: usize, runnable: &mut VecDeque<usize>, machines: &[Machine]) {
-        let Some(entry) = self.together_groups.get_mut(group) else { return };
+    fn fail_together(
+        &mut self,
+        group: usize,
+        runnable: &mut VecDeque<usize>,
+        machines: &[Machine],
+    ) {
+        let Some(entry) = self.together_groups.get_mut(group) else {
+            return;
+        };
         let victims: Vec<usize> = entry.tasks.clone();
         for victim in victims {
             if victim == 0 {
@@ -641,7 +1166,10 @@ impl Host {
                 fault: Fault::Confused(
                     "a task was cancelled because another in the same `together` failed",
                 ),
-                trace: machines.get(task).map(|m| m.trace(&self.program)).unwrap_or_default(),
+                trace: machines
+                    .get(task)
+                    .map(|m| m.trace(&self.program))
+                    .unwrap_or_default(),
             }));
             entry.waiting = None;
         }
@@ -649,7 +1177,7 @@ impl Host {
         self.wake_task_waiters(task, runnable);
     }
 
-    fn fire_timeouts(&mut self, runnable: &mut VecDeque<usize>) {
+    pub(crate) fn fire_timeouts(&mut self, runnable: &mut VecDeque<usize>) {
         let now = Instant::now();
         let due: Vec<PendingTimeout> = self
             .timeouts
@@ -686,10 +1214,14 @@ impl Host {
                 .unwrap_or_else(|| format!("task {id}"));
             let site = match &entry.waiting {
                 Some(WaitSite::Send { channel, .. }) => format!("sending to channel {channel}"),
-                Some(WaitSite::Receive { channel, .. }) => format!("receiving from channel {channel}"),
+                Some(WaitSite::Receive { channel, .. }) => {
+                    format!("receiving from channel {channel}")
+                }
                 Some(WaitSite::WaitTask { task, .. }) => format!("waiting for task {task}"),
                 Some(WaitSite::Together { .. }) => "waiting in `together`".to_string(),
                 Some(WaitSite::Select { .. }) => "waiting in `select`".to_string(),
+                Some(WaitSite::Sleep { .. }) => "sleeping".to_string(),
+                Some(WaitSite::Io { .. }) => "waiting for I/O".to_string(),
                 None => "blocked".to_string(),
             };
             lines.push(format!("  task {id} ({name}): {site}"));
@@ -701,11 +1233,17 @@ impl Host {
         };
         RuntimeError {
             fault: Fault::Deadlock { detail },
-            trace: machines.first().map(|m| m.trace(&self.program)).unwrap_or_default(),
+            trace: machines
+                .first()
+                .map(|m| m.trace(&self.program))
+                .unwrap_or_default(),
         }
     }
 }
 
 fn confused(detail: &'static str) -> RuntimeError {
-    RuntimeError { fault: Fault::Confused(detail), trace: Vec::new() }
+    RuntimeError {
+        fault: Fault::Confused(detail),
+        trace: Vec::new(),
+    }
 }

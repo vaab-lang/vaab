@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"to run(hub: hub of Text) {\\n\\\n         \\x20   hub.push(\\\"x\\\")\\n\\\n         }\\n\")"
+---
+[unknown-member] Error: a hub of Text has nothing called `push`
+   ╭─[ example.vaab:2:9 ]
+   │
+ 2 │     hub.push("x")
+   │         ──┬─  
+   │           ╰─── this asks a hub of Text for `push`
+   │ 
+   │ Help: a hub of Text offers `join` and `broadcast`
+───╯

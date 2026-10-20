@@ -25,9 +25,10 @@ use std::collections::{HashMap, HashSet};
 
 use vaab_syntax::ast::{self, FunctionBody, FunctionDecl, Module, NodeId, Stmt, StmtKind};
 use vaab_syntax::span::Span;
-use vaab_types::{CastId, Checked, FrameId, FunctionId, LocalId, Owner, Resolution, TypeId};
+use vaab_types::{CastId, Checked, FrameId, FunctionId, LocalId, Owner, Resolution, Type, TypeId};
 
 use crate::bytecode::{Body, Capture, Op, Program};
+use crate::json::{JsonChoiceVariant, JsonShape};
 use crate::value::{Closure, RecordLayout, Ref, Value, VariantLayout};
 
 /// Compiles a checked module.
@@ -104,6 +105,9 @@ pub(crate) struct Compiler<'a> {
     declarations: HashMap<NodeId, &'a Stmt>,
     /// Named route groups declared with `mount name { ... }`.
     mounts: HashMap<String, &'a ast::MountDecl>,
+    /// Named types already interned as JSON shapes, so a recursive type can point
+    /// at the slot that is still being filled.
+    shape_of: HashMap<String, u32>,
 }
 
 impl<'a> Compiler<'a> {
@@ -121,6 +125,7 @@ impl<'a> Compiler<'a> {
             casts_at: HashMap::new(),
             declarations: HashMap::new(),
             mounts: HashMap::new(),
+            shape_of: HashMap::new(),
         };
         compiler.lay_out();
         compiler
@@ -638,6 +643,14 @@ impl<'a> Compiler<'a> {
         self.variant_layout("FileError", "NotFound")
     }
 
+    pub(crate) fn bytes_errors(&self) -> crate::bytecode::BytesErrors {
+        crate::bytecode::BytesErrors {
+            out_of_range: self.variant_layout("BytesError", "OutOfRange"),
+            too_large: self.variant_layout("BytesError", "TooLarge"),
+            invalid: self.variant_layout("BytesError", "Invalid"),
+        }
+    }
+
     pub(crate) fn env_error_missing(&self) -> u32 {
         self.variant_layout("EnvError", "Missing")
     }
@@ -674,8 +687,152 @@ impl<'a> Compiler<'a> {
         self.variant_layout("HttpError", "Failed")
     }
 
+    pub(crate) fn socket_error_failed(&self) -> u32 {
+        self.variant_layout("SocketError", "Failed")
+    }
+
     pub(crate) fn auth_error_unauthorized(&self) -> u32 {
         self.variant_layout("AuthError", "Unauthorized")
+    }
+
+    pub(crate) fn json_error_failed(&self) -> u32 {
+        self.variant_layout("JsonError", "Failed")
+    }
+
+    /// Interns the shape `from_json(..., as: T)` will decode into.
+    pub(crate) fn intern_json_shape(&mut self, declared: &Type) -> u32 {
+        match declared {
+            Type::Named(name) => {
+                if let Some(index) = self.shape_of.get(name).copied() {
+                    return index;
+                }
+                let index = self.program.json_shapes.len() as u32;
+                self.shape_of.insert(name.clone(), index);
+                self.program.json_shapes.push(JsonShape::Nothing);
+                let shape = self.named_json_shape(name);
+                self.program.json_shapes[index as usize] = shape;
+                index
+            }
+            Type::Int => self.push_json_shape(JsonShape::Int),
+            Type::Float => self.push_json_shape(JsonShape::Float),
+            Type::Bool => self.push_json_shape(JsonShape::Bool),
+            Type::Text => self.push_json_shape(JsonShape::Text),
+            Type::Nothing => self.push_json_shape(JsonShape::Nothing),
+            Type::Maybe(inner) => {
+                let inner = self.intern_json_shape(inner);
+                self.push_json_shape(JsonShape::Maybe(inner))
+            }
+            Type::List(inner) => {
+                let inner = self.intern_json_shape(inner);
+                self.push_json_shape(JsonShape::List(inner))
+            }
+            Type::Map { value, .. } => {
+                let inner = self.intern_json_shape(value);
+                self.push_json_shape(JsonShape::Map(inner))
+            }
+            Type::Tuple(parts) => {
+                let parts = parts.iter().map(|part| self.intern_json_shape(part)).collect();
+                self.push_json_shape(JsonShape::Tuple(parts))
+            }
+            _ => self.push_json_shape(JsonShape::Nothing),
+        }
+    }
+
+    fn named_json_shape(&mut self, name: &str) -> JsonShape {
+        if name == "Json" {
+            return JsonShape::Json;
+        }
+        if let Some((index, fields)) = self
+            .checked
+            .declared_types
+            .iter()
+            .enumerate()
+            .find(|(_, declared)| declared.name == name)
+            .map(|(index, declared)| {
+                (
+                    index,
+                    declared
+                        .fields
+                        .iter()
+                        .map(|field| field.declared.clone())
+                        .collect::<Vec<_>>(),
+                )
+            })
+        {
+            let fields = fields
+                .iter()
+                .map(|field| self.intern_json_shape(field))
+                .collect();
+            return JsonShape::Record { layout: index as u32, fields };
+        }
+        let type_count = self.checked.declared_types.len() as u32;
+        if let Some((index, fields)) = self
+            .checked
+            .declared_casts
+            .iter()
+            .enumerate()
+            .find(|(_, declared)| declared.name == name)
+            .map(|(index, declared)| {
+                (
+                    index,
+                    declared
+                        .fields
+                        .iter()
+                        .map(|field| field.declared.clone())
+                        .collect::<Vec<_>>(),
+                )
+            })
+        {
+            let fields = fields
+                .iter()
+                .map(|field| self.intern_json_shape(field))
+                .collect();
+            return JsonShape::Record {
+                layout: type_count + index as u32,
+                fields,
+            };
+        }
+        if let Some(variants) = self
+            .checked
+            .choices
+            .iter()
+            .find(|choice| choice.name == name)
+            .map(|declared| {
+                declared
+                    .variants
+                    .iter()
+                    .map(|variant| {
+                        (
+                            variant.name.clone(),
+                            variant
+                                .fields
+                                .iter()
+                                .map(|field| (field.name.clone(), field.declared.clone()))
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+        {
+            let variants = variants
+                .into_iter()
+                .map(|(name, fields)| JsonChoiceVariant {
+                    name,
+                    fields: fields
+                        .into_iter()
+                        .map(|(field, declared)| (field, self.intern_json_shape(&declared)))
+                        .collect(),
+                })
+                .collect();
+            return JsonShape::Choice { variants };
+        }
+        JsonShape::Nothing
+    }
+
+    fn push_json_shape(&mut self, shape: JsonShape) -> u32 {
+        let index = self.program.json_shapes.len() as u32;
+        self.program.json_shapes.push(shape);
+        index
     }
 
     pub(crate) fn user_layout(&self) -> u32 {

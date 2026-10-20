@@ -5,7 +5,8 @@ use crate::types::Type;
 
 pub fn can_json(value: &Type, checked: &Checked) -> bool {
     match value {
-        Type::Int | Type::Float | Type::Bool | Type::Text | Type::Nothing => true,
+        Type::Named(name) if name == "Json" => true,
+        Type::Int | Type::Float | Type::Bool | Type::Text | Type::Bytes | Type::Nothing => true,
         Type::List(item) | Type::Maybe(item) => can_json(item, checked),
         Type::Map { key, value } => **key == Type::Text && can_json(value, checked),
         Type::Tuple(items) => items.iter().all(|item| can_json(item, checked)),
@@ -33,9 +34,11 @@ pub fn can_json(value: &Type, checked: &Checked) -> bool {
         | Type::Task(_)
         | Type::Shared(_)
         | Type::Channel(_)
+        | Type::Hub(_)
         | Type::Db
         | Type::Store
         | Type::Logger
+        | Type::Socket
         | Type::Query { .. }
         | Type::Ability(_) => false,
     }

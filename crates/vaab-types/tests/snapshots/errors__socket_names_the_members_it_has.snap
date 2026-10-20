@@ -1,0 +1,13 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"print(Socket.listen(\\\"ws://127.0.0.1\\\"))\\n\")"
+---
+[unknown-member] Error: a `Socket` has nothing called `listen`
+   ╭─[ example.vaab:1:14 ]
+   │
+ 1 │ print(Socket.listen("ws://127.0.0.1"))
+   │              ───┬──  
+   │                 ╰──── this asks a `Socket` for `listen`
+   │ 
+   │ Help: a `Socket` offers `connect`
+───╯

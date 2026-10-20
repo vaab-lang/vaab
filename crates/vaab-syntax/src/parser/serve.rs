@@ -19,9 +19,11 @@ impl<'src> Parser<'src> {
         let port = self.expression()?;
         self.expect(TokenKind::OpenBrace, "a `{` to open the server block")?;
 
+        let mut on_start = None;
         let mut before = None;
         let mut mounts = Vec::new();
         let mut routes = Vec::new();
+        let mut sockets = Vec::new();
         let mut error_handler = None;
 
         while !self.check(TokenKind::CloseBrace) && !self.at_end() {
@@ -33,17 +35,34 @@ impl<'src> Parser<'src> {
                 routes.push(self.route_declaration()?);
             } else if self.check(TokenKind::Mount) {
                 mounts.push(self.mount_use()?);
+            } else if self.check_identifier("socket") {
+                sockets.push(self.socket_route_declaration()?);
             } else if self.check(TokenKind::Before) {
                 before = Some(self.before_hook()?);
             } else if self.check(TokenKind::When) {
                 error_handler = Some(self.serve_error_handler()?);
+            } else if self.check_identifier("on") {
+                let block = self.on_start_block()?;
+                if on_start.is_some() {
+                    self.report(
+                        Diagnostic::error(
+                            "duplicate-on-start",
+                            "a server may have only one `on start` block",
+                        )
+                        .at(block.span, "this is a second `on start`")
+                        .with_help("move this work into the existing `on start` block"),
+                    );
+                } else {
+                    on_start = Some(block);
+                }
             } else {
                 self.report(
                     Diagnostic::error(
                         "unexpected-in-serve",
-                        "only `before`, `mount`, `route` and `when anything fails` belong inside a `serve` block",
+                        "only `on start`, `before`, `mount`, `route`, `socket` and `when anything fails` belong inside a `serve` block",
                     )
-                    .at(self.current().span, "this does not belong here"),
+                    .at(self.current().span, "this does not belong here")
+                    .with_help("write `on start { ... }`, `before every request { ... }`, `route get \"/path\" { ... }`, `socket \"/ws\" as client { ... }`, or `when anything fails with Error as error { ... }`"),
                 );
                 self.recover_to_statement_boundary();
             }
@@ -52,9 +71,11 @@ impl<'src> Parser<'src> {
         self.expect(TokenKind::CloseBrace, "a `}` to close the server block")?;
         Ok(ServeDecl {
             port,
+            on_start,
             before,
             mounts,
             routes,
+            sockets,
             error_handler,
             span: start.to(self.previous_span()),
         })
@@ -138,6 +159,30 @@ impl<'src> Parser<'src> {
         }
     }
 
+    fn on_start_block(&mut self) -> Parse<crate::ast::Block> {
+        self.expect_literal("on", "the word `on`")?;
+        let token = self.current();
+        if token.kind != TokenKind::Start {
+            self.report(
+                Diagnostic::error(
+                    "on-start-expected",
+                    "`on` inside `serve` begins `on start`, which runs once after the listener binds",
+                )
+                .at(token.span, "Vaab expected `start` here")
+                .with_help("write `on start { ... }`"),
+            );
+            self.recover_to_statement_boundary();
+            return Err(crate::parser::Failed);
+        }
+        self.advance();
+        self.block()
+    }
+
+    fn check_identifier(&self, word: &str) -> bool {
+        let token = self.current();
+        token.kind == TokenKind::Identifier && token.text(self.source()) == word
+    }
+
     fn before_hook(&mut self) -> Parse<crate::ast::Block> {
         self.expect(TokenKind::Before, "the word `before`")?;
         self.expect(TokenKind::Every, "the word `every`")?;
@@ -154,6 +199,20 @@ impl<'src> Parser<'src> {
         self.expect(TokenKind::As, "the word `as`")?;
         let binding = self.name("a name for the error")?;
         Ok(ServeErrorHandler { error_type, binding, body: self.block()? })
+    }
+
+    fn socket_route_declaration(&mut self) -> Parse<crate::ast::SocketRouteDecl> {
+        let start = self.current().span;
+        self.expect_literal("socket", "the word `socket`")?;
+        let path = self.route_path()?;
+        self.expect(TokenKind::As, "the word `as` after the socket path")?;
+        let binding = self.name("a name for the connected socket")?;
+        Ok(crate::ast::SocketRouteDecl {
+            path,
+            binding,
+            body: self.block()?,
+            span: start.to(self.previous_span()),
+        })
     }
 
     fn route_declaration(&mut self) -> Parse<RouteDecl> {

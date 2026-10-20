@@ -229,6 +229,7 @@ impl Checker {
             self.statement(statement);
         }
         self.check_unmounted_mounts(&module.statements);
+        self.check_server_globals();
     }
 
     /// Hands back the tables, or the problems that stopped them being trustworthy.
@@ -310,6 +311,14 @@ impl Checker {
             &[("NotFound", &[("path", Type::Text)])],
         );
         self.register_builtin_choice(
+            "BytesError",
+            &[
+                ("OutOfRange", &[("at", Type::Int), ("length", Type::Int)]),
+                ("TooLarge", &[("at", Type::Int)]),
+                ("Invalid", &[("message", Type::Text)]),
+            ],
+        );
+        self.register_builtin_choice(
             "EnvError",
             &[("Missing", &[("name", Type::Text)])],
         );
@@ -329,7 +338,26 @@ impl Checker {
             "HttpError",
             &[("Failed", &[("message", Type::Text)])],
         );
+        self.register_builtin_choice(
+            "SocketError",
+            &[("Failed", &[("message", Type::Text)])],
+        );
         self.register_builtin_choice("AuthError", &[("Unauthorized", &[])]);
+        self.register_builtin_choice(
+            "JsonError",
+            &[("Failed", &[("message", Type::Text)])],
+        );
+        self.register_builtin_choice(
+            "Json",
+            &[
+                ("Null", &[]),
+                ("Bool", &[("value", Type::Bool)]),
+                ("Number", &[("value", Type::Float)]),
+                ("Text", &[("value", Type::Text)]),
+                ("List", &[("items", Type::list(Type::named("Json")))]),
+                ("Object", &[("entries", Type::map(Type::Text, Type::named("Json")))]),
+            ],
+        );
     }
 
     fn register_builtin_choice(
@@ -885,6 +913,7 @@ impl Checker {
             TypeKind::List(item) => Type::list(self.resolve_type(item)),
             TypeKind::Maybe(item) => Type::maybe(self.resolve_type(item)),
             TypeKind::Channel(item) => Type::channel(self.resolve_type(item)),
+            TypeKind::Hub(item) => Type::hub(self.resolve_type(item)),
             TypeKind::Task(item) => Type::task(self.resolve_type(item)),
             TypeKind::Shared(item) => Type::shared(self.resolve_type(item)),
             TypeKind::Map { key, value } => {
@@ -912,10 +941,12 @@ impl Checker {
             "Float" => return Type::Float,
             "Bool" => return Type::Bool,
             "Text" => return Type::Text,
+            "Bytes" => return Type::Bytes,
             "Nothing" => return Type::Nothing,
             "Db" => return Type::Db,
             "Store" => return Type::Store,
             "Logger" => return Type::Logger,
+            "Socket" => return Type::Socket,
             "Query" => return Type::query(Type::named("DbError")),
             _ => {}
         }
@@ -940,23 +971,32 @@ impl Checker {
     }
 
     fn resolve_ability(&mut self, name: &Name) -> Option<AbilityId> {
-        match self.globals.get(&name.text) {
-            Some(Global::Ability(id)) => Some(*id),
-            _ => {
-                let known: Vec<String> = self
-                    .checked
-                    .abilities
-                    .iter()
-                    .map(|ability| ability.name.clone())
-                    .collect();
-                self.report(messages::undefined_ability(&name.text, name.span, &known));
-                None
-            }
+        if let Some(Global::Ability(id)) = self.globals.get(&name.text) {
+            return Some(*id);
         }
+        // `Json` is both the marker ability (`can Json`) and the prelude choice,
+        // so the choice wins in `globals`. Find the ability by name instead.
+        if let Some((index, _)) = self
+            .checked
+            .abilities
+            .iter()
+            .enumerate()
+            .find(|(_, ability)| ability.name == name.text)
+        {
+            return Some(AbilityId(index as u32));
+        }
+        let known: Vec<String> = self
+            .checked
+            .abilities
+            .iter()
+            .map(|ability| ability.name.clone())
+            .collect();
+        self.report(messages::undefined_ability(&name.text, name.span, &known));
+        None
     }
 
     fn known_type_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = ["Int", "Float", "Bool", "Text", "Nothing", "Db", "Store", "Logger", "Query"]
+        let mut names: Vec<String> = ["Int", "Float", "Bool", "Text", "Bytes", "Nothing", "Db", "Store", "Logger", "Socket", "Query"]
             .iter()
             .map(|n| n.to_string())
             .collect();

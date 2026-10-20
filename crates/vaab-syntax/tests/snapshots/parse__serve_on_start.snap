@@ -1,0 +1,24 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nserve on port 8080 {\n    on start {\n        start { print(\"ready\") }\n    }\n    route get \"/hello\" { reply with \"hello\" }\n}\n\"#)"
+---
+module
+  serve
+    port
+      int 8080
+    on start
+      block
+        start
+          block
+            call
+              callee
+                name print
+              argument
+                text
+                  literal "ready"
+    route get
+      path [Literal("/hello")]
+      block
+        reply with
+          text
+            literal "hello"

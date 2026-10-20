@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: "errors(\"pure to make() returns hub of Text = Hub.new(of: Text)\\n\")"
+---
+[not-pure] Error: `make` is declared `pure`, so it cannot build a hub
+   ╭─[ example.vaab:1:38 ]
+   │
+ 1 │ pure to make() returns hub of Text = Hub.new(of: Text)
+   │                        ─────┬─────   ────────┬────────  
+   │                             │                ╰────────── this builds a hub
+   │                             │                           
+   │                             ╰─────────────────────────── `make` is declared `pure` here
+   │ 
+   │ Help: build the hub outside the `pure` function, and pass it in
+───╯

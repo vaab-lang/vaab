@@ -1,0 +1,15 @@
+---
+source: crates/vaab-types/tests/errors.rs
+expression: rendered
+---
+[duplicate-declaration] Error: `SocketError` is declared twice
+   ╭─[ example.vaab:1:8 ]
+   │
+ 1 │ choice SocketError { Broken }
+   │ ┬      ─────┬─────  
+   │ │           ╰─────── this declaration repeats an earlier one
+   │ │                   
+   │ ╰─────────────────── first declared here
+   │ 
+   │ Help: give one of them a different name, or remove it
+───╯

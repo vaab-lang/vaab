@@ -94,11 +94,17 @@ pub(super) fn statement(node: &Stmt, visitor: &mut impl Visit) {
         StmtKind::Type(_) | StmtKind::Cast(_) | StmtKind::Choice(_) | StmtKind::Ability(_) => {}
         StmtKind::Serve(serve) => {
             expression(&serve.port, visitor);
+            if let Some(on_start) = &serve.on_start {
+                block(on_start, visitor);
+            }
             if let Some(before) = &serve.before {
                 block(before, visitor);
             }
             for route in &serve.routes {
                 block(&route.body, visitor);
+            }
+            for socket in &serve.sockets {
+                block(&socket.body, visitor);
             }
             if let Some(handler) = &serve.error_handler {
                 block(&handler.body, visitor);
@@ -228,6 +234,10 @@ pub(super) fn expression(node: &Expr, visitor: &mut impl Visit) {
 
         ExprKind::Receive { channel } => expression(channel, visitor),
         ExprKind::Start(body) => block(body, visitor),
+        ExprKind::Transaction { database, body } => {
+            expression(database, visitor);
+            block(body, visitor);
+        }
         ExprKind::Select(select) => select_expression(select, visitor),
     }
 }
