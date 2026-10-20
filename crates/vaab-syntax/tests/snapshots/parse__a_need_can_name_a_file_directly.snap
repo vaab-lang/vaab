@@ -1,0 +1,22 @@
+---
+source: crates/vaab-syntax/tests/parse.rs
+expression: "tree(r#\"\nneed ./helpers.vaab\nneed \"./quoted.vaab\"\nneed helpers from ./helpers.vaab of greet\nneed tools from ../shared/my-file.vaab as kit\nneed ./types/select.vaab\n\"#)"
+---
+module
+  need
+    name helpers
+    from ./helpers.vaab
+  need
+    name quoted
+    from ./quoted.vaab
+  need
+    name helpers
+    from ./helpers.vaab
+    of greet
+  need
+    name tools
+    from ../shared/my-file.vaab
+    as kit
+  need
+    name select
+    from ./types/select.vaab

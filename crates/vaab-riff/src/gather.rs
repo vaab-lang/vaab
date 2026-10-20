@@ -36,14 +36,23 @@ fn resolve_dependency(project_root: &Path, dependency: &Dependency) -> Result<Lo
         }
         Dependency::Path { name, path } => {
             let absolute = project_root.join(path);
-            if !absolute.join("riff").is_file() {
+            let pinned = if absolute.is_file() {
+                Some(absolute.clone())
+            } else if absolute.join("riff").is_file() || absolute.join("lib.vaab").is_file() {
+                Some(absolute.clone())
+            } else if absolute.extension().is_none() {
+                let with_vaab = absolute.with_extension("vaab");
+                if with_vaab.is_file() { Some(with_vaab) } else { None }
+            } else {
+                None
+            };
+            let Some(pinned) = pinned else {
                 return Err(format!(
-                    "`{}` is not a riff — there is no riff file at `{}`",
-                    name,
-                    absolute.join("riff").display()
+                    "`{name}` is not a riff or a .vaab file — looked at `{}`",
+                    absolute.display()
                 ));
-            }
-            Ok(LockEntry::Path { name: name.clone(), path: absolute })
+            };
+            Ok(LockEntry::Path { name: name.clone(), path: pinned })
         }
         Dependency::Registry { name, owner, range } => {
             let version = range.clone().unwrap_or_else(|| "0".to_string());

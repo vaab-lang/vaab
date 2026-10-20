@@ -439,3 +439,20 @@ greet(
 fn comments_are_ignored() {
     assert_snapshot!(tree("# a note\nlet a = 1 # another note\n"));
 }
+
+// ---------------------------------------------------------------------------
+// Including files
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_need_can_name_a_file_directly() {
+    assert_snapshot!(tree(
+        r#"
+need ./helpers.vaab
+need "./quoted.vaab"
+need helpers from ./helpers.vaab of greet
+need tools from ../shared/my-file.vaab as kit
+need ./types/select.vaab
+"#
+    ));
+}

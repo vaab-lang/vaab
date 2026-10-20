@@ -14,3 +14,5 @@ directories = "5"
 
 [dev-dependencies]
 insta.workspace = true
+vaab-types = { path = "../vaab-types" }
+vaab-vm = { path = "../vaab-vm" }

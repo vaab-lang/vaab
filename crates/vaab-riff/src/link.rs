@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use vaab_syntax::ast::{Module, Name, NeedImports, NeedSource, NeedStmt, Stmt, StmtKind};
-use vaab_syntax::{parse, Span};
+use vaab_syntax::{diagnostic, parse, ColorChoice, Span};
 
 use crate::install::installed_path;
 use crate::lock::Lockfile;
@@ -33,8 +33,18 @@ pub struct LoadedRiff {
 
 #[derive(Clone, Debug)]
 pub enum RiffImports {
+    /// Prefix every export (`alias__name`) and reach it as `alias.name`.
     Qualified,
+    /// Leave the listed names unprefixed and prefix everything else.
     Bare(HashSet<String>),
+    /// A `.vaab` file included on its own: every name stays as written, and
+    /// `alias.name` reaches the same declaration.
+    Flat,
+}
+
+enum ResolvedNeed {
+    File(PathBuf),
+    RiffDir(PathBuf),
 }
 
 /// Read `main.vaab` (or another entry), resolve `need` lines, and return a linked module.
@@ -66,54 +76,205 @@ pub fn link(entry: &Path) -> Result<Linked, String> {
         None
     };
 
-    let entry_source = fs::read_to_string(&entry)
-        .map_err(|error| format!("could not read `{}`: {error}", entry.display()))?;
-    let parsed = parse(&entry_source);
-    if parsed.has_errors() {
-        return Err("the entry file does not parse".to_string());
-    }
+    let mut loader = Loader {
+        project_root,
+        lock,
+        sources: HashMap::new(),
+        visiting: Vec::new(),
+        visited: HashSet::new(),
+        riffs: Vec::new(),
+    };
 
-    let mut sources = HashMap::from([(entry.display().to_string(), entry_source.clone())]);
-    let (needs, module) = split_needs(parsed.module);
-    let mut riffs = Vec::new();
-
+    loader.visiting.push(entry.clone());
+    let (needs, module) = loader.read_module(&entry)?;
     for need in needs {
-        let alias = riff_alias(&need);
-        if riffs.iter().any(|loaded: &LoadedRiff| loaded.alias == alias) {
-            return Err(format!("`{alias}` is needed twice"));
-        }
-        let path = resolve_need_path(&project_root, &lock, &need)?;
-        let lib = path.join("lib.vaab");
-        if !lib.is_file() {
-            return Err(format!(
-                "`{}` has no `lib.vaab` — a riff library needs one",
-                path.display()
-            ));
-        }
-        let lib_source = fs::read_to_string(&lib)
-            .map_err(|error| format!("could not read `{}`: {error}", lib.display()))?;
-        let lib_parsed = parse(&lib_source);
-        if lib_parsed.has_errors() {
-            return Err(format!("`{}` does not parse", lib.display()));
-        }
-        sources.insert(lib.display().to_string(), lib_source);
-        riffs.push(LoadedRiff {
-            alias,
-            path,
-            module: lib_parsed.module,
-            imports: riff_imports(&need),
-        });
+        loader.load_need(&entry, &need)?;
     }
+    loader.visiting.pop();
+    loader.visited.insert(entry.clone());
 
-    let module = merge::merge(module, &riffs);
+    let module = merge::merge(module, &loader.riffs);
 
     Ok(Linked {
-        project_root,
+        project_root: loader.project_root,
         entry,
         module,
-        sources,
-        riffs,
+        sources: loader.sources,
+        riffs: loader.riffs,
     })
+}
+
+struct Loader {
+    project_root: PathBuf,
+    lock: Option<Lockfile>,
+    sources: HashMap<String, String>,
+    visiting: Vec<PathBuf>,
+    visited: HashSet<PathBuf>,
+    riffs: Vec<LoadedRiff>,
+}
+
+impl Loader {
+    /// Load one `need`, including anything that file needs, before its own declarations.
+    fn load_need(&mut self, from_file: &Path, need: &NeedStmt) -> Result<(), String> {
+        let resolved = self.resolve(from_file, need)?;
+        let source_file = resolved.source_file();
+        let canonical = fs::canonicalize(&source_file).map_err(|error| {
+            format!("could not read `{}`: {error}", source_file.display())
+        })?;
+
+        if let Some(start) = self.visiting.iter().position(|path| path == &canonical) {
+            let mut chain: Vec<String> = self.visiting[start..]
+                .iter()
+                .map(|path| file_label(path))
+                .collect();
+            chain.push(file_label(&canonical));
+            let shown = chain
+                .iter()
+                .map(|name| format!("`{name}`"))
+                .collect::<Vec<_>>()
+                .join(" -> ");
+            return Err(format!("cycle detected: {shown}"));
+        }
+        if self.visited.contains(&canonical) {
+            return Ok(());
+        }
+
+        self.visiting.push(canonical.clone());
+        let (needs, module) = self.read_module(&source_file)?;
+        for child in needs {
+            self.load_need(&source_file, &child)?;
+        }
+        self.visiting.pop();
+        self.visited.insert(canonical.clone());
+
+        let alias = riff_alias(need);
+        if self.riffs.iter().any(|loaded| loaded.alias == alias) {
+            return Err(format!("`{alias}` is needed twice"));
+        }
+
+        let stored = match &resolved {
+            ResolvedNeed::File(_) => canonical,
+            ResolvedNeed::RiffDir(dir) => fs::canonicalize(dir).unwrap_or_else(|_| dir.clone()),
+        };
+        self.riffs.push(LoadedRiff {
+            alias,
+            path: stored,
+            module,
+            imports: imports_for(need, &resolved),
+        });
+        Ok(())
+    }
+
+    fn read_module(&mut self, path: &Path) -> Result<(Vec<NeedStmt>, Module), String> {
+        let source = fs::read_to_string(path)
+            .map_err(|error| format!("could not read `{}`: {error}", path.display()))?;
+        let parsed = parse(&source);
+        if parsed.has_errors() {
+            let rendered = diagnostic::render(
+                &parsed.diagnostics,
+                &path.display().to_string(),
+                &source,
+                ColorChoice::Never,
+            );
+            return Err(format!("`{}` does not parse\n{rendered}", path.display()));
+        }
+        self.sources.insert(path.display().to_string(), source);
+        Ok(split_needs(parsed.module))
+    }
+
+    fn resolve(&self, from_file: &Path, need: &NeedStmt) -> Result<ResolvedNeed, String> {
+        let name = need.name.text.as_str();
+        if let Some(lock) = &self.lock {
+            if let Some(path) = lock.path_for(name) {
+                let resolved = if path.is_relative() {
+                    self.project_root.join(path)
+                } else {
+                    path.clone()
+                };
+                return classify(&resolved).ok_or_else(|| {
+                    format!(
+                        "`{name}` in needed.lock points at `{}`, which is not a .vaab file or a riff",
+                        resolved.display()
+                    )
+                });
+            }
+        }
+
+        match &need.source {
+            NeedSource::Path { path, .. } => {
+                let raw = PathBuf::from(path);
+                let from_dir = from_file.parent().unwrap_or_else(|| Path::new("."));
+                let primary = if raw.is_absolute() { raw.clone() } else { from_dir.join(&raw) };
+                if let Some(found) = classify(&primary) {
+                    return Ok(found);
+                }
+                if !raw.is_absolute() {
+                    let fallback = self.project_root.join(&raw);
+                    if fallback != primary {
+                        if let Some(found) = classify(&fallback) {
+                            return Ok(found);
+                        }
+                    }
+                }
+                Err(format!(
+                    "could not find `{name}` — `{}` is not a .vaab file or a riff",
+                    primary.display()
+                ))
+            }
+            NeedSource::Installed => {
+                if let Ok(installed) = installed_path(name) {
+                    if let Some(found) = classify(&installed) {
+                        return Ok(found);
+                    }
+                }
+                let from_dir = from_file.parent().unwrap_or_else(|| Path::new("."));
+                let sibling = from_dir.join(format!("{name}.vaab"));
+                if let Some(found) = classify(&sibling) {
+                    return Ok(found);
+                }
+                Err(format!(
+                    "could not find `{name}` — there is no installed riff and no `{name}.vaab` beside `{}`",
+                    from_file.display()
+                ))
+            }
+            NeedSource::Registry { owner } => Err(format!(
+                "run `vaab gather` first — `{name}` from `{}` is not in needed.lock yet",
+                owner.text
+            )),
+        }
+    }
+}
+
+impl ResolvedNeed {
+    fn source_file(&self) -> PathBuf {
+        match self {
+            ResolvedNeed::File(path) => path.clone(),
+            ResolvedNeed::RiffDir(path) => path.join("lib.vaab"),
+        }
+    }
+}
+
+/// A path is a `.vaab` file when that file exists, and a riff when it contains `lib.vaab`.
+fn classify(path: &Path) -> Option<ResolvedNeed> {
+    if path.is_file() {
+        return Some(ResolvedNeed::File(path.to_path_buf()));
+    }
+    if path.join("lib.vaab").is_file() {
+        return Some(ResolvedNeed::RiffDir(path.to_path_buf()));
+    }
+    if path.extension().is_none() {
+        let with_vaab = path.with_extension("vaab");
+        if with_vaab.is_file() {
+            return Some(ResolvedNeed::File(with_vaab));
+        }
+    }
+    None
+}
+
+fn file_label(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string())
 }
 
 fn split_needs(module: Module) -> (Vec<NeedStmt>, Module) {
@@ -131,30 +292,6 @@ fn split_needs(module: Module) -> (Vec<NeedStmt>, Module) {
     )
 }
 
-fn resolve_need_path(
-    project_root: &Path,
-    lock: &Option<Lockfile>,
-    need: &NeedStmt,
-) -> Result<PathBuf, String> {
-    let name = need.name.text.clone();
-    if let Some(lock) = lock {
-        if let Some(path) = lock.path_for(&name) {
-            if path.is_relative() {
-                return Ok(project_root.join(path));
-            }
-            return Ok(path.clone());
-        }
-    }
-    match &need.source {
-        NeedSource::Installed => installed_path(&name),
-        NeedSource::Path { path, .. } => Ok(project_root.join(path)),
-        NeedSource::Registry { owner } => Err(format!(
-            "run `vaab gather` first — `{name}` from `{}` is not in needed.lock yet",
-            owner.text
-        )),
-    }
-}
-
 fn riff_alias(need: &NeedStmt) -> String {
     match &need.imports {
         NeedImports::As(alias) => alias.text.clone(),
@@ -162,12 +299,15 @@ fn riff_alias(need: &NeedStmt) -> String {
     }
 }
 
-fn riff_imports(need: &NeedStmt) -> RiffImports {
-    match &need.imports {
-        NeedImports::Of(names) => {
+fn imports_for(need: &NeedStmt, resolved: &ResolvedNeed) -> RiffImports {
+    match (&need.imports, resolved) {
+        (NeedImports::Of(names), _) => {
             RiffImports::Bare(names.iter().map(|name| name.text.clone()).collect())
         }
-        NeedImports::Qualified | NeedImports::As(_) => RiffImports::Qualified,
+        (NeedImports::As(_), _) | (NeedImports::Qualified, ResolvedNeed::RiffDir(_)) => {
+            RiffImports::Qualified
+        }
+        (NeedImports::Qualified, ResolvedNeed::File(_)) => RiffImports::Flat,
     }
 }
 

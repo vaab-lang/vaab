@@ -110,11 +110,13 @@ pub enum StmtKind {
     /// An expression evaluated for its effect, or, if it is last in a block, for
     /// the block's value.
     Expr(Expr),
-    /// `need json from ada` — pull in a riff. Removed before run; the linker uses it.
+    /// `need json from ada` or `need ./helpers.vaab` — pull in a riff or a file.
+    /// Removed before run; the linker uses it.
     Need(NeedStmt),
 }
 
-/// `need json from ada`, `need colours from ./vendor/colours of decode`, `need json as js`.
+/// `need json from ada`, `need ./helpers.vaab`, `need colours from ./vendor/colours of decode`,
+/// `need json as js`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NeedStmt {
     pub name: Name,

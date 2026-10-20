@@ -36,21 +36,26 @@ pub fn merge(entry: Module, riffs: &[LoadedRiff]) -> Module {
         matches!(&s.kind, StmtKind::Type(t) if t.name.text == "User")
     });
     let mut riff_map: HashMap<String, HashMap<String, String>> = HashMap::new();
-    let mut statements = Vec::new();
+    let mut prepared = Vec::new();
     for riff in riffs {
         let (riff_stmts, mapping) = select_riff_statements(riff, !entry_has_user);
         riff_map.insert(riff.alias.clone(), mapping);
-        statements.extend(riff_stmts);
+        prepared.push(Module { statements: riff_stmts, span: riff.module.span });
     }
-    let mut mapper = Mapper::new(Mode::Qualify { riffs: riff_map });
-    let entry = mapper.map_module(entry);
+    let mut statements = Vec::new();
+    for module in prepared {
+        statements.extend(qualify(module, &riff_map).statements);
+    }
+    let entry = qualify(entry, &riff_map);
+    let span = entry.span;
     statements.extend(entry.statements);
-    let mut merged = Module {
-        statements,
-        span: entry.span,
-    };
+    let mut merged = Module { statements, span };
     renumber_module(&mut merged);
     merged
+}
+
+fn qualify(module: Module, riffs: &HashMap<String, HashMap<String, String>>) -> Module {
+    Mapper::new(Mode::Qualify { riffs: riffs.clone() }).map_module(module)
 }
 
 fn select_riff_statements(
@@ -77,6 +82,17 @@ fn select_riff_statements(
                 mapping.insert(name.clone(), format!("{prefix}{name}"));
             }
             all_exports.clone()
+        }
+        RiffImports::Flat => {
+            for name in &all_exports {
+                mapping.insert(name.clone(), name.clone());
+            }
+            for statement in &riff.module.statements {
+                if let StmtKind::Let(binding) = &statement.kind {
+                    mapping.insert(binding.name.text.clone(), binding.name.text.clone());
+                }
+            }
+            HashSet::new()
         }
     };
 

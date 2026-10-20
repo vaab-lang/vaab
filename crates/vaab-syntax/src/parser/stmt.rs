@@ -673,14 +673,21 @@ impl<'src> Parser<'src> {
         Ok(AbilityDecl { name, functions, span: start.to(end) })
     }
 
-    /// `need supabase`, `need json from ada`, `need colours from ./vendor/colours of decode`.
+    /// `need supabase`, `need json from ada`, `need ./helpers.vaab`,
+    /// `need colours from ./vendor/colours of decode`.
     fn need_statement(&mut self) -> Parse<NeedStmt> {
         let start = self.expect(TokenKind::Need, "the word `need`")?.span;
-        let name = self.name("the name of the riff to need")?;
-        let source = if self.eat(TokenKind::From) {
-            self.need_source()?
+        let (name, source) = if self.starts_need_path() {
+            let source = self.need_source()?;
+            (name_for_direct_path(&source), source)
         } else {
-            NeedSource::Installed
+            let name = self.name("the name of the riff to need")?;
+            let source = if self.eat(TokenKind::From) {
+                self.need_source()?
+            } else {
+                NeedSource::Installed
+            };
+            (name, source)
         };
 
         let imports = if self.eat(TokenKind::Of) {
@@ -702,6 +709,14 @@ impl<'src> Parser<'src> {
         Ok(NeedStmt { name, source, imports, span: start.to(end) })
     }
 
+    /// `./helpers.vaab`, `"helpers.vaab"`, or `../shared/models.vaab`.
+    fn starts_need_path(&self) -> bool {
+        matches!(
+            self.peek(),
+            TokenKind::Text | TokenKind::Dot | TokenKind::DotDot | TokenKind::Slash
+        )
+    }
+
     fn need_source(&mut self) -> Parse<NeedSource> {
         use TokenKind::*;
         if self.check(Text) {
@@ -711,26 +726,89 @@ impl<'src> Parser<'src> {
                 span: token.span,
             });
         }
-        if self.check(Dot) || self.check(DotDot) {
+        if self.check(Dot) || self.check(DotDot) || self.check(Slash) {
             let start = self.current().span;
             let path = self.path_literal()?;
-            return Ok(NeedSource::Path { path, span: start });
+            return Ok(NeedSource::Path { path, span: start.to(self.previous_span()) });
         }
         let owner = self.name("an owner, as in `need json from ada`")?;
         Ok(NeedSource::Registry { owner })
     }
 
+    /// A file path written without quotes: `./helpers.vaab`, `../lib/my-file.vaab`.
+    ///
+    /// Tokens stay part of the path while they touch the previous one, so
+    /// `select` or `-` inside `./types/select.vaab` is part of the path, and a
+    /// space before `of` or `as` ends it.
     fn path_literal(&mut self) -> Parse<String> {
         use TokenKind::*;
+        if !matches!(self.peek(), Dot | DotDot | Slash) {
+            self.report(
+                Diagnostic::error("need-path", "a path has to start with `.`, `..`, or `/`")
+                    .at(self.current().span, "this is not a path"),
+            );
+            return Err(Failed);
+        }
+
         let mut path = String::new();
-        while matches!(self.peek(), Dot | DotDot | Slash | Identifier) {
-            path.push_str(self.advance().text(self.source));
+        let mut last_end = None;
+        loop {
+            let token = self.current();
+            if matches!(token.kind, Newline | EndOfFile) {
+                break;
+            }
+            if let Some(end) = last_end {
+                if token.span.start != end || !continues_path(token.kind) {
+                    break;
+                }
+            }
+            path.push_str(token.text(self.source));
+            last_end = Some(token.span.end);
+            self.advance();
         }
         if path.is_empty() {
             return Err(Failed);
         }
         Ok(path)
     }
+}
+
+/// The file's own name, without a directory or a trailing `.vaab`.
+fn file_stem(path: &str) -> String {
+    let base = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    let stem = match base.rsplit_once('.') {
+        Some((stem, "vaab")) => stem,
+        _ => base,
+    };
+    if stem.is_empty() { "file".to_string() } else { stem.to_string() }
+}
+
+fn name_for_direct_path(source: &NeedSource) -> Name {
+    match source {
+        NeedSource::Path { path, span } => Name::new(file_stem(path), *span),
+        NeedSource::Registry { owner } => owner.clone(),
+        NeedSource::Installed => Name::new("file", Span::new(0, 0)),
+    }
+}
+
+/// Whether this token can sit in the middle of an unquoted path.
+fn continues_path(kind: TokenKind) -> bool {
+    use TokenKind::*;
+    !matches!(
+        kind,
+        Newline
+            | EndOfFile
+            | Comma
+            | Colon
+            | Equals
+            | Arrow
+            | OpenBrace
+            | CloseBrace
+            | OpenParen
+            | CloseParen
+            | OpenBracket
+            | CloseBracket
+    )
 }
 
 /// Whether an expression names a place that can be assigned to.

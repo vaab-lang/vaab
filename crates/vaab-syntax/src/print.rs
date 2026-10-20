@@ -198,6 +198,16 @@ impl Printer {
                         printer.line(&format!("from {path}"));
                     }
                 }
+                match &need.imports {
+                    crate::ast::NeedImports::Qualified => {}
+                    crate::ast::NeedImports::Of(names) => {
+                        let joined: Vec<&str> = names.iter().map(|name| name.text.as_str()).collect();
+                        printer.line(format!("of {}", joined.join(", ")));
+                    }
+                    crate::ast::NeedImports::As(alias) => {
+                        printer.line(format!("as {}", alias.text));
+                    }
+                }
             }),
         }
     }
