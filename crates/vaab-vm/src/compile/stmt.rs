@@ -372,6 +372,30 @@ impl<'a> Compiler<'a> {
             self.emit(Op::Return, route_decl.span);
             self.open.pop();
 
+            let body_shape = route
+                .expecting
+                .as_ref()
+                .and_then(|(declared, _)| self.intern_route_body_shape(declared));
+            let body_layout = route.expecting.as_ref().and_then(|(declared, _)| {
+                match declared {
+                    vaab_types::Type::Named(name) => {
+                        self.checked
+                            .declared_types
+                            .iter()
+                            .enumerate()
+                            .find_map(|(index, typed)| {
+                                (typed.name == *name
+                                    || super::matches_riff_name(&typed.name, name))
+                                .then_some(index as u32)
+                            })
+                    }
+                    _ => None,
+                }
+            });
+            let body_is_map = route
+                .expecting
+                .as_ref()
+                .is_some_and(|(declared, _)| matches!(declared, vaab_types::Type::Map { .. }));
             self.program.routes.push(RouteHandler {
                 kind: RouteKind::Http,
                 method: route.method.clone(),
@@ -385,22 +409,9 @@ impl<'a> Compiler<'a> {
                     .map(|(_, declared)| declared.clone())
                     .collect(),
                 expects_body: route.expecting.is_some(),
-                body_layout: route.expecting.as_ref().and_then(|(declared, _)| {
-                    match declared {
-                        vaab_types::Type::Named(name) => {
-                            self.checked.declared_types.iter().enumerate().find_map(
-                                |(index, typed)| {
-                                    (typed.name == *name).then_some(index as u32)
-                                },
-                            )
-                        }
-                        _ => None,
-                    }
-                }),
-                body_is_map: route
-                    .expecting
-                    .as_ref()
-                    .is_some_and(|(declared, _)| matches!(declared, vaab_types::Type::Map { .. })),
+                body_layout,
+                body_is_map,
+                body_shape,
             });
         }
 
@@ -424,6 +435,7 @@ impl<'a> Compiler<'a> {
                 expects_body: false,
                 body_layout: None,
                 body_is_map: false,
+                body_shape: None,
             });
         }
 

@@ -835,9 +835,17 @@ impl<'a> Compiler<'a> {
                 self.receiver(target, span);
                 return self.emit(Op::JsonAsFloat, span);
             }
+            "json_as_bool" => {
+                self.receiver(target, span);
+                return self.emit(Op::JsonAsBool, span);
+            }
             "json_as_list" => {
                 self.receiver(target, span);
                 return self.emit(Op::JsonAsList, span);
+            }
+            "json_as_map" => {
+                self.receiver(target, span);
+                return self.emit(Op::JsonAsMap, span);
             }
             "bytes_from_base64" | "bytes_from_hex" | "bytes_from_base58" => {
                 let _ = self.push_arguments(call, arguments, Defaults::None);

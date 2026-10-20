@@ -304,6 +304,55 @@ fn route_expecting_text_map_body_inserts_into_studio_table() {
 }
 
 #[test]
+fn route_expecting_nested_record_decodes_nested_records_and_maybe_fields() {
+    let source = r#"
+type Address {
+    city: Text
+    zip: maybe Text
+}
+
+type OrderItem {
+    sku: Text
+    qty: Int
+}
+
+type CreateOrder {
+    customer: Text
+    shipping: Address
+    items: [OrderItem]
+    notes: maybe Text
+}
+
+serve on port 8099 {
+    route post "/orders" expecting CreateOrder as order {
+        reply with order
+    }
+}
+"#;
+    let parsed = vaab_syntax::parse(source);
+    assert!(!parsed.has_errors(), "{:?}", parsed.diagnostics);
+    let checked = vaab_types::check(&parsed.module).expect("check");
+    let world = vaab_vm::prepare(&parsed.module, &checked, Output::collected());
+    let program = Ref::clone(&world.program);
+    let route = &program.routes[0];
+    let shape = route.body_shape.expect("route should have body_shape");
+    let payload = r#"{"customer":"Ada","shipping":{"city":"London"},"items":[{"sku":"B-1","qty":2},{"sku":"B-2","qty":5}]}"#;
+    let decoded = vaab_vm::json::decode_typed(
+        payload,
+        shape,
+        &program.json_shapes,
+        &program.layouts,
+        &program.variants,
+    )
+    .expect("nested route body should decode");
+    let reencoded = vaab_vm::json::encode(&decoded).expect("encode");
+    assert_eq!(
+        reencoded,
+        r#"{"customer":"Ada","items":[{"qty":2,"sku":"B-1"},{"qty":5,"sku":"B-2"}],"notes":null,"shipping":{"city":"London","zip":null}}"#
+    );
+}
+
+#[test]
 fn on_start_is_compiled() {
     let source = r#"
 let count = Shared.new(0)

@@ -829,15 +829,16 @@ let title = doc.at("title").as_text() otherwise ""
 let tags = doc.at("tags").as_list() otherwise []
 ```
 
-`from_json(text, as: T)` needs a type name for `as`, not a value. Missing `maybe`
-fields decode to `nothing`. `Json` is a prelude choice — `Null`, `Bool`, `Number`,
-`Text`, `List`, `Object` — so a program can match `Json.Null` or `Json.Text(t)`.
-`.at` takes a Text key or an Int index; `.at`, `.as_text`, `.as_int`, `.as_float`
-and `.as_list` each return `maybe`, and the wrong kind or a missing key is
-`nothing` rather than a crash.
+`from_json(text, as: T)` takes a type for `as` — a declared type name, `[T]`,
+`{Text: T}`, or a tuple — not a value. Missing `maybe` fields decode to
+`nothing`. `Json` is a prelude choice — `Null`, `Bool`, `Number`, `Text`,
+`List`, `Object` — so a program can match `Json.Null` or `Json.Text(t)`. `.at`
+takes a Text key or an Int index; `.at`, `.as_text`, `.as_int`, `.as_float`,
+`.as_bool`, `.as_list` and `.as_map` each return `maybe`, and the wrong kind or
+a missing key is `nothing` rather than a crash.
 
-Built-in scalars, lists, maps with `Text` keys, tuples, records, and choices whose
-parts are JSON-safe may be encoded or decoded. `Bytes` encodes as a lowercase hex string.
+Built-in scalars, lists, maps with `Text` keys, tuples, records, casts, and choices whose
+parts are JSON-safe (including nested and recursive types) may be encoded or decoded. `Bytes` encodes and decodes as a lowercase hex string.
 Functions, channels, tasks and other values that cannot be written as JSON are
 rejected by the checker. Redeclaring `JsonError` is a duplicate, the same as `FileError`.
 

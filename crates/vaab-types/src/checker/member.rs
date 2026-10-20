@@ -787,10 +787,20 @@ impl Checker {
                 resolution: Resolution::BuiltinMethod("json_as_float"),
                 shape: CallShape::function("Json.as_float", None),
             },
+            "as_bool" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::Bool)),
+                resolution: Resolution::BuiltinMethod("json_as_bool"),
+                shape: CallShape::function("Json.as_bool", None),
+            },
             "as_list" => Member::Callable {
                 signature: Signature::new(Vec::new(), Type::maybe(Type::list(json))),
                 resolution: Resolution::BuiltinMethod("json_as_list"),
                 shape: CallShape::function("Json.as_list", None),
+            },
+            "as_map" => Member::Callable {
+                signature: Signature::new(Vec::new(), Type::maybe(Type::map(Type::Text, json))),
+                resolution: Resolution::BuiltinMethod("json_as_map"),
+                shape: CallShape::function("Json.as_map", None),
             },
             _ => {
                 self.report(messages::unknown_member(
@@ -802,7 +812,9 @@ impl Checker {
                         "as_text".into(),
                         "as_int".into(),
                         "as_float".into(),
+                        "as_bool".into(),
                         "as_list".into(),
+                        "as_map".into(),
                     ],
                 ));
                 Member::Unknown

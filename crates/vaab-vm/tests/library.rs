@@ -372,6 +372,166 @@ match Json.parse(\"null\") {\n\
 }
 
 #[test]
+fn nested_records_lists_maps_and_choices_round_trip_through_json() {
+    let source = r#"
+type Author {
+    name: Text
+    verified: Bool
+}
+
+choice Priority {
+    Low
+    High(score: Int)
+}
+
+type Item {
+    label: Text
+    priority: Priority
+}
+
+type Post {
+    author: Author
+    items: [Item]
+    meta: {Text: [Int]}
+    extra: maybe Author
+}
+
+to check_nested() returns Text or fails JsonError {
+    let post = Post.new(
+        author: Author.new(name: "Ada", verified: yes),
+        items: [
+            Item.new(label: "first", priority: Priority.Low),
+            Item.new(label: "second", priority: Priority.High(score: 99)),
+        ],
+        meta: {"scores": [10, 20, 30]},
+        extra: nothing,
+    )
+    let encoded = to_json(post)
+    let decoded = try from_json(encoded, as: Post)
+    print(decoded.author.name)
+    print(decoded.author.verified)
+    print(decoded.items.count)
+    match decoded.items.first {
+        when found first_item then print(first_item.label)
+        when nothing then print("none")
+    }
+    match decoded.meta.get("scores") {
+        when found nums then print(nums.sum())
+        when nothing then print(0)
+    }
+    print(to_json(decoded) == encoded)
+    return "ok"
+}
+
+match check_nested() {
+    when success _ then {}
+    when failure error then print(error)
+}
+"#;
+    assert_eq!(output(source), ["Ada", "yes", "2", "first", "60", "yes"]);
+}
+
+#[test]
+fn from_json_supports_nested_container_type_expressions_and_recursive_types() {
+    let source = r#"
+type Node {
+    value: Int
+    children: [Node]
+}
+
+to run_tree() returns Text or fails JsonError {
+    let raw = "\{\"value\":1,\"children\":[\{\"value\":2,\"children\":[]\},\{\"value\":3,\"children\":[\{\"value\":4,\"children\":[]\}]\}]\}"
+    let tree = try from_json(raw, as: Node)
+    print(tree.value)
+    print(tree.children.count)
+
+    let list_raw = "[\{\"value\":10,\"children\":[]\},\{\"value\":20,\"children\":[]\}]"
+    let nodes = try from_json(list_raw, as: [Node])
+    print(nodes.count)
+
+    let map_raw = "\{\"root\":\{\"value\":42,\"children\":[]\}\}"
+    let by_name = try from_json(map_raw, as: {Text: Node})
+    match by_name.get("root") {
+        when found n then print(n.value)
+        when nothing then print(0)
+    }
+    return "ok"
+}
+
+match run_tree() {
+    when success _ then {}
+    when failure error then print(error)
+}
+"#;
+    assert_eq!(output(source), ["1", "2", "2", "42"]);
+}
+
+#[test]
+fn json_doc_nested_navigation_and_round_trip_encoding() {
+    let source = r#"
+to walk() returns Text or fails JsonError {
+    let raw = "\{\"rpc\":\"2.0\",\"params\":\{\"result\":\{\"value\":\{\"logs\":[\"Program log: ok\",\"Program data: abc\"],\"active\":true,\"slot\":12345\}\}\}\}"
+    let doc = try Json.parse(raw)
+    let logs = doc.at("params").at("result").at("value").at("logs").as_list() otherwise []
+    print(logs.count)
+    print(logs.first.as_text() otherwise "")
+    print(doc.at("params").at("result").at("value").at("active").as_bool() otherwise no)
+    print(doc.at("params").at("result").at("value").at("slot").as_int() otherwise 0)
+    let value_map = doc.at("params").at("result").at("value").as_map() otherwise {}
+    print(value_map.count)
+    let reencoded = to_json(doc)
+    let doc2 = try Json.parse(reencoded)
+    print(doc2.at("params").at("result").at("value").at("slot").as_int() otherwise 0)
+    return "ok"
+}
+
+match walk() {
+    when success _ then {}
+    when failure error then print(error)
+}
+"#;
+    assert_eq!(
+        output(source),
+        ["2", "Program log: ok", "yes", "12345", "3", "12345"]
+    );
+}
+
+#[test]
+fn cast_and_bytes_fields_decode_from_nested_json() {
+    let source = r#"
+cast Counter {
+    changing count: Int
+    label: Text
+
+    to bump() {
+        self.count = self.count + 1
+    }
+}
+
+type Packet {
+    counter: Counter
+    payload: Bytes
+}
+
+to test_packet() returns Text or fails JsonError {
+    let raw = "\{\"counter\":\{\"count\":7,\"label\":\"ticks\"\},\"payload\":\"deadbeef\"\}"
+    let pkt = try from_json(raw, as: Packet)
+    pkt.counter.bump()
+    print(pkt.counter.count)
+    print(pkt.counter.label)
+    print(pkt.payload.to_hex())
+    return "ok"
+}
+
+match test_packet() {
+    when success _ then {}
+    when failure error then print(error)
+}
+"#;
+    assert_eq!(output(source), ["8", "ticks", "deadbeef"]);
+}
+
+#[test]
 fn store_round_trips_text_by_key() {
     let path = std::env::temp_dir().join("vaab-store-test.kv");
     let _ = std::fs::remove_file(&path);

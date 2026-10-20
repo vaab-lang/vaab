@@ -173,6 +173,9 @@ impl fmt::Debug for Captured {
 pub struct RecordLayout {
     pub name: String,
     pub fields: Vec<String>,
+    /// Field indices sorted by field name, so JSON serialization outputs keys
+    /// in deterministic lexicographical order without allocating a BTreeMap.
+    pub sorted_fields: Vec<usize>,
     /// `true` for a `cast`, whose fields may be changed in place.
     pub mutable: bool,
     /// `tables[ability][slot]` is the body that fills that slot of that ability.
@@ -218,6 +221,8 @@ pub struct VariantLayout {
     pub choice: String,
     pub name: String,
     pub fields: Vec<String>,
+    /// Field indices sorted by field name for deterministic JSON serialization.
+    pub sorted_fields: Vec<usize>,
 }
 
 /// One variant of a `choice`, with its payload.

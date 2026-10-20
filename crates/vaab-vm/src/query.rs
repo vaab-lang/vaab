@@ -527,24 +527,37 @@ fn store_all(stores: &Stores, handle: u32, query: &Query) -> Result<Value, Strin
 }
 
 fn store_row(key: &str, value: &str) -> IndexMap<Key, Value> {
+    use sonic_rs::{JsonContainerTrait, Value as SonicJson};
     let mut row = IndexMap::new();
     row.insert(Key(Value::text("key")), Value::text(key));
     row.insert(Key(Value::text("value")), Value::text(value));
-    if let Ok(Json::Object(fields)) = serde_json::from_str::<Json>(value) {
-        for (name, field) in fields {
-            row.insert(Key(Value::text(name)), json_to_text(field));
+    if let Ok(json) = sonic_rs::from_str::<SonicJson>(value) {
+        if let Some(fields) = json.as_object() {
+            for (name, field) in fields.iter() {
+                row.insert(Key(Value::text(name)), sonic_json_to_text(field));
+            }
         }
     }
     row
 }
 
-fn json_to_text(value: Json) -> Value {
-    match value {
-        Json::Null => Value::text(""),
-        Json::Bool(yes) => Value::text(if yes { "yes" } else { "no" }),
-        Json::Number(number) => Value::text(number.to_string()),
-        Json::String(text) => Value::text(text),
-        other => Value::text(other.to_string()),
+fn sonic_json_to_text(value: &sonic_rs::Value) -> Value {
+    use sonic_rs::{JsonNumberTrait, ValueRef};
+    match value.as_ref() {
+        ValueRef::Null => Value::text(""),
+        ValueRef::Bool(yes) => Value::text(if yes { "yes" } else { "no" }),
+        ValueRef::Number(number) => {
+            if let Some(whole) = number.as_i64() {
+                let mut buf = itoa::Buffer::new();
+                Value::text(buf.format(whole))
+            } else if let Some(decimal) = number.as_f64() {
+                Value::text(decimal.to_string())
+            } else {
+                Value::text("")
+            }
+        }
+        ValueRef::String(text) => Value::text(text),
+        _ => Value::text(sonic_rs::to_string(value).unwrap_or_default()),
     }
 }
 

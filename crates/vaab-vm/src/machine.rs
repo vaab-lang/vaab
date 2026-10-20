@@ -1225,9 +1225,17 @@ impl Machine {
                 let receiver = self.pop()?;
                 self.stack.push(crate::json::json_as_float(&receiver));
             }
+            Op::JsonAsBool => {
+                let receiver = self.pop()?;
+                self.stack.push(crate::json::json_as_bool(&receiver));
+            }
             Op::JsonAsList => {
                 let receiver = self.pop()?;
                 self.stack.push(crate::json::json_as_list(&receiver));
+            }
+            Op::JsonAsMap => {
+                let receiver = self.pop()?;
+                self.stack.push(crate::json::json_as_map(&receiver));
             }
             Op::Bytes { op, errors } => {
                 crate::bytes::apply(op, errors, program, &mut self.stack)?;

@@ -1300,3 +1300,19 @@ crossed a millisecond. Wall time for the 4,000-event replay was about 19 ms
 the 5 ms p99, so no further interpreter work was applied on this path. The
 harness was not profiled with `cargo flamegraph`.
 
+### D108. SIMD JSON (`sonic-rs`) and nested shape decoding
+
+JSON encoding and decoding use `sonic-rs` (SIMD-accelerated JSON). `to_json`
+streams values directly through `serde::Serialize` into `sonic_rs::to_string`
+without allocating an intermediate `serde_json::Value` tree, using pre-sorted
+field indices on `RecordLayout` and `VariantLayout` for deterministic key order.
+`Json` choice values (`Null`, `Bool`, `Number`, `Text`, `List`, `Object`)
+serialize as native JSON rather than externally tagged variant objects.
+
+`from_json(text, as: T)` and route `expecting T` bodies share the same
+recursive `JsonShape` table, supporting nested records, casts, choices,
+`[T]`, `{Text: T}`, tuples, `Bytes` (hex), and self-referential types.
+`Json` adds `.as_bool()` and `.as_map()` alongside `.at`, `.as_text`,
+`.as_int`, `.as_float` and `.as_list`.
+
+

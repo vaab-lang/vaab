@@ -319,20 +319,38 @@ fn run_route(
     }
     if route.expects_body {
         let slot = (route.path_param_count + 1) as u32;
-        let argument = match route.body_layout.and_then(|index| state.program.layouts.get(index as usize).cloned()) {
-            Some(layout) => match vaab_vm::json::decode_record(&body, layout) {
-                Ok(record) => record,
+        let argument = if let Some(shape) = route.body_shape {
+            match vaab_vm::json::decode_typed(
+                &body,
+                shape,
+                &state.program.json_shapes,
+                &state.program.layouts,
+                &state.program.variants,
+            ) {
+                Ok(decoded) => decoded,
                 Err(_) => {
                     return HttpResponse::json(400, "{\"error\":\"invalid body\"}".to_string());
                 }
-            },
-            None if route.body_is_map => match vaab_vm::json::decode_map(&body) {
-                Ok(map) => map,
-                Err(_) => {
-                    return HttpResponse::json(400, "{\"error\":\"invalid body\"}".to_string());
-                }
-            },
-            None => Value::Text(Ref::from(body.as_str())),
+            }
+        } else {
+            match route
+                .body_layout
+                .and_then(|index| state.program.layouts.get(index as usize).cloned())
+            {
+                Some(layout) => match vaab_vm::json::decode_record(&body, layout) {
+                    Ok(record) => record,
+                    Err(_) => {
+                        return HttpResponse::json(400, "{\"error\":\"invalid body\"}".to_string());
+                    }
+                },
+                None if route.body_is_map => match vaab_vm::json::decode_map(&body) {
+                    Ok(map) => map,
+                    Err(_) => {
+                        return HttpResponse::json(400, "{\"error\":\"invalid body\"}".to_string());
+                    }
+                },
+                None => Value::Text(Ref::from(body.as_str())),
+            }
         };
         let _ = machine.set_argument(slot, argument);
     }

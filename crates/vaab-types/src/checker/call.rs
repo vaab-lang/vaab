@@ -365,15 +365,38 @@ impl Checker {
         Type::fallible(declared, Type::named("JsonError"))
     }
 
-    /// Reads the type named by `as: Person`.
+    /// Reads the type named by `as: Person`, `as: [Person]`, `as: {Text: Note}`, etc.
     fn from_json_type_argument(&mut self, argument: &Expr) -> Type {
-        if let ExprKind::Name(name) = &argument.kind {
-            let named = self.resolve_named_type(name);
-            self.checked.types.insert(argument.id, named.clone());
-            return named;
+        if let Some(ty) = self.expr_as_type_spec(argument) {
+            self.checked.types.insert(argument.id, ty.clone());
+            return ty;
         }
         self.report(messages::from_json_needs_type(argument.span));
         Type::Unknown
+    }
+
+    fn expr_as_type_spec(&mut self, argument: &Expr) -> Option<Type> {
+        match &argument.kind {
+            ExprKind::Name(name) => Some(self.resolve_named_type(name)),
+            ExprKind::Nothing => Some(Type::Nothing),
+            ExprKind::List(items) if items.len() == 1 => {
+                let inner = self.expr_as_type_spec(&items[0])?;
+                Some(Type::list(inner))
+            }
+            ExprKind::Map(entries) if entries.len() == 1 => {
+                let key = self.expr_as_type_spec(&entries[0].key)?;
+                let value = self.expr_as_type_spec(&entries[0].value)?;
+                Some(Type::map(key, value))
+            }
+            ExprKind::Tuple(items) => {
+                let mut parts = Vec::with_capacity(items.len());
+                for item in items {
+                    parts.push(self.expr_as_type_spec(item)?);
+                }
+                Some(Type::Tuple(parts))
+            }
+            _ => None,
+        }
     }
 
     /// `.at` accepts a Text key or an Int index, and nothing else.

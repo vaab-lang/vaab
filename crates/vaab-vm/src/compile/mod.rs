@@ -166,9 +166,13 @@ impl<'a> Compiler<'a> {
                     *row = slots;
                 }
             }
+            let fields: Vec<String> = declared.fields.iter().map(|field| field.name.clone()).collect();
+            let mut sorted_fields: Vec<usize> = (0..fields.len()).collect();
+            sorted_fields.sort_by(|&a, &b| fields[a].cmp(&fields[b]));
             self.program.layouts.push(Ref::new(RecordLayout {
                 name: declared.name.clone(),
-                fields: declared.fields.iter().map(|field| field.name.clone()).collect(),
+                fields,
+                sorted_fields,
                 mutable: false,
                 tables,
             }));
@@ -192,9 +196,13 @@ impl<'a> Compiler<'a> {
                     *row = slots;
                 }
             }
+            let fields: Vec<String> = declared.fields.iter().map(|field| field.name.clone()).collect();
+            let mut sorted_fields: Vec<usize> = (0..fields.len()).collect();
+            sorted_fields.sort_by(|&a, &b| fields[a].cmp(&fields[b]));
             self.program.layouts.push(Ref::new(RecordLayout {
                 name: declared.name.clone(),
-                fields: declared.fields.iter().map(|field| field.name.clone()).collect(),
+                fields,
+                sorted_fields,
                 mutable: true,
                 tables,
             }));
@@ -204,11 +212,15 @@ impl<'a> Compiler<'a> {
             for (variant, shape) in declared.variants.iter().enumerate() {
                 let index = self.program.variants.len() as u32;
                 self.variant_of.insert((choice, variant), index);
+                let fields: Vec<String> = shape.fields.iter().map(|field| field.name.clone()).collect();
+                let mut sorted_fields: Vec<usize> = (0..fields.len()).collect();
+                sorted_fields.sort_by(|&a, &b| fields[a].cmp(&fields[b]));
                 self.program.variants.push(Ref::new(VariantLayout {
                     index,
                     choice: declared.name.clone(),
                     name: shape.name.clone(),
-                    fields: shape.fields.iter().map(|field| field.name.clone()).collect(),
+                    fields,
+                    sorted_fields,
                 }));
             }
         }
@@ -717,6 +729,7 @@ impl<'a> Compiler<'a> {
             Type::Float => self.push_json_shape(JsonShape::Float),
             Type::Bool => self.push_json_shape(JsonShape::Bool),
             Type::Text => self.push_json_shape(JsonShape::Text),
+            Type::Bytes => self.push_json_shape(JsonShape::Bytes),
             Type::Nothing => self.push_json_shape(JsonShape::Nothing),
             Type::Maybe(inner) => {
                 let inner = self.intern_json_shape(inner);
@@ -738,6 +751,18 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    /// Interns the shape `expecting T as name` on an HTTP route will decode into.
+    /// For a bare `{Text: Text}` map, non-string scalars are coerced to text.
+    pub(crate) fn intern_route_body_shape(&mut self, declared: &Type) -> Option<u32> {
+        match declared {
+            Type::Map { key, value } if **key == Type::Text && **value == Type::Text => {
+                Some(self.push_json_shape(JsonShape::TextCoercedMap))
+            }
+            Type::Text => None,
+            _ => Some(self.intern_json_shape(declared)),
+        }
+    }
+
     fn named_json_shape(&mut self, name: &str) -> JsonShape {
         if name == "Json" {
             return JsonShape::Json;
@@ -748,6 +773,13 @@ impl<'a> Compiler<'a> {
             .iter()
             .enumerate()
             .find(|(_, declared)| declared.name == name)
+            .or_else(|| {
+                self.checked
+                    .declared_types
+                    .iter()
+                    .enumerate()
+                    .find(|(_, declared)| matches_riff_name(&declared.name, name))
+            })
             .map(|(index, declared)| {
                 (
                     index,
@@ -772,6 +804,13 @@ impl<'a> Compiler<'a> {
             .iter()
             .enumerate()
             .find(|(_, declared)| declared.name == name)
+            .or_else(|| {
+                self.checked
+                    .declared_casts
+                    .iter()
+                    .enumerate()
+                    .find(|(_, declared)| matches_riff_name(&declared.name, name))
+            })
             .map(|(index, declared)| {
                 (
                     index,
@@ -792,26 +831,35 @@ impl<'a> Compiler<'a> {
                 fields,
             };
         }
-        if let Some(variants) = self
+        if let Some((choice_name, variants)) = self
             .checked
             .choices
             .iter()
             .find(|choice| choice.name == name)
-            .map(|declared| {
-                declared
-                    .variants
+            .or_else(|| {
+                self.checked
+                    .choices
                     .iter()
-                    .map(|variant| {
-                        (
-                            variant.name.clone(),
-                            variant
-                                .fields
-                                .iter()
-                                .map(|field| (field.name.clone(), field.declared.clone()))
-                                .collect::<Vec<_>>(),
-                        )
-                    })
-                    .collect::<Vec<_>>()
+                    .find(|choice| matches_riff_name(&choice.name, name))
+            })
+            .map(|declared| {
+                (
+                    declared.name.clone(),
+                    declared
+                        .variants
+                        .iter()
+                        .map(|variant| {
+                            (
+                                variant.name.clone(),
+                                variant
+                                    .fields
+                                    .iter()
+                                    .map(|field| (field.name.clone(), field.declared.clone()))
+                                    .collect::<Vec<_>>(),
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                )
             })
         {
             let variants = variants
@@ -824,7 +872,10 @@ impl<'a> Compiler<'a> {
                         .collect(),
                 })
                 .collect();
-            return JsonShape::Choice { variants };
+            return JsonShape::Choice {
+                choice: choice_name,
+                variants,
+            };
         }
         JsonShape::Nothing
     }
@@ -880,3 +931,10 @@ impl Builder {
 
 /// What a trace calls the file's own statements.
 const TOP_LEVEL_NAME: &str = "the top level";
+
+fn matches_riff_name(declared: &str, written: &str) -> bool {
+    declared
+        .rsplit_once("__")
+        .is_some_and(|(_, suffix)| suffix == written)
+}
+

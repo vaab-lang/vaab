@@ -265,7 +265,9 @@ pub enum Op {
     JsonAsText,
     JsonAsInt,
     JsonAsFloat,
+    JsonAsBool,
     JsonAsList,
+    JsonAsMap,
 
     ReplyWith(bool),
     ReplyFile(bool),
@@ -391,6 +393,8 @@ pub struct RouteHandler {
     pub body_layout: Option<u32>,
     /// True when `expecting {Text: Text} as name` decodes a JSON object into a map.
     pub body_is_map: bool,
+    /// Shape index into [`Program::json_shapes`] for `expecting T as name`.
+    pub body_shape: Option<u32>,
 }
 
 /// One arm of a compiled `select`.
